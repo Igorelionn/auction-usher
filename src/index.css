@@ -112,3 +112,140 @@ All colors MUST be HSL.
     @apply bg-background text-foreground;
   }
 }
+
+/* Custom Scrollbar Styles */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 2px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 2px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+}
+
+/* Custom Loading Animation */
+@layer utilities {
+  .animate-pulse-slow {
+    animation: pulse-slow 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  
+  @keyframes pulse-slow {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
+  }
+  
+  .animate-shimmer {
+    animation: shimmer 2s linear infinite;
+    background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+    background-size: 200% 100%;
+  }
+  
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+  
+  .fade-in {
+    animation: fadeIn 0.8s ease-out forwards;
+  }
+  
+  .fade-out {
+    animation: fadeOut 0.5s ease-in forwards;
+  }
+  
+  @keyframes fadeIn {
+    0% {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes fadeOut {
+    0% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+  }
+  
+  /* Classe para remover todos os contornos de foco */
+  .no-focus-outline {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  .no-focus-outline:focus {
+    outline: none !important;
+    box-shadow: none !important;
+    border-color: #000000 !important;
+  }
+
+  .no-focus-outline:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Animação suave para chevron do select */
+  .chevron-smooth {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  .chevron-pulse {
+    animation: chevron-pulse 0.6s ease-in-out;
+  }
+  
+  @keyframes chevron-pulse {
+    0% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.1);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+
+  /* Força o hover dos SelectItems para branco escuro */
+  [data-radix-select-item]:hover,
+  [data-radix-select-item][data-highlighted],
+  [data-radix-select-item]:focus {
+    background-color: #f3f4f6 !important; /* gray-100 */
+    color: #111827 !important; /* gray-900 */
+  }
+
+  [data-radix-select-item][data-state="checked"] {
+    background-color: #f3f4f6 !important; /* gray-100 */
+    color: #111827 !important; /* gray-900 */
+  }
+}
