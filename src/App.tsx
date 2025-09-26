@@ -19,6 +19,8 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import { AuthProvider } from "@/hooks/use-auth";
 import { MigrationManager } from "@/components/MigrationManager";
 import { MigrationNotification } from "@/components/MigrationNotification";
+import { SpeedInsights } from '@vercel/speed-insights/react';
+import { Analytics } from '@vercel/analytics/react';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,6 +42,8 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <SpeedInsights />
+      <Analytics />
       <AuthProvider>
               <AppWithRealtime>
                 <MigrationNotification />
