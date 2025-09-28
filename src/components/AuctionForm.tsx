@@ -1332,7 +1332,16 @@ export function AuctionForm({
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 truncate">{doc.nome}</p>
                           <p className="text-xs text-gray-500">
-                            {formatFileSize(doc.tamanho)} • {new Date(doc.dataUpload).toLocaleDateString('pt-BR')}
+                            {formatFileSize(doc.tamanho)}{(() => {
+                              if (!doc.dataUpload) return '';
+                              try {
+                                const date = new Date(doc.dataUpload);
+                                if (isNaN(date.getTime())) return '';
+                                return ` • ${date.toLocaleDateString('pt-BR')}`;
+                              } catch {
+                                return '';
+                              }
+                            })()}
                           </p>
                         </div>
                         <div className="flex gap-1">

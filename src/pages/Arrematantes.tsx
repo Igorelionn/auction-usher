@@ -3,6 +3,7 @@ import { useSupabaseAuctions } from "@/hooks/use-supabase-auctions";
 import { useToast } from "@/hooks/use-toast";
 import { parseCurrencyToNumber } from "@/lib/utils";
 import { ArrematanteInfo, DocumentoInfo } from "@/lib/types";
+import html2pdf from 'html2pdf.js';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,6 +74,34 @@ function Arrematantes() {
     // Calcula a data da próxima parcela não paga (parcelasPagas é o índice da próxima parcela)
     const nextPaymentDate = new Date(startYear, startMonth - 1 + parcelasPagas, arrematante.diaVencimentoMensal);
     return nextPaymentDate;
+  };
+
+  // Função específica para calcular próxima data em entrada_parcelamento
+  const calculateNextPaymentDateEntradaParcelamento = (arrematante: ArrematanteInfo, auction: any) => {
+    const parcelasPagas = arrematante.parcelasPagas || 0;
+    const loteArrematado = auction?.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+    
+    // Se já quitou tudo, retorna null
+    if (arrematante.pago) {
+      return null;
+    }
+    
+    if (parcelasPagas === 0) {
+      // Entrada pendente - mostrar data da entrada
+      const dataEntrada = loteArrematado?.dataEntrada || auction?.dataEntrada;
+      return dataEntrada ? new Date(dataEntrada + 'T00:00:00') : null;
+    } else {
+      // Entrada paga, calcular próxima parcela
+      const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
+      if (parcelasPagas > quantidadeParcelas) {
+        return null; // Todas as parcelas pagas
+      }
+      
+      const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+      const proximaParcela = parcelasPagas - 1; // Descontar a entrada
+      const nextPaymentDate = new Date(startYear, startMonth - 1 + proximaParcela, arrematante.diaVencimentoMensal);
+      return nextPaymentDate;
+    }
   };
 
   // Função para formatar telefone automaticamente no formato brasileiro +55 (11) 99999-9999
@@ -181,8 +210,7 @@ function Arrematantes() {
         throw new Error('Elemento PDF não encontrado');
       }
 
-      // Importar html2pdf dinamicamente
-      const html2pdf = (await import('html2pdf.js')).default;
+      // Usar html2pdf importado estaticamente
 
       const opt = {
         margin: 1,
@@ -217,7 +245,7 @@ function Arrematantes() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [selectedArrematanteForPayment, setSelectedArrematanteForPayment] = useState<ArrematanteExtendido | null>(null);
-  const [paymentMonths, setPaymentMonths] = useState<{month: string, paid: boolean, dueDate: string, monthName: string}[]>([]);
+  const [paymentMonths, setPaymentMonths] = useState<{month: string, paid: boolean, dueDate: string, monthName: string, isEntrada?: boolean}[]>([]);
   const [isFullEditModalOpen, setIsFullEditModalOpen] = useState(false);
   const [selectedArrematanteForFullEdit, setSelectedArrematanteForFullEdit] = useState<ArrematanteExtendido | null>(null);
   const [fullEditForm, setFullEditForm] = useState({
@@ -1479,8 +1507,52 @@ function Arrematantes() {
       }];
       
       setPaymentMonths(months);
+    } else if (tipoPagamento === "entrada_parcelamento") {
+      // 💳 ENTRADA + PARCELAMENTO: Criar estrutura com entrada separada + parcelas
+      const dataEntrada = loteArrematado?.dataEntrada || auction?.dataEntrada;
+      const entradaDate = dataEntrada ? new Date(dataEntrada + 'T00:00:00') : new Date();
+      const parcelasPagas = arrematante.parcelasPagas || 0;
+      
+      const months = [];
+      
+      // Adicionar entrada como primeiro item
+      months.push({
+        month: entradaDate.toISOString().slice(0, 7),
+        paid: parcelasPagas > 0, // Entrada paga se parcelasPagas > 0
+        dueDate: entradaDate.toLocaleDateString('pt-BR'),
+        monthName: "Entrada",
+        isEntrada: true // Flag para identificar como entrada
+      });
+      
+      // Adicionar parcelas
+      const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+      for (let i = 0; i < arrematante.quantidadeParcelas; i++) {
+        const currentDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal);
+        const monthString = currentDate.toISOString().slice(0, 7);
+        const dueDate = currentDate.toLocaleDateString('pt-BR');
+        const monthName = `${i + 1}ª Parcela - ${currentDate.toLocaleDateString('pt-BR', { 
+          month: 'long', 
+          year: 'numeric' 
+        }).charAt(0).toUpperCase() + currentDate.toLocaleDateString('pt-BR', { 
+          month: 'long', 
+          year: 'numeric' 
+        }).slice(1)}`;
+        
+        // Parcela paga se (parcelasPagas - 1) > i (descontando a entrada)
+        const isPaid = parcelasPagas > 0 && (parcelasPagas - 1) > i;
+        
+        months.push({
+          month: monthString,
+          paid: isPaid,
+          dueDate: dueDate,
+          monthName: monthName,
+          isEntrada: false
+        });
+      }
+      
+      setPaymentMonths(months);
     } else {
-      // 📅 PARCELAMENTO: Gerar lista detalhada de meses de pagamento (código original)
+      // 📅 PARCELAMENTO SIMPLES: Gerar lista detalhada de meses de pagamento (código original)
       const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
       const months = [];
       
@@ -1501,7 +1573,8 @@ function Arrematantes() {
           month: monthString,
           paid: isPaid,
           dueDate: dueDate,
-          monthName: monthName
+          monthName: monthName,
+          isEntrada: false
         });
       }
       
@@ -1531,16 +1604,38 @@ function Arrematantes() {
 
     const paidMonths = paymentMonths.filter(m => m.paid).length;
     let isFullyPaid = false;
+    let parcelasPagasValue = 0;
 
     if (tipoPagamento === "a_vista") {
       // 💰 PAGAMENTO À VISTA: Considera pago se o checkbox único estiver marcado
       isFullyPaid = paidMonths > 0;
+      parcelasPagasValue = isFullyPaid ? 1 : 0;
+    } else if (tipoPagamento === "entrada_parcelamento") {
+      // 💳 ENTRADA + PARCELAMENTO: Lógica especial para entrada + parcelas
+      const entradaPaga = paymentMonths.find(m => m.isEntrada)?.paid || false;
+      const parcelasPagasCount = paymentMonths.filter(m => !m.isEntrada && m.paid).length;
+      
+      // parcelasPagas = 0 (nada pago), 1 (só entrada), 2+ (entrada + parcelas)
+      if (entradaPaga) {
+        parcelasPagasValue = 1 + parcelasPagasCount; // Entrada conta como 1 + parcelas pagas
+      } else {
+        parcelasPagasValue = 0; // Entrada não paga
+      }
+      
+      // Totalmente pago se entrada + todas as parcelas estiverem pagas
+      isFullyPaid = entradaPaga && parcelasPagasCount >= selectedArrematanteForPayment.quantidadeParcelas;
     } else {
-      // 📅 PARCELAMENTO: Considera pago se todas as parcelas foram pagas
+      // 📅 PARCELAMENTO SIMPLES: Considera pago se todas as parcelas foram pagas
+      parcelasPagasValue = paidMonths;
       isFullyPaid = paidMonths >= selectedArrematanteForPayment.quantidadeParcelas;
     }
 
-    console.log('💾 Salvando pagamento:', { tipoPagamento, paidMonths, isFullyPaid });
+    console.log('💾 Salvando pagamento:', { 
+      tipoPagamento, 
+      paidMonths, 
+      parcelasPagasValue,
+      isFullyPaid 
+    });
 
     try {
       await updateAuction({
@@ -1548,7 +1643,7 @@ function Arrematantes() {
         data: {
           arrematante: {
             ...auction.arrematante,
-            parcelasPagas: tipoPagamento === "a_vista" ? (isFullyPaid ? 1 : 0) : paidMonths,
+            parcelasPagas: parcelasPagasValue,
             pago: isFullyPaid
           }
         }
@@ -1964,12 +2059,60 @@ function Arrematantes() {
                               // Para pagamento à vista, mostrar data de vencimento específica
                               if (tipoPagamento === "a_vista") {
                                 const dataVencimento = loteArrematado?.dataVencimentoVista || auction?.dataVencimentoVista;
-                                return dataVencimento ? 
-                                  new Date(dataVencimento + 'T00:00:00').toLocaleDateString("pt-BR") : 
-                                  'Não definida';
+                                return (
+                                  <div>
+                                    <div className="text-xs text-gray-500 mb-1">Vencimento à vista</div>
+                                    <div className="font-medium">
+                                      {dataVencimento ? 
+                                        new Date(dataVencimento + 'T00:00:00').toLocaleDateString("pt-BR") : 
+                                        'Não definida'}
+                                    </div>
+                                  </div>
+                                );
                               }
                               
-                              // Para parcelamento, usar lógica existente
+                              // Para entrada_parcelamento, tratar entrada separadamente
+                              if (tipoPagamento === "entrada_parcelamento") {
+                                const parcelasPagas = arrematante.parcelasPagas || 0;
+                                
+                                if (parcelasPagas === 0) {
+                                  // Entrada pendente - mostrar data da entrada
+                                  const dataEntrada = loteArrematado?.dataEntrada || auction?.dataEntrada;
+                                  return (
+                                    <div>
+                                      <div className="text-xs text-gray-500 mb-1">Vencimento entrada</div>
+                                      <div className="font-medium">
+                                        {dataEntrada ? 
+                                          new Date(dataEntrada + 'T00:00:00').toLocaleDateString("pt-BR") : 
+                                          'Não definido'}
+                                      </div>
+                                    </div>
+                                  );
+                                } else {
+                                  // Entrada paga, mostrar próxima parcela
+                                  const proximoPagamento = calculateNextPaymentDate(arrematante);
+                                  if (!proximoPagamento) {
+                                    // Verificar se parcelamento foi quitado com atraso
+                                    const today = new Date();
+                                    const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+                                    const lastPaidIndex = Math.max(0, parcelasPagas - 1);
+                                    const dueDate = new Date(startYear, startMonth - 1 + lastPaidIndex, arrematante.diaVencimentoMensal, 23, 59, 59);
+                                    const isLate = today > dueDate;
+                                    return isLate ? "Quitado com atraso" : "Quitado";
+                                  }
+                                  const parcelaAtual = parcelasPagas; // parcelasPagas já conta a entrada
+                                  return (
+                                    <div>
+                                      <div className="text-xs text-gray-500 mb-1">Venc. {parcelaAtual}ª parcela</div>
+                                      <div className="font-medium">
+                                        {proximoPagamento.toLocaleDateString("pt-BR")}
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                              }
+                              
+                              // Para parcelamento simples, usar lógica existente
                               const proximoPagamento = calculateNextPaymentDate(arrematante);
                               if (!proximoPagamento) {
                                 // 🔧 VERIFICAR SE PARCELAMENTO FOI QUITADO COM ATRASO
@@ -1980,7 +2123,15 @@ function Arrematantes() {
                                 const isLate = today > dueDate;
                                 return isLate ? "Quitado com atraso" : "Quitado";
                               }
-                              return proximoPagamento.toLocaleDateString("pt-BR");
+                              const parcelaAtual = (arrematante.parcelasPagas || 0) + 1;
+                              return (
+                                <div>
+                                  <div className="text-xs text-gray-500 mb-1">Venc. {parcelaAtual}ª parcela</div>
+                                  <div className="font-medium">
+                                    {proximoPagamento.toLocaleDateString("pt-BR")}
+                                  </div>
+                                </div>
+                              );
                             })()}
                           </span>
                         </div>
@@ -2292,7 +2443,13 @@ function Arrematantes() {
                           <Label className="text-sm font-medium text-gray-700">Próximo Pagamento</Label>
                           <p className="mt-1 p-3 bg-gray-50 border border-gray-200 rounded-md text-sm">
                             {(() => {
-                              const proximoPagamento = calculateNextPaymentDate(selectedArrematante);
+                              let proximoPagamento;
+                              if (tipoPagamento === "entrada_parcelamento") {
+                                proximoPagamento = calculateNextPaymentDateEntradaParcelamento(selectedArrematante, auction);
+                              } else {
+                                proximoPagamento = calculateNextPaymentDate(selectedArrematante);
+                              }
+                              
                               if (!proximoPagamento) {
                                 return "Quitado";
                               }
@@ -2361,7 +2518,13 @@ function Arrematantes() {
                                   new Date((loteArrematado?.dataVencimentoVista || auction?.dataVencimentoVista) + 'T00:00:00').toLocaleDateString('pt-BR') 
                                   : 'Não definida'}`
                               : (() => {
-                                  const proximoPagamento = calculateNextPaymentDate(selectedArrematante);
+                                  let proximoPagamento;
+                                  if (tipoPagamento === "entrada_parcelamento") {
+                                    proximoPagamento = calculateNextPaymentDateEntradaParcelamento(selectedArrematante, auction);
+                                  } else {
+                                    proximoPagamento = calculateNextPaymentDate(selectedArrematante);
+                                  }
+                                  
                                   if (!proximoPagamento) {
                                     return 'Todas as parcelas foram quitadas';
                                   }
@@ -2390,7 +2553,16 @@ function Arrematantes() {
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-gray-900 truncate">{doc.nome}</p>
                             <p className="text-xs text-gray-500">
-                              {formatFileSize(doc.tamanho)} • {new Date(doc.dataUpload).toLocaleDateString('pt-BR')}
+                              {formatFileSize(doc.tamanho)}{(() => {
+                                if (!doc.dataUpload) return '';
+                                try {
+                                  const date = new Date(doc.dataUpload);
+                                  if (isNaN(date.getTime())) return '';
+                                  return ` • ${date.toLocaleDateString('pt-BR')}`;
+                                } catch {
+                                  return '';
+                                }
+                              })()}
                             </p>
                           </div>
                           {doc.url && (
@@ -2547,12 +2719,12 @@ function Arrematantes() {
 
                   {tipoPagamento === "entrada_parcelamento" && (
                     <div className="space-y-3">
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                         <div className="flex items-center gap-2 mb-2">
-                          <CreditCard className="h-5 w-5 text-green-600" />
-                          <span className="font-medium text-green-800">Entrada + Parcelamento</span>
+                          <CreditCard className="h-5 w-5 text-gray-600" />
+                          <span className="font-medium text-gray-800">Entrada + Parcelamento</span>
                         </div>
-                        <div className="space-y-1 text-sm text-green-700">
+                        <div className="space-y-1 text-sm text-gray-700">
                           <p><strong>Data da entrada:</strong> {(loteArrematado?.dataEntrada || auction?.dataEntrada) ? 
                             new Date((loteArrematado?.dataEntrada || auction?.dataEntrada) + 'T00:00:00').toLocaleDateString('pt-BR') 
                             : 'Não definida'}</p>
@@ -2797,8 +2969,30 @@ function Arrematantes() {
                                   minimumFractionDigits: 2, 
                                   maximumFractionDigits: 2 
                                 });
+                              } else if (tipoPagamento === "entrada_parcelamento") {
+                                // 💳 ENTRADA + PARCELAMENTO: Diferenciar entrada de parcelas
+                                if (month.isEntrada) {
+                                  // Valor da entrada
+                                  const valorEntrada = selectedArrematanteForPayment.valorEntrada ? 
+                                    parseCurrencyToNumber(selectedArrematanteForPayment.valorEntrada) : 0;
+                                  return valorEntrada.toLocaleString('pt-BR', { 
+                                    minimumFractionDigits: 2, 
+                                    maximumFractionDigits: 2 
+                                  });
+                                } else {
+                                  // Valor de cada parcela (valor total - entrada) / quantidade parcelas
+                                  const valorTotal = selectedArrematanteForPayment.valorPagarNumerico;
+                                  const valorEntrada = selectedArrematanteForPayment.valorEntrada ? 
+                                    parseCurrencyToNumber(selectedArrematanteForPayment.valorEntrada) : 0;
+                                  const valorParcelas = valorTotal - valorEntrada;
+                                  const valorPorParcela = valorParcelas / selectedArrematanteForPayment.quantidadeParcelas;
+                                  return valorPorParcela.toLocaleString('pt-BR', { 
+                                    minimumFractionDigits: 2, 
+                                    maximumFractionDigits: 2 
+                                  });
+                                }
                               } else {
-                                // 📅 PARCELAMENTO: Valor dividido
+                                // 📅 PARCELAMENTO SIMPLES: Valor dividido
                                 return (selectedArrematanteForPayment.valorPagarNumerico / selectedArrematanteForPayment.quantidadeParcelas).toLocaleString('pt-BR', { 
                                   minimumFractionDigits: 2, 
                                   maximumFractionDigits: 2 
@@ -3057,29 +3251,51 @@ function Arrematantes() {
                         <div className="border-t border-gray-200 pt-4">
                           <h3 className="text-lg font-medium text-gray-900 mb-4">Configuração de Entrada + Parcelamento</h3>
                           
-                          {/* Informações sobre entrada */}
-                          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
-                            <div className="flex items-center gap-2 mb-2">
+                          {/* Configuração da entrada */}
+                          <div className="space-y-4">
+                            <div className="flex items-center gap-2">
                               <CreditCard className="h-5 w-5 text-gray-600" />
-                              <span className="font-medium text-gray-800">Entrada - Informações</span>
+                              <h4 className="font-medium text-gray-800">Configuração da Entrada</h4>
                             </div>
-                            <div className="text-sm text-gray-700 space-y-1">
-                              <p>
-                                <strong>Data de vencimento:</strong> {' '}
-                                <span className="font-semibold">
-                                  {(loteArrematado?.dataEntrada || currentAuction?.dataEntrada) ? 
-                                    new Date((loteArrematado?.dataEntrada || currentAuction?.dataEntrada) + 'T00:00:00').toLocaleDateString('pt-BR') 
-                                    : 'Não definida'}
-                                </span>
-                              </p>
-                              <p>
-                                <strong>Valor da entrada:</strong> {' '}
-                                <span className="font-semibold">
-                                  {fullEditForm.valorEntrada ? 
-                                    `R$ ${parseCurrencyToNumber(fullEditForm.valorEntrada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                    : 'Não definido'}
-                                </span>
-                              </p>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <Label className="text-sm font-medium text-gray-700">Data de Vencimento da Entrada</Label>
+                                <StringDatePicker
+                                  value={(loteArrematado?.dataEntrada || currentAuction?.dataEntrada) || ""}
+                                  onChange={(value) => {
+                                    // Aqui você pode implementar a lógica para salvar a data de entrada
+                                    // Por enquanto, vamos manter como read-only mostrando a data configurada
+                                    console.log('Data de entrada alterada:', value);
+                                  }}
+                                  placeholder="dd/mm/aaaa"
+                                  disabled={true} // Manter como read-only por enquanto
+                                  className="bg-gray-100"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Data configurada no leilão/lote
+                                </p>
+                              </div>
+                              
+                              <div>
+                                <Label className="text-sm font-medium text-gray-700">Valor da Entrada</Label>
+                                <Input
+                                  type="text"
+                                  value={fullEditForm.valorEntrada}
+                                  onChange={(e) => {
+                                    let value = e.target.value.replace(/[^\d]/g, '');
+                                    if (value) {
+                                      value = (parseInt(value) / 100).toLocaleString('pt-BR', {
+                                        style: 'currency',
+                                        currency: 'BRL'
+                                      });
+                                    }
+                                    handleFullEditFormChange("valorEntrada", value);
+                                  }}
+                                  placeholder="R$ 0,00"
+                                  className="w-full"
+                                />
+                              </div>
                             </div>
                           </div>
 
@@ -3750,6 +3966,22 @@ const ArrematantePdfReport = ({ arrematante }: { arrematante: ArrematanteExtendi
             <span>Gerado em: {new Date().toLocaleDateString('pt-BR')} - {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
         </div>
+      </div>
+
+      {/* Logos Elionx e Arthur Lira */}
+      <div className="mt-8 flex justify-center items-center -ml-20 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+        <img 
+          src="/logo-elionx-softwares.png" 
+          alt="Elionx Softwares" 
+          className="max-h-80 object-contain opacity-90"
+          style={{ maxHeight: '320px', maxWidth: '620px' }}
+        />
+        <img 
+          src="/arthur-lira-logo.png" 
+          alt="Arthur Lira Leilões" 
+          className="max-h-14 object-contain opacity-90 -mt-2 -ml-16"
+          style={{ maxHeight: '55px', maxWidth: '110px' }}
+        />
       </div>
     </div>
   );

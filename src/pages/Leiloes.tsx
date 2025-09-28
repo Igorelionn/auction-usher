@@ -567,6 +567,18 @@ function Leiloes() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  // Função para formatar data de upload
+  const formatUploadDate = (dateString: string): string => {
+    if (!dateString) return '';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return '';
+      return date.toLocaleDateString('pt-BR');
+    } catch {
+      return '';
+    }
+  };
+
   // Função para lidar com upload de arquivo
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -1629,7 +1641,12 @@ function Leiloes() {
 
       {/* Modal de Adicionar Arrematante */}
       <Dialog open={!!addingArrematanteFor} onOpenChange={(open) => !open && handleCancelArrematante()}>
-        <DialogContent className="max-w-6xl">
+        <DialogContent className={`max-w-6xl ${(() => {
+          const loteId = arrematanteForm.loteId;
+          const lotesSelecionado = addingArrematanteFor?.lotes?.find(lote => lote.id === loteId);
+          const tipoPagamento = lotesSelecionado?.tipoPagamento || "parcelamento";
+          return tipoPagamento === "entrada_parcelamento" ? "max-h-[85vh] overflow-y-auto" : "";
+        })()}`}>
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold">
               {addingArrematanteFor?.arrematante ? "Editar Arrematante" : "Adicionar Arrematante"}
@@ -1750,8 +1767,8 @@ function Leiloes() {
                       </div>
                             <div className="space-y-1">
                               <p><strong>Data de vencimento:</strong> {' '}
-                                {currentAuction?.dataEntrada ? 
-                                  new Date(currentAuction.dataEntrada + 'T00:00:00').toLocaleDateString('pt-BR')
+                                {(loteSelecionado?.dataEntrada || currentAuction?.dataEntrada) ? 
+                                  new Date((loteSelecionado?.dataEntrada || currentAuction?.dataEntrada) + 'T00:00:00').toLocaleDateString('pt-BR')
                                   : 'Não definida'}
                               </p>
                               <p><strong>Valor da entrada:</strong> {' '}
@@ -1810,7 +1827,7 @@ function Leiloes() {
                               <div>
                                 <p className="text-sm font-medium text-gray-900">{doc.nome}</p>
                               <p className="text-xs text-gray-500">
-                                {formatFileSize(doc.tamanho)} • {new Date(doc.dataUpload).toLocaleDateString('pt-BR')}
+                                {formatFileSize(doc.tamanho)}{formatUploadDate(doc.dataUpload) && ` • ${formatUploadDate(doc.dataUpload)}`}
                               </p>
                               </div>
                             </div>
@@ -2399,7 +2416,7 @@ function Leiloes() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 truncate">{doc.nome}</p>
                           <p className="text-xs text-gray-500">
-                            {formatFileSize(doc.tamanho)} • {new Date(doc.dataUpload).toLocaleDateString('pt-BR')}
+                            {formatFileSize(doc.tamanho)}{formatUploadDate(doc.dataUpload) && ` • ${formatUploadDate(doc.dataUpload)}`}
                           </p>
                         </div>
                         <div className="flex gap-1">

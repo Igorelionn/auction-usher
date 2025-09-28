@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { 
   Settings, 
   User, 
@@ -38,7 +39,9 @@ import {
   X,
   Gavel,
   Crown,
-  ArrowDown
+  ArrowDown,
+  MoreVertical,
+  Lock
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
@@ -105,6 +108,20 @@ export default function Configuracoes() {
   const [isProcessingPromotion, setIsProcessingPromotion] = useState(false);
   const [selectedUserForPromotion, setSelectedUserForPromotion] = useState<any>(null);
   const [promotionAction, setPromotionAction] = useState<'promote' | 'demote'>('promote');
+  
+  // Estados para alteração de senha de usuários
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [showAdminPasswordConfirmModal, setShowAdminPasswordConfirmModal] = useState(false);
+  const [selectedUserForPasswordChange, setSelectedUserForPasswordChange] = useState<any>(null);
+  const [adminPasswordForConfirm, setAdminPasswordForConfirm] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [confirmNewUserPassword, setConfirmNewUserPassword] = useState("");
+  const [showNewPasswordFields, setShowNewPasswordFields] = useState(false);
+  const [showConfirmNewPasswordFields, setShowConfirmNewPasswordFields] = useState(false);
+  const [isVerifyingAdminPassword, setIsVerifyingAdminPassword] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [showAdminPasswordField, setShowAdminPasswordField] = useState(false);
+  
   const ACTIVITIES_PER_PAGE = 10;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1285,6 +1302,211 @@ export default function Configuracoes() {
     return years === 1 ? 'Registrado há 1 ano' : `Registrado há ${years} anos`;
   };
 
+  // Funções para alteração de senha de usuários
+  const handleChangeUserPassword = (member: any) => {
+    // Verificar se é administrador
+    if (!user?.permissions?.can_manage_users) {
+      toast({
+        title: "Sem permissão",
+        description: "Você não tem permissão para alterar senhas de outros usuários.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Não permitir alterar própria senha por aqui
+    if (member.id === user?.id) {
+      toast({
+        title: "Ação não permitida",
+        description: "Use a seção de perfil para alterar sua própria senha.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSelectedUserForPasswordChange(member);
+    setAdminPasswordForConfirm("");
+    setNewUserPassword("");
+    setConfirmNewUserPassword("");
+    setShowNewPasswordFields(false);
+    setShowConfirmNewPasswordFields(false);
+    setShowAdminPasswordConfirmModal(true);
+  };
+
+  const handleAdminPasswordConfirmation = async () => {
+    setIsVerifyingAdminPassword(true);
+    
+    try {
+      if (!adminPasswordForConfirm.trim()) {
+        toast({
+          title: "Senha obrigatória",
+          description: "Digite sua senha para confirmar a ação.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Buscar credenciais do administrador
+      const { data, error } = await supabase.from('user_credentials' as any)
+        .select('password_hash')
+        .eq('user_id', user?.id)
+        .single();
+
+      if (error || !data) {
+        console.error("Erro ao buscar credenciais do admin:", error);
+        toast({
+          title: "Erro na verificação",
+          description: "Não foi possível verificar suas credenciais.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Verificar senha do administrador
+      const { data: passwordMatch, error: verifyError } = await supabase
+        .rpc('verify_password' as any, {
+          user_password: adminPasswordForConfirm,
+          stored_hash: (data as any).password_hash
+        });
+
+      if (verifyError) {
+        console.error("Erro na verificação RPC:", verifyError);
+        toast({
+          title: "Erro na verificação",
+          description: "Ocorreu um erro ao verificar sua senha. Tente novamente.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!passwordMatch) {
+        toast({
+          title: "Senha incorreta",
+          description: "Sua senha não confere. Tente novamente.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Senha confirmada - prosseguir para definir nova senha
+      setShowAdminPasswordConfirmModal(false);
+      setShowChangePasswordModal(true);
+      
+      toast({
+        title: "Identidade confirmada",
+        description: "Agora defina a nova senha para o usuário.",
+      });
+
+    } catch (error) {
+      console.error("Erro na verificação:", error);
+      toast({
+        title: "Erro na verificação",
+        description: "Ocorreu um erro ao verificar sua senha. Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsVerifyingAdminPassword(false);
+    }
+  };
+
+  const handleConfirmPasswordChange = async () => {
+    // Validações
+    if (!newUserPassword.trim() || !confirmNewUserPassword.trim()) {
+      toast({
+        title: "Campos obrigatórios",
+        description: "Preencha todos os campos de senha.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (newUserPassword !== confirmNewUserPassword) {
+      toast({
+        title: "Erro na confirmação",
+        description: "A senha digitada no campo 'Confirmar Nova Senha' não é igual à senha do campo 'Nova Senha'. Por favor, verifique se ambas as senhas estão idênticas.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+
+    setIsChangingPassword(true);
+    
+    try {
+      // Primeiro deletar credenciais existentes
+      const { error: deleteError } = await supabase
+        .from('user_credentials' as any)
+        .delete()
+        .eq('user_id', selectedUserForPasswordChange.id);
+
+      if (deleteError) {
+        console.error('Erro ao deletar credenciais antigas:', deleteError);
+        throw deleteError;
+      }
+
+      // Criar nova credencial com nova senha usando RPC function
+      const { error: createError } = await supabase
+        .rpc('create_user_password' as any, {
+          p_user_id: selectedUserForPasswordChange.id,
+          p_password: newUserPassword
+        });
+
+      if (createError) {
+        console.error('Erro ao criar nova senha:', createError);
+        throw createError;
+      }
+
+      // Log da ação
+      await logUserAction(
+        'password_change',
+        `Alterou a senha do usuário ${selectedUserForPasswordChange.full_name || selectedUserForPasswordChange.name}`,
+        'user',
+        selectedUserForPasswordChange.id,
+        { 
+          changed_by: user?.id,
+          target_user: selectedUserForPasswordChange.name,
+          target_email: selectedUserForPasswordChange.email
+        }
+      );
+
+      toast({
+        title: "Senha alterada",
+        description: `A senha de ${selectedUserForPasswordChange.full_name || selectedUserForPasswordChange.name} foi alterada com sucesso.`,
+      });
+
+      // Fechar modal e limpar estados
+      setShowChangePasswordModal(false);
+      setSelectedUserForPasswordChange(null);
+      setAdminPasswordForConfirm("");
+      setNewUserPassword("");
+      setConfirmNewUserPassword("");
+
+    } catch (error) {
+      console.error('Erro ao alterar senha:', error);
+      toast({
+        title: "Erro ao alterar senha",
+        description: "Não foi possível alterar a senha do usuário.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  const closePasswordChangeModals = () => {
+    setShowAdminPasswordConfirmModal(false);
+    setShowChangePasswordModal(false);
+    setSelectedUserForPasswordChange(null);
+    setAdminPasswordForConfirm("");
+    setNewUserPassword("");
+    setConfirmNewUserPassword("");
+    setShowNewPasswordFields(false);
+    setShowConfirmNewPasswordFields(false);
+    setShowAdminPasswordField(false);
+    setIsVerifyingAdminPassword(false);
+    setIsChangingPassword(false);
+  };
+
   return (
     <>
       <style>{`
@@ -1688,7 +1910,7 @@ export default function Configuracoes() {
                           {/* Ações */}
                           <div className="col-span-2">
                             <div className="flex items-center gap-1">
-                              {/* Botão Ver Atividades - Todos podem ver */}
+                              {/* Botão Ver Atividades - Sempre visível */}
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -1697,17 +1919,17 @@ export default function Configuracoes() {
                                 title="Ver todas as alterações e atividades"
                               >
                                 <Eye className="w-4 h-4" />
-              </Button>
+                              </Button>
 
-                              {/* Botões de gerenciamento - Visíveis para todos, verificação no onClick */}
+                              {/* Botão Ativar/Desativar Usuário */}
                               <Button
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => member.is_active ? handleDeactivateUser(member) : reactivateUser(member)}
-                                className={`px-2 py-1 h-8 w-8 hover:bg-red-50 ${
+                                className={`px-2 py-1 h-8 w-8 hover:bg-gray-100 ${
                                   member.is_active 
                                     ? 'text-red-500 hover:text-red-600' 
-                                    : 'text-green-600 hover:text-green-700 hover:bg-green-50'
+                                    : 'text-green-600 hover:text-green-700'
                                 }`}
                                 title={member.is_active ? "Desativar usuário (bloquear ações)" : "Reativar usuário"}
                                 disabled={member.id === user?.id}
@@ -1725,11 +1947,7 @@ export default function Configuracoes() {
                                   size="sm"
                                   variant="ghost"
                                   onClick={() => isUserAdmin(member) ? handleDemoteUser(member) : handlePromoteUser(member)}
-                                  className={`px-2 py-1 h-8 w-8 ${
-                                    isUserAdmin(member) 
-                                      ? 'text-blue-600 hover:text-blue-700 hover:bg-blue-100' 
-                                      : 'text-blue-600 hover:text-blue-700 hover:bg-blue-100'
-                                  }`}
+                                  className="px-2 py-1 h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-gray-100"
                                   title={isUserAdmin(member) ? "Despromover para usuário comum" : "Promover para administrador"}
                                   disabled={member.id === user?.id && isUserAdmin(member)}
                                 >
@@ -1741,16 +1959,42 @@ export default function Configuracoes() {
                                 </Button>
                               )}
 
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleDeleteUser(member)}
-                                className="px-2 py-1 h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-100"
-                                title="Excluir usuário permanentemente"
-                                disabled={member.id === user?.id}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                              {/* Menu Dropdown com Três Pontos - Apenas Alterar Senha e Excluir */}
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="px-2 py-1 h-8 w-8 text-gray-600 hover:text-gray-700 hover:bg-gray-100"
+                                    title="Mais opções"
+                                  >
+                                    <MoreVertical className="w-4 h-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-48">
+                                  {/* Alterar Senha - Só para administradores */}
+                                  {user?.permissions?.can_manage_users && (
+                                    <DropdownMenuItem
+                                      onClick={() => handleChangeUserPassword(member)}
+                                      disabled={member.id === user?.id}
+                                      className="flex items-center gap-2 hover:bg-gray-50 focus:bg-gray-50"
+                                    >
+                                      <Lock className="w-4 h-4 text-gray-600" />
+                                      <span className="text-gray-700">Alterar senha</span>
+                                    </DropdownMenuItem>
+                                  )}
+
+                                  {/* Excluir Usuário */}
+                                  <DropdownMenuItem
+                                    onClick={() => handleDeleteUser(member)}
+                                    disabled={member.id === user?.id}
+                                    className="flex items-center gap-2 hover:bg-gray-50 focus:bg-gray-50"
+                                  >
+                                    <Trash2 className="w-4 h-4 text-red-600" />
+                                    <span className="text-red-600">Excluir usuário</span>
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
                           </div>
                         </div>
@@ -2530,6 +2774,295 @@ export default function Configuracoes() {
                 </>
               ) : (
                 promotionAction === 'promote' ? 'Promover' : 'Despromover'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Confirmação de Senha do Administrador */}
+      <Dialog open={showAdminPasswordConfirmModal} onOpenChange={closePasswordChangeModals}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-purple-600" />
+              Confirmar Identidade
+            </DialogTitle>
+            <DialogDescription>
+              Para alterar a senha de <strong>{selectedUserForPasswordChange?.full_name || selectedUserForPasswordChange?.name}</strong>, 
+              confirme sua identidade digitando sua senha de administrador.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="admin-password-confirm" className="text-sm font-medium">
+                Sua Senha de Administrador
+              </Label>
+              <div className="relative">
+                <Input
+                  id="admin-password-confirm"
+                  type={showAdminPasswordField ? "text" : "password"}
+                  value={adminPasswordForConfirm}
+                  onChange={(e) => setAdminPasswordForConfirm(e.target.value)}
+                  placeholder="Digite sua senha atual"
+                  className="border-gray-300 focus:border-gray-400 pr-10"
+                  style={{ outline: 'none', boxShadow: 'none' }}
+                  onKeyPress={(e) => e.key === 'Enter' && !isVerifyingAdminPassword && handleAdminPasswordConfirmation()}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAdminPasswordField(!showAdminPasswordField)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                >
+                  <div className="relative w-4 h-4">
+                    {/* Olho Aberto - quando senha está visível */}
+                    <svg 
+                      className={`h-4 w-4 absolute inset-0 transition-all duration-300 ease-in-out ${
+                        showAdminPasswordField 
+                          ? 'opacity-100 scale-100 rotate-0' 
+                          : 'opacity-0 scale-75 rotate-12'
+                      }`}
+                      viewBox="0 0 24 24" 
+                      fill="none" 
+                      stroke="currentColor" 
+                      strokeWidth="2"
+                    >
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                      <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                    
+                    {/* Olho Fechado - quando senha está oculta */}
+                    <svg 
+                      className={`h-4 w-4 absolute inset-0 transition-all duration-300 ease-in-out ${
+                        showAdminPasswordField 
+                          ? 'opacity-0 scale-75 rotate-12' 
+                          : 'opacity-100 scale-100 rotate-0'
+                      }`}
+                      viewBox="0 0 24 24" 
+                      fill="none" 
+                      stroke="currentColor" 
+                      strokeWidth="2"
+                    >
+                      <path d="m15 18-.722-3.25"/>
+                      <path d="M2 8a10.645 10.645 0 0 0 20 0"/>
+                      <path d="m20 15-1.726-2.05"/>
+                      <path d="m4 15 1.726-2.05"/>
+                      <path d="m9 18 .722-3.25"/>
+                    </svg>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="pt-6">
+            <Button
+              variant="outline"
+              onClick={closePasswordChangeModals}
+              disabled={isVerifyingAdminPassword}
+              className="hover:bg-gray-100 hover:text-black text-black border-gray-300"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleAdminPasswordConfirmation}
+              disabled={!adminPasswordForConfirm || isVerifyingAdminPassword}
+              className="bg-black hover:bg-gray-800 text-white min-w-[120px]"
+            >
+              {isVerifyingAdminPassword ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  Verificando...
+                </>
+              ) : (
+                'Confirmar'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Alteração de Senha */}
+      <Dialog open={showChangePasswordModal} onOpenChange={closePasswordChangeModals}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-purple-600" />
+              Alterar Senha do Usuário
+            </DialogTitle>
+            <DialogDescription>
+              Defina uma nova senha para <strong>{selectedUserForPasswordChange?.full_name || selectedUserForPasswordChange?.name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="font-medium text-gray-900">
+                    {selectedUserForPasswordChange?.full_name || selectedUserForPasswordChange?.name}
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    {selectedUserForPasswordChange?.email}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="new-user-password" className="text-sm font-medium">
+                  Nova Senha
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="new-user-password"
+                    type={showNewPasswordFields ? "text" : "password"}
+                    value={newUserPassword}
+                    onChange={(e) => setNewUserPassword(e.target.value)}
+                    placeholder="Digite a nova senha"
+                    className="border-gray-300 focus:border-gray-400 pr-10"
+                    style={{ outline: 'none', boxShadow: 'none' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPasswordFields(!showNewPasswordFields)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                  >
+                    <div className="relative w-4 h-4">
+                      {/* Olho Aberto - quando senha está visível */}
+                      <svg 
+                        className={`h-4 w-4 absolute inset-0 transition-all duration-300 ease-in-out ${
+                          showNewPasswordFields 
+                            ? 'opacity-100 scale-100 rotate-0' 
+                            : 'opacity-0 scale-75 rotate-12'
+                        }`}
+                        viewBox="0 0 24 24" 
+                        fill="none" 
+                        stroke="currentColor" 
+                        strokeWidth="2"
+                      >
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                      </svg>
+                      
+                      {/* Olho Fechado - quando senha está oculta */}
+                      <svg 
+                        className={`h-4 w-4 absolute inset-0 transition-all duration-300 ease-in-out ${
+                          showNewPasswordFields 
+                            ? 'opacity-0 scale-75 rotate-12' 
+                            : 'opacity-100 scale-100 rotate-0'
+                        }`}
+                        viewBox="0 0 24 24" 
+                        fill="none" 
+                        stroke="currentColor" 
+                        strokeWidth="2"
+                      >
+                        <path d="m15 18-.722-3.25"/>
+                        <path d="M2 8a10.645 10.645 0 0 0 20 0"/>
+                        <path d="m20 15-1.726-2.05"/>
+                        <path d="m4 15 1.726-2.05"/>
+                        <path d="m9 18 .722-3.25"/>
+                      </svg>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirm-new-user-password" className="text-sm font-medium">
+                  Confirmar Nova Senha
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="confirm-new-user-password"
+                    type={showConfirmNewPasswordFields ? "text" : "password"}
+                    value={confirmNewUserPassword}
+                    onChange={(e) => setConfirmNewUserPassword(e.target.value)}
+                    placeholder="Digite novamente a nova senha"
+                    className="border-gray-300 focus:border-gray-400 pr-10"
+                    style={{ outline: 'none', boxShadow: 'none' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmNewPasswordFields(!showConfirmNewPasswordFields)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                  >
+                    <div className="relative w-4 h-4">
+                      {/* Olho Aberto - quando senha está visível */}
+                      <svg 
+                        className={`h-4 w-4 absolute inset-0 transition-all duration-300 ease-in-out ${
+                          showConfirmNewPasswordFields 
+                            ? 'opacity-100 scale-100 rotate-0' 
+                            : 'opacity-0 scale-75 rotate-12'
+                        }`}
+                        viewBox="0 0 24 24" 
+                        fill="none" 
+                        stroke="currentColor" 
+                        strokeWidth="2"
+                      >
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                      </svg>
+                      
+                      {/* Olho Fechado - quando senha está oculta */}
+                      <svg 
+                        className={`h-4 w-4 absolute inset-0 transition-all duration-300 ease-in-out ${
+                          showConfirmNewPasswordFields 
+                            ? 'opacity-0 scale-75 rotate-12' 
+                            : 'opacity-100 scale-100 rotate-0'
+                        }`}
+                        viewBox="0 0 24 24" 
+                        fill="none" 
+                        stroke="currentColor" 
+                        strokeWidth="2"
+                      >
+                        <path d="m15 18-.722-3.25"/>
+                        <path d="M2 8a10.645 10.645 0 0 0 20 0"/>
+                        <path d="m20 15-1.726-2.05"/>
+                        <path d="m4 15 1.726-2.05"/>
+                        <path d="m9 18 .722-3.25"/>
+                      </svg>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <DialogFooter className="pt-6">
+            <Button
+              variant="outline"
+              onClick={closePasswordChangeModals}
+              disabled={isChangingPassword}
+              className="hover:bg-gray-100 hover:text-black text-black border-gray-300"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleConfirmPasswordChange}
+              disabled={
+                isChangingPassword || 
+                !newUserPassword || 
+                !confirmNewUserPassword || 
+                newUserPassword !== confirmNewUserPassword
+              }
+              className="bg-black hover:bg-gray-800 text-white min-w-[140px]"
+            >
+              {isChangingPassword ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  Alterando...
+                </>
+              ) : (
+                'Alterar Senha'
               )}
             </Button>
           </DialogFooter>

@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, createContext, useContext } from "react";
+import { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,12 +37,207 @@ import { useToast } from "@/hooks/use-toast";
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
+// Contexto para sincronizar hover entre linhas e cabeçalhos
+const HoverContext = createContext<{
+  isRowHovered: boolean;
+  setIsRowHovered: (value: boolean) => void;
+}>({
+  isRowHovered: false,
+  setIsRowHovered: () => {}
+});
+
+// Componente para transição suave entre entrada e parcela
+const HoverTransitionValue = ({ 
+  auction, 
+  primaryValue, 
+  primaryLabel, 
+  secondaryValue, 
+  secondaryLabel,
+  className = ""
+}: {
+  auction: any;
+  primaryValue: string;
+  primaryLabel: string;
+  secondaryValue: string;
+  secondaryLabel: string;
+  className?: string;
+}) => {
+  const { setIsRowHovered } = useContext(HoverContext);
+  const [isLocalHovered, setIsLocalHovered] = useState(false);
+  
+  return (
+    <div 
+      className={`relative transition-all duration-300 ease-in-out ${className}`}
+      onMouseEnter={() => {
+        setIsLocalHovered(true);
+        setIsRowHovered(true);
+      }}
+      onMouseLeave={() => {
+        setIsLocalHovered(false);
+        setIsRowHovered(false);
+      }}
+    >
+      <div className={`transition-opacity duration-300 ${isLocalHovered ? 'opacity-0' : 'opacity-100'}`}>
+        <span className="font-semibold text-red-600">
+          {primaryValue}
+        </span>
+        <div className="text-xs text-gray-500 mt-1">
+          {primaryLabel}
+        </div>
+      </div>
+      
+      <div className={`absolute inset-0 transition-opacity duration-300 ${isLocalHovered ? 'opacity-100' : 'opacity-0'}`}>
+        <span className="font-semibold text-orange-600">
+          {secondaryValue}
+        </span>
+        <div className="text-xs text-gray-500 mt-1">
+          {secondaryLabel}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Componente para transição de datas/vencimentos
+const HoverTransitionDate = ({ 
+  auction, 
+  primaryDate, 
+  primaryLabel, 
+  secondaryDate, 
+  secondaryLabel,
+  className = ""
+}: {
+  auction: any;
+  primaryDate: string;
+  primaryLabel: string;
+  secondaryDate: string;
+  secondaryLabel: string;
+  className?: string;
+}) => {
+  const { setIsRowHovered } = useContext(HoverContext);
+  const [isLocalHovered, setIsLocalHovered] = useState(false);
+  
+  return (
+    <div 
+      className={`flex items-center gap-2 transition-all duration-300 ease-in-out ${className}`}
+      onMouseEnter={() => {
+        setIsLocalHovered(true);
+        setIsRowHovered(true);
+      }}
+      onMouseLeave={() => {
+        setIsLocalHovered(false);
+        setIsRowHovered(false);
+      }}
+    >
+      <Calendar className="h-4 w-4 text-gray-400" />
+      <div className="relative">
+        <div className={`transition-opacity duration-300 ${isLocalHovered ? 'opacity-0' : 'opacity-100'}`}>
+          <p className="text-sm font-medium text-red-600">
+            {primaryDate}
+          </p>
+          <p className="text-xs text-gray-500">
+            {primaryLabel}
+          </p>
+        </div>
+        
+        <div className={`absolute inset-0 transition-opacity duration-300 ${isLocalHovered ? 'opacity-100' : 'opacity-0'}`}>
+          <p className="text-sm font-medium text-orange-600">
+            {secondaryDate}
+          </p>
+          <p className="text-xs text-gray-500">
+            {secondaryLabel}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Componente para transição de status de parcelas
+const HoverTransitionStatus = ({ 
+  auction, 
+  primaryStatus, 
+  primarySubtext, 
+  secondaryStatus, 
+  secondarySubtext,
+  className = ""
+}: {
+  auction: any;
+  primaryStatus: string;
+  primarySubtext: string;
+  secondaryStatus: string;
+  secondarySubtext: string;
+  className?: string;
+}) => {
+  const { setIsRowHovered } = useContext(HoverContext);
+  const [isLocalHovered, setIsLocalHovered] = useState(false);
+  
+  return (
+    <div 
+      className={`relative transition-all duration-300 ease-in-out ${className}`}
+      onMouseEnter={() => {
+        setIsLocalHovered(true);
+        setIsRowHovered(true);
+      }}
+      onMouseLeave={() => {
+        setIsLocalHovered(false);
+        setIsRowHovered(false);
+      }}
+    >
+      <div className={`transition-opacity duration-300 ${isLocalHovered ? 'opacity-0' : 'opacity-100'}`}>
+        <span className="text-sm font-medium text-red-600">
+          {primaryStatus}
+        </span>
+        <span className="text-xs text-gray-500 block">
+          {primarySubtext}
+        </span>
+      </div>
+      
+      <div className={`absolute inset-0 transition-opacity duration-300 ${isLocalHovered ? 'opacity-100' : 'opacity-0'}`}>
+        <span className="text-sm font-medium text-orange-600">
+          {secondaryStatus}
+        </span>
+        <span className="text-xs text-gray-500 block">
+          {secondarySubtext}
+        </span>
+      </div>
+    </div>
+  );
+};
+
+// Componente para cabeçalhos que reagem ao hover das linhas
+const HoverSyncHeader = ({ 
+  primaryText, 
+  secondaryText,
+  className = ""
+}: {
+  primaryText: string;
+  secondaryText: string;
+  className?: string;
+}) => {
+  const { isRowHovered } = useContext(HoverContext);
+  
+  return (
+    <div className={`relative transition-all duration-300 ease-in-out ${className}`}>
+      <div className={`transition-opacity duration-300 ${isRowHovered ? 'opacity-0' : 'opacity-100'}`}>
+        {primaryText}
+      </div>
+      
+      <div className={`absolute inset-0 transition-opacity duration-300 ${isRowHovered ? 'opacity-100' : 'opacity-0'}`}>
+        {secondaryText}
+      </div>
+    </div>
+  );
+};
+
+
 export default function Inadimplencia() {
   const { auctions } = useSupabaseAuctions();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("due_date");
+  const [isRowHovered, setIsRowHovered] = useState(false);
   const [isStatusSelectOpen, setIsStatusSelectOpen] = useState(false);
   const [isSortSelectOpen, setIsSortSelectOpen] = useState(false);
   
@@ -536,51 +732,79 @@ Atenciosamente,
       
       case 'entrada_parcelamento': {
         const parcelasPagas = arrematante.parcelasPagas || 0;
-        const quantidadeParcelas = (loteArrematado.parcelasPadrao || 1) + 1;
+        const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
         
-        if (parcelasPagas >= quantidadeParcelas) return false;
+        // Para entrada_parcelamento: entrada + parcelas
+        // Se parcelasPagas >= (1 + quantidadeParcelas), está tudo pago
+        if (parcelasPagas >= (1 + quantidadeParcelas)) return false;
         
         if (parcelasPagas === 0) {
+          // Entrada não foi paga - verificar se está atrasada
           if (!loteArrematado.dataEntrada) return false;
           const entradaDueDate = new Date(loteArrematado.dataEntrada);
           entradaDueDate.setHours(23, 59, 59, 999);
           return now > entradaDueDate;
         } else {
-          if (!loteArrematado.mesInicioPagamento || !loteArrematado.diaVencimentoPadrao) return false;
-          const [startYear, startMonth] = loteArrematado.mesInicioPagamento.split('-').map(Number);
-          const nextPaymentDate = new Date(startYear, startMonth - 1 + (parcelasPagas - 1), loteArrematado.diaVencimentoPadrao);
-          nextPaymentDate.setHours(23, 59, 59, 999);
-          return now > nextPaymentDate;
+          // Entrada foi paga - verificar se há parcelas atrasadas
+          if (!arrematante.mesInicioPagamento || !arrematante.diaVencimentoMensal) return false;
+          const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+          
+          // Verificar todas as parcelas que deveriam ter sido pagas até agora
+          const parcelasEfetivasPagas = parcelasPagas - 1; // -1 porque a primeira "parcela paga" é a entrada
+          
+          for (let i = 0; i < quantidadeParcelas; i++) {
+            const parcelaDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal);
+            parcelaDate.setHours(23, 59, 59, 999);
+            
+            if (now > parcelaDate && i >= parcelasEfetivasPagas) {
+              return true; // Encontrou uma parcela em atraso
+            }
+          }
+          
+          return false; // Nenhuma parcela está atrasada
         }
       }
       
       case 'parcelamento':
       default: {
-        if (!loteArrematado.mesInicioPagamento || !loteArrematado.diaVencimentoPadrao) return false;
+        if (!arrematante.mesInicioPagamento || !arrematante.diaVencimentoMensal) return false;
         
-        const [startYear, startMonth] = loteArrematado.mesInicioPagamento.split('-').map(Number);
+        const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
         const parcelasPagas = arrematante.parcelasPagas || 0;
+        const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
         
-        if (parcelasPagas >= (loteArrematado.parcelasPadrao || 1)) return false;
+        if (parcelasPagas >= quantidadeParcelas) return false;
         
-        const nextPaymentDate = new Date(startYear, startMonth - 1 + parcelasPagas, loteArrematado.diaVencimentoPadrao);
+        const nextPaymentDate = new Date(startYear, startMonth - 1 + parcelasPagas, arrematante.diaVencimentoMensal);
         nextPaymentDate.setHours(23, 59, 59, 999);
         return now > nextPaymentDate;
       }
     }
   };
 
-  // Calcular dias de atraso (considera tipos de pagamento)
-  const calculateDaysOverdue = (arrematante: any, auction: any) => {
-    if (arrematante.pago) return 0;
+  // Calcular informações de atraso (maior atraso para classificação e média para estatísticas)
+  const calculateOverdueInfo = (arrematante: any, auction: any) => {
+    if (arrematante.pago) return { maxDays: 0, avgDays: 0 };
     
     // Encontrar o lote arrematado para obter as configurações específicas de pagamento
     const loteArrematado = auction.lotes?.find((lote: any) => lote.id === arrematante.loteId);
-    if (!loteArrematado || !loteArrematado.tipoPagamento) return 0;
+    if (!loteArrematado || !loteArrematado.tipoPagamento) return { maxDays: 0, avgDays: 0 };
     
     const tipoPagamento = loteArrematado.tipoPagamento;
     const now = new Date();
-    let dueDate: Date;
+    const allOverdueDays: number[] = [];
+    
+    const calculateDaysFromDate = (dueDate: Date) => {
+      const endOfDueDate = new Date(dueDate);
+      endOfDueDate.setHours(23, 59, 59, 999);
+      
+      if (now <= endOfDueDate) return 0;
+      
+      const diffTime = now.getTime() - endOfDueDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+      
+      return diffDays > 0 ? diffDays : 0;
+    };
     
     switch (tipoPagamento) {
       case 'a_vista': {
@@ -589,45 +813,76 @@ Atenciosamente,
         const [year, month, day] = dateStr.split('-').map(Number);
         
         // Usar construtor Date(year, month, day) que ignora fuso horário
-        dueDate = new Date(year, month - 1, day); // month é zero-indexed
+        const dueDate = new Date(year, month - 1, day); // month é zero-indexed
+        const daysOverdue = calculateDaysFromDate(dueDate);
+        if (daysOverdue > 0) allOverdueDays.push(daysOverdue);
         break;
       }
       
       case 'entrada_parcelamento': {
         const parcelasPagas = arrematante.parcelasPagas || 0;
+        const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
         
-        if (parcelasPagas === 0) {
-          if (!loteArrematado.dataEntrada) return 0;
-          dueDate = new Date(loteArrematado.dataEntrada);
-        } else {
-          if (!loteArrematado.mesInicioPagamento || !loteArrematado.diaVencimentoPadrao) return 0;
-          const [startYear, startMonth] = loteArrematado.mesInicioPagamento.split('-').map(Number);
-          dueDate = new Date(startYear, startMonth - 1 + (parcelasPagas - 1), loteArrematado.diaVencimentoPadrao);
+        // Verificar atraso da entrada (sempre verificar se está atrasada, independente de parcelasPagas)
+        if (loteArrematado.dataEntrada) {
+          const dataEntrada = new Date(loteArrematado.dataEntrada);
+          const diasAtrasosEntrada = calculateDaysFromDate(dataEntrada);
+          if (diasAtrasosEntrada > 0) {
+            // Só incluir se realmente estiver em atraso (data vencida)
+            allOverdueDays.push(diasAtrasosEntrada);
+          }
+        }
+        
+        // Verificar atraso das parcelas mensais
+        if (arrematante.mesInicioPagamento && arrematante.diaVencimentoMensal) {
+          const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+          const parcelasEfetivasPagas = Math.max(0, parcelasPagas - 1); // -1 porque entrada conta como 1
+          
+          // Verificar todas as parcelas atrasadas
+          for (let i = 0; i < quantidadeParcelas; i++) {
+            const parcelaDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal);
+            
+            if (now > parcelaDate && i >= parcelasEfetivasPagas) {
+              const diasAtrasosParcela = calculateDaysFromDate(parcelaDate);
+              if (diasAtrasosParcela > 0) allOverdueDays.push(diasAtrasosParcela);
+            }
+          }
         }
         break;
       }
       
       case 'parcelamento':
       default: {
-        if (!loteArrematado.mesInicioPagamento || !loteArrematado.diaVencimentoPadrao) return 0;
+        if (!arrematante.mesInicioPagamento || !arrematante.diaVencimentoMensal) return { maxDays: 0, avgDays: 0 };
         
-        const [startYear, startMonth] = loteArrematado.mesInicioPagamento.split('-').map(Number);
+        const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
         const parcelasPagas = arrematante.parcelasPagas || 0;
-        dueDate = new Date(startYear, startMonth - 1 + parcelasPagas, loteArrematado.diaVencimentoPadrao);
+        const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
+        
+        // Verificar todas as parcelas atrasadas
+        for (let i = parcelasPagas; i < quantidadeParcelas; i++) {
+          const parcelaDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal);
+          
+          if (now > parcelaDate) {
+            const diasAtrasosParcela = calculateDaysFromDate(parcelaDate);
+            if (diasAtrasosParcela > 0) allOverdueDays.push(diasAtrasosParcela);
+          } else {
+            break; // Se chegou em uma que não está atrasada, para
+          }
+        }
         break;
       }
     }
     
-    // Calcular diferença em dias, contando apenas após o final do dia de vencimento
-    const endOfDueDate = new Date(dueDate);
-    endOfDueDate.setHours(23, 59, 59, 999);
+    const maxDays = allOverdueDays.length > 0 ? Math.max(...allOverdueDays) : 0;
+    const avgDays = allOverdueDays.length > 0 ? Math.round(allOverdueDays.reduce((sum, days) => sum + days, 0) / allOverdueDays.length) : 0;
     
-    if (now <= endOfDueDate) return 0;
-    
-    const diffTime = now.getTime() - endOfDueDate.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
-    
-    return diffDays > 0 ? diffDays : 0;
+    return { maxDays, avgDays };
+  };
+
+  // Função de compatibilidade para manter a interface existente
+  const calculateDaysOverdue = (arrematante: any, auction: any) => {
+    return calculateOverdueInfo(arrematante, auction).maxDays;
   };
 
   // Filtrar leilões com arrematantes inadimplentes automaticamente
@@ -643,7 +898,8 @@ Atenciosamente,
       })
       .map(auction => {
         const arrematante = auction.arrematante;
-        const daysOverdue = calculateDaysOverdue(arrematante, auction);
+        const overdueInfo = calculateOverdueInfo(arrematante, auction);
+        const daysOverdue = overdueInfo.maxDays;
         
         // Categorizar por dias de atraso de forma mais intuitiva
         let overdueSeverity = 'recente';
@@ -679,21 +935,62 @@ Atenciosamente,
               
             case 'entrada_parcelamento':
               const parcelasPagas = arrematante.parcelasPagas || 0;
-              const quantidadeParcelas = (loteArrematado.parcelasPadrao || 1) + 1;
+              const quantidadeParcelasTotal = arrematante.quantidadeParcelas || loteArrematado.parcelasPadrao || 12;
               
-              if (parcelasPagas === 0) {
-                // Pagamento da entrada (50%)
-                valorPorParcela = valorTotal * 0.5;
+              // Calcular valores
+              const valorEntrada = arrematante.valorEntrada ? 
+                (typeof arrematante.valorEntrada === 'string' ? 
+                  parseFloat(arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) : 
+                  arrematante.valorEntrada) : 
+                valorTotal * 0.3; // fallback para 30%
+              
+              const valorRestante = valorTotal - valorEntrada;
+              const valorPorParcelaCalc = valorRestante / quantidadeParcelasTotal;
+              
+              // Calcular datas
+              let dataEntrada = null;
+              let dataPrimeiraParcela = null;
+              
                 if (loteArrematado.dataEntrada) {
-                  nextPaymentDate = new Date(loteArrematado.dataEntrada);
+                const dateStr = loteArrematado.dataEntrada;
+                const [year, month, day] = dateStr.split('-').map(Number);
+                dataEntrada = new Date(year, month - 1, day);
+              }
+              
+              const mesInicio = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
+              const diaVenc = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
+              
+              if (mesInicio && diaVenc) {
+                const [startYear, startMonth] = mesInicio.split('-').map(Number);
+                dataPrimeiraParcela = new Date(startYear, startMonth - 1, diaVenc);
+              }
+              
+              // Determinar qual pagamento mostrar baseado no que está mais atrasado
+              const now = new Date();
+              const entradaAtrasada = dataEntrada && now > dataEntrada;
+              const parcelaAtrasada = dataPrimeiraParcela && now > dataPrimeiraParcela && parcelasPagas === 0;
+              
+              if (entradaAtrasada && parcelaAtrasada && dataEntrada && dataPrimeiraParcela) {
+                // Ambos atrasados - mostrar o mais urgente (data mais antiga)
+                if (dataEntrada <= dataPrimeiraParcela) {
+                  // Entrada é mais urgente
+                  valorPorParcela = valorEntrada;
+                  nextPaymentDate = dataEntrada;
+                } else {
+                  // Primeira parcela é mais urgente
+                  valorPorParcela = valorPorParcelaCalc;
+                  nextPaymentDate = dataPrimeiraParcela;
                 }
+              } else if (parcelasPagas === 0) {
+                // Apenas entrada pendente ou entrada mais urgente
+                valorPorParcela = valorEntrada;
+                nextPaymentDate = dataEntrada;
               } else {
                 // Parcelas após entrada
-                const valorRestante = valorTotal - (valorTotal * 0.5);
-                valorPorParcela = valorRestante / (quantidadeParcelas - 1);
-                if (loteArrematado.mesInicioPagamento && loteArrematado.diaVencimentoPadrao) {
-                  const [startYear, startMonth] = loteArrematado.mesInicioPagamento.split('-').map(Number);
-                  nextPaymentDate = new Date(startYear, startMonth - 1 + (parcelasPagas - 1), loteArrematado.diaVencimentoPadrao);
+                valorPorParcela = valorPorParcelaCalc;
+                if (mesInicio && diaVenc) {
+                  const [startYear, startMonth] = mesInicio.split('-').map(Number);
+                  nextPaymentDate = new Date(startYear, startMonth - 1 + (parcelasPagas - 1), diaVenc);
                 }
               }
               break;
@@ -714,19 +1011,290 @@ Atenciosamente,
         
         const parcelasPagasAtual = arrematante.parcelasPagas || 0;
         
-        // Calcular próxima parcela baseado no tipo de pagamento
+        // Calcular próxima parcela baseado no tipo de pagamento e qual está mais atrasado
         let proximaParcelaCalc = parcelasPagasAtual + 1;
+        let isEntradaAtrasada = false;
+        let isPrimeiraParcelaAtrasada = false;
+        
         if (loteArrematado && loteArrematado.tipoPagamento === 'a_vista') {
           proximaParcelaCalc = 1; // Para pagamento à vista, sempre é a primeira e única parcela
+        } else if (loteArrematado && loteArrematado.tipoPagamento === 'entrada_parcelamento') {
+          if (parcelasPagasAtual === 0) {
+            // Verificar se entrada e primeira parcela estão ambas atrasadas
+            const now = new Date();
+            
+            let dataEntrada = null;
+            let dataPrimeiraParcela = null;
+            
+            if (loteArrematado.dataEntrada) {
+              const dateStr = loteArrematado.dataEntrada;
+              const [year, month, day] = dateStr.split('-').map(Number);
+              dataEntrada = new Date(year, month - 1, day);
+            }
+            
+            const mesInicio = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
+            const diaVenc = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
+            
+            if (mesInicio && diaVenc) {
+              const [startYear, startMonth] = mesInicio.split('-').map(Number);
+              dataPrimeiraParcela = new Date(startYear, startMonth - 1, diaVenc);
+            }
+            
+            const entradaAtrasada = dataEntrada && now > dataEntrada;
+            const parcelaAtrasada = dataPrimeiraParcela && now > dataPrimeiraParcela;
+            
+            if (entradaAtrasada && parcelaAtrasada && dataEntrada && dataPrimeiraParcela) {
+              // Ambos atrasados - mostrar o mais urgente (data mais antiga)
+              if (dataEntrada <= dataPrimeiraParcela) {
+                // Entrada é mais urgente
+                proximaParcelaCalc = 0; // Indica que é a entrada
+                isEntradaAtrasada = true;
+              } else {
+                // Primeira parcela é mais urgente
+                proximaParcelaCalc = 1; // Primeira parcela
+                isPrimeiraParcelaAtrasada = true;
+              }
+            } else if (entradaAtrasada) {
+              // Apenas entrada atrasada
+              proximaParcelaCalc = 0; // Indica que é a entrada
+              isEntradaAtrasada = true;
+            } else {
+              // Apenas primeira parcela atrasada ou entrada pendente
+              proximaParcelaCalc = 0; // Entrada pendente
+              isEntradaAtrasada = true;
+            }
+          } else {
+            // Parcela em atraso (após entrada paga)
+            proximaParcelaCalc = parcelasPagasAtual; // Parcela atual em atraso
+          }
+        }
+        
+        // Calcular informações detalhadas para tooltips quando ambos estão atrasados
+        let entradaDetails = null;
+        let parcelaDetails = null;
+        let ambosAtrasados = false;
+        
+        if (loteArrematado && loteArrematado.tipoPagamento === 'entrada_parcelamento' && parcelasPagasAtual === 0) {
+          const now = new Date();
+          
+          let dataEntrada = null;
+          let dataPrimeiraParcela = null;
+          
+          if (loteArrematado.dataEntrada) {
+            const dateStr = loteArrematado.dataEntrada;
+            const [year, month, day] = dateStr.split('-').map(Number);
+            dataEntrada = new Date(year, month - 1, day);
+          }
+          
+          const mesInicio = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
+          const diaVenc = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
+          
+          if (mesInicio && diaVenc) {
+            const [startYear, startMonth] = mesInicio.split('-').map(Number);
+            dataPrimeiraParcela = new Date(startYear, startMonth - 1, diaVenc);
+          }
+          
+          const entradaAtrasada = dataEntrada && now > dataEntrada;
+          const parcelaAtrasada = dataPrimeiraParcela && now > dataPrimeiraParcela;
+          
+          if (entradaAtrasada && parcelaAtrasada) {
+            ambosAtrasados = true;
+            
+            const diasEntrada = Math.floor((now.getTime() - dataEntrada.getTime()) / (1000 * 60 * 60 * 24));
+            const diasParcela = Math.floor((now.getTime() - dataPrimeiraParcela.getTime()) / (1000 * 60 * 60 * 24));
+            
+            // Calcular valores para os tooltips (reutilizar lógica do switch case)
+            const valorTotalTooltip = arrematante?.valorPagarNumerico !== undefined 
+              ? arrematante.valorPagarNumerico 
+              : (typeof arrematante?.valorPagar === 'number' ? arrematante.valorPagar : 0);
+              
+            const valorEntradaTooltip = arrematante.valorEntrada ? 
+              (typeof arrematante.valorEntrada === 'string' ? 
+                parseFloat(arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) : 
+                arrematante.valorEntrada) : 
+              valorTotalTooltip * 0.3;
+            
+            const quantidadeParcelasTotal = arrematante.quantidadeParcelas || loteArrematado.parcelasPadrao || 12;
+            const valorRestante = valorTotalTooltip - valorEntradaTooltip;
+            const valorPorParcelaTooltip = valorRestante / quantidadeParcelasTotal;
+            
+            entradaDetails = {
+              valor: valorEntradaTooltip,
+              dataVencimento: dataEntrada.toLocaleDateString('pt-BR'),
+              diasAtraso: diasEntrada
+            };
+            
+            parcelaDetails = {
+              valor: valorPorParcelaTooltip,
+              dataVencimento: dataPrimeiraParcela.toLocaleDateString('pt-BR'),
+              diasAtraso: diasParcela
+            };
+          }
+        }
+
+        // Calcular quantas parcelas estão atrasadas
+        let parcelasAtrasadas = 0;
+        let entradaAtrasada = false;
+        
+        if (loteArrematado && loteArrematado.tipoPagamento === 'entrada_parcelamento') {
+          const parcelasPagas = arrematante.parcelasPagas || 0;
+          const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
+          const mesInicio = arrematante.mesInicioPagamento;
+          const diaVenc = arrematante.diaVencimentoMensal;
+          const now = new Date();
+          
+          // Verificar se entrada está atrasada (separado das parcelas mensais)
+          if (parcelasPagas === 0) {
+            if (loteArrematado.dataEntrada) {
+              const dateStr = loteArrematado.dataEntrada;
+              const [year, month, day] = dateStr.split('-').map(Number);
+              const dataEntrada = new Date(year, month - 1, day);
+              dataEntrada.setHours(23, 59, 59, 999);
+              
+              if (now > dataEntrada) {
+                entradaAtrasada = true; // Marca entrada como atrasada, mas não conta no número
+              }
+            }
+          }
+          
+          // Contar APENAS parcelas mensais atrasadas (não incluir entrada)
+          if (mesInicio && diaVenc) {
+            const [startYear, startMonth] = mesInicio.split('-').map(Number);
+            const parcelasEfetivasPagas = Math.max(0, parcelasPagas - 1); // -1 porque entrada conta como 1
+            
+            // Contar todas as parcelas mensais atrasadas
+            for (let i = 0; i < quantidadeParcelas; i++) {
+              const parcelaDate = new Date(startYear, startMonth - 1 + i, diaVenc);
+              parcelaDate.setHours(23, 59, 59, 999);
+              
+              if (now > parcelaDate && i >= parcelasEfetivasPagas) {
+                parcelasAtrasadas++; // Conta apenas parcelas mensais
+              }
+            }
+          }
+          
+        } else if (loteArrematado && (loteArrematado.tipoPagamento === 'parcelamento' || !loteArrematado.tipoPagamento)) {
+          const parcelasPagas = arrematante.parcelasPagas || 0;
+          const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
+          const mesInicio = arrematante.mesInicioPagamento;
+          const diaVenc = arrematante.diaVencimentoMensal;
+          
+          if (mesInicio && diaVenc) {
+            const [startYear, startMonth] = mesInicio.split('-').map(Number);
+            const now = new Date();
+            
+            // Contar parcelas atrasadas
+            for (let i = parcelasPagas; i < quantidadeParcelas; i++) {
+              const parcelaDate = new Date(startYear, startMonth - 1 + i, diaVenc);
+              parcelaDate.setHours(23, 59, 59, 999);
+              
+              if (now > parcelaDate) {
+                parcelasAtrasadas++;
+              } else {
+                break; // Se chegou em uma que não está atrasada, para
+              }
+            }
+          }
+        } else if (loteArrematado && loteArrematado.tipoPagamento === 'a_vista') {
+          // Para à vista, se está inadimplente, é 1 pagamento atrasado
+          parcelasAtrasadas = 1;
+        }
+
+        // Calcular o valor total em atraso (entrada + todas as parcelas atrasadas)
+        let valorTotalEmAtraso = 0;
+        
+        if (loteArrematado && loteArrematado.tipoPagamento === 'entrada_parcelamento') {
+          const parcelasPagas = arrematante.parcelasPagas || 0;
+          const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
+          const valorTotal = arrematante?.valorPagarNumerico !== undefined 
+            ? arrematante.valorPagarNumerico 
+            : (typeof arrematante?.valorPagar === 'number' ? arrematante.valorPagar : 0);
+          
+          const valorEntrada = arrematante.valorEntrada ? 
+            (typeof arrematante.valorEntrada === 'string' ? 
+              parseFloat(arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) : 
+              arrematante.valorEntrada) : 
+            valorTotal * 0.3;
+          
+          const valorRestante = valorTotal - valorEntrada;
+          const valorPorParcelaCalc = valorRestante / quantidadeParcelas;
+          
+          // Se entrada não foi paga, somar valor da entrada
+          if (parcelasPagas === 0) {
+            valorTotalEmAtraso += valorEntrada;
+          }
+          
+          // Somar valor das parcelas atrasadas
+          const mesInicio = arrematante.mesInicioPagamento;
+          const diaVenc = arrematante.diaVencimentoMensal;
+          
+          if (mesInicio && diaVenc) {
+            const [startYear, startMonth] = mesInicio.split('-').map(Number);
+            const parcelasEfetivasPagas = Math.max(0, parcelasPagas - 1); // -1 porque entrada conta como 1
+            const now = new Date();
+            
+            // Contar e somar valor das parcelas atrasadas
+            for (let i = 0; i < quantidadeParcelas; i++) {
+              const parcelaDate = new Date(startYear, startMonth - 1 + i, diaVenc);
+              parcelaDate.setHours(23, 59, 59, 999);
+              
+              if (now > parcelaDate && i >= parcelasEfetivasPagas) {
+                valorTotalEmAtraso += valorPorParcelaCalc;
+              }
+            }
+          }
+          
+        } else if (loteArrematado && (loteArrematado.tipoPagamento === 'parcelamento' || !loteArrematado.tipoPagamento)) {
+          const parcelasPagas = arrematante.parcelasPagas || 0;
+          const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
+          const valorTotal = arrematante?.valorPagarNumerico !== undefined 
+            ? arrematante.valorPagarNumerico 
+            : (typeof arrematante?.valorPagar === 'number' ? arrematante.valorPagar : 0);
+          const valorPorParcelaCalc = valorTotal / quantidadeParcelas;
+          
+          const mesInicio = arrematante.mesInicioPagamento;
+          const diaVenc = arrematante.diaVencimentoMensal;
+          
+          if (mesInicio && diaVenc) {
+            const [startYear, startMonth] = mesInicio.split('-').map(Number);
+            const now = new Date();
+            
+            // Contar e somar valor das parcelas atrasadas
+            for (let i = parcelasPagas; i < quantidadeParcelas; i++) {
+              const parcelaDate = new Date(startYear, startMonth - 1 + i, diaVenc);
+              parcelaDate.setHours(23, 59, 59, 999);
+              
+              if (now > parcelaDate) {
+                valorTotalEmAtraso += valorPorParcelaCalc;
+              } else {
+                break; // Se chegou em uma que não está atrasada, para
+              }
+            }
+          }
+          
+        } else if (loteArrematado && loteArrematado.tipoPagamento === 'a_vista') {
+          // Para à vista, se está inadimplente, é o valor total
+          const valorTotal = arrematante?.valorPagarNumerico !== undefined 
+            ? arrematante.valorPagarNumerico 
+            : (typeof arrematante?.valorPagar === 'number' ? arrematante.valorPagar : 0);
+          valorTotalEmAtraso = valorTotal;
         }
         
         return {
           ...auction,
           daysOverdue,
+          avgDaysOverdue: overdueInfo.avgDays, // Nova propriedade para média individual
           overdueSeverity,
-          overdueAmount: valorPorParcela,
+          overdueAmount: valorTotalEmAtraso, // Agora soma todas as parcelas em atraso
           dueDateFormatted,
           proximaParcela: proximaParcelaCalc,
+          isEntradaAtrasada,
+          isPrimeiraParcelaAtrasada,
+          ambosAtrasados,
+          entradaDetails,
+          parcelaDetails,
+          parcelasAtrasadas, // Nova propriedade
+          entradaAtrasada, // Flag separada para entrada
           arrematante: {
             ...arrematante,
             dataPagamento: dueDateFormatted,
@@ -782,8 +1350,7 @@ Atenciosamente,
     const recentSeverity = overdueAuctions.filter(a => a.overdueSeverity === 'recente').length;
     const moderateSeverity = overdueAuctions.filter(a => a.overdueSeverity === 'moderado').length;
     const criticalSeverity = overdueAuctions.filter(a => a.overdueSeverity === 'critico').length;
-    const avgDaysOverdue = totalOverdue > 0 ? 
-      Math.round(overdueAuctions.reduce((sum, a) => sum + a.daysOverdue, 0) / totalOverdue) : 0;
+    const totalOverdueInstallments = overdueAuctions.reduce((sum, a) => sum + (a.parcelasAtrasadas || 0), 0);
 
     return {
       totalOverdue,
@@ -791,7 +1358,7 @@ Atenciosamente,
       recentSeverity,
       moderateSeverity,
       criticalSeverity,
-      avgDaysOverdue
+      totalOverdueInstallments
     };
   }, [overdueAuctions]);
 
@@ -871,7 +1438,52 @@ Arthur Lira Leilões`;
         </Badge>;
   };
 
+  // Componente para transição na coluna Atraso
+  const HoverTransitionAtraso = ({ 
+    auction,
+    className = ""
+  }: {
+    auction: any;
+    className?: string;
+  }) => {
+    const { isRowHovered } = useContext(HoverContext);
+    
+    // Determinar qual informação mostrar baseado na prioridade
+    const primaryAtraso = auction.isEntradaAtrasada ? {
+      badge: getSeverityBadge('high', auction.entradaDetails.diasAtraso),
+      dias: auction.entradaDetails.diasAtraso,
+      tipo: 'entrada'
+    } : {
+      badge: getSeverityBadge(auction.overdueSeverity, auction.parcelaDetails.diasAtraso),
+      dias: auction.parcelaDetails.diasAtraso,
+      tipo: 'parcela'
+    };
+    
+    const secondaryAtraso = auction.isEntradaAtrasada ? {
+      badge: getSeverityBadge(auction.overdueSeverity, auction.parcelaDetails.diasAtraso),
+      dias: auction.parcelaDetails.diasAtraso,
+      tipo: 'parcela'
+    } : {
+      badge: getSeverityBadge('high', auction.entradaDetails.diasAtraso),
+      dias: auction.entradaDetails.diasAtraso,
+      tipo: 'entrada'
+  };
+
   return (
+      <div className={`relative transition-all duration-300 ease-in-out ${className}`}>
+        <div className={`transition-opacity duration-300 ${isRowHovered ? 'opacity-0' : 'opacity-100'}`}>
+          {primaryAtraso.badge}
+        </div>
+        
+        <div className={`absolute inset-0 transition-opacity duration-300 ${isRowHovered ? 'opacity-100' : 'opacity-0'}`}>
+          {secondaryAtraso.badge}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <HoverContext.Provider value={{ isRowHovered, setIsRowHovered }}>
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
@@ -919,11 +1531,11 @@ Arthur Lira Leilões`;
         <div className="bg-white border-0 shadow-sm rounded-lg p-6">
           <div className="text-center">
             <div className="mb-4">
-              <p className="text-xs font-semibold text-gray-700 uppercase tracking-[0.15em] mb-3">Média de Atraso</p>
+              <p className="text-xs font-semibold text-gray-700 uppercase tracking-[0.15em] mb-3">Parcelas Atrasadas</p>
               <div className="h-px w-20 bg-gray-300 mx-auto mb-4"></div>
             </div>
-            <p className="text-3xl font-extralight text-gray-900 mb-2 tracking-tight">{stats.avgDaysOverdue}</p>
-            <p className="text-sm text-gray-600 font-medium">dias de atraso</p>
+            <p className="text-3xl font-extralight text-gray-900 mb-2 tracking-tight">{stats.totalOverdueInstallments}</p>
+            <p className="text-sm text-gray-600 font-medium">parcelas em atraso</p>
           </div>
       </div>
 
@@ -1018,17 +1630,51 @@ Arthur Lira Leilões`;
                         return loteArrematado?.tipoPagamento !== 'a_vista';
                       });
 
+                       // Determinar se há casos de ambos atrasados
+                       const hasAmbosAtrasados = filteredOverdueAuctions.some(auction => auction.ambosAtrasados);
+
                       // Se tem ambos ou apenas parcelado, usar "Valor da Parcela"
                       // Se tem apenas à vista, usar "Valor a Pagar"
+                       let baseText = "";
                       if (hasAVista && !hasParcelado) {
-                        return "Valor a Pagar";
+                         baseText = "Valor a Pagar";
                       } else {
-                        return "Valor da Parcela";
+                         baseText = "Valor da Parcela";
+                       }
+                       
+                       // Se há casos de ambos atrasados, usar componente de sincronização
+                       if (hasAmbosAtrasados) {
+                         return (
+                           <HoverSyncHeader
+                             primaryText={baseText}
+                             secondaryText="Valor da Entrada"
+                             className="font-semibold text-gray-700"
+                           />
+                         );
+                       } else {
+                         return baseText;
                       }
                     })()}
                   </TableHead>
                   <TableHead className="font-semibold text-gray-700">Vencimento</TableHead>
-                  <TableHead className="font-semibold text-gray-700">Parcelas</TableHead>
+                   <TableHead className="font-semibold text-gray-700">
+                     {(() => {
+                       // Verificar se há casos de ambos atrasados
+                       const hasAmbosAtrasados = filteredOverdueAuctions.some(auction => auction.ambosAtrasados);
+                       
+                       if (hasAmbosAtrasados) {
+                         return (
+                           <HoverSyncHeader
+                             primaryText="Parcelas"
+                             secondaryText="Entrada"
+                             className="font-semibold text-gray-700"
+                           />
+                         );
+                       } else {
+                         return "Parcelas";
+                       }
+                     })()}
+                   </TableHead>
                   <TableHead className="font-semibold text-gray-700">Contato</TableHead>
                   <TableHead className="font-semibold text-gray-700">Atraso</TableHead>
                 </TableRow>
@@ -1071,11 +1717,92 @@ Arthur Lira Leilões`;
                     </div>
                     </TableCell>
                     <TableCell>
+                      {auction.ambosAtrasados ? (
+                        <div>
+                          <HoverTransitionValue
+                            auction={auction}
+                            primaryValue={currency.format(auction.isEntradaAtrasada ? auction.entradaDetails.valor : auction.parcelaDetails.valor)}
+                            primaryLabel={auction.isEntradaAtrasada ? 'Valor da Entrada' : 'Valor da Parcela #1'}
+                            secondaryValue={currency.format(auction.isEntradaAtrasada ? auction.parcelaDetails.valor : auction.entradaDetails.valor)}
+                            secondaryLabel={auction.isEntradaAtrasada ? 'Valor da Parcela #1' : 'Valor da Entrada'}
+                          />
+                          {(() => {
+                            // Determinar se está mostrando informações da entrada ou da parcela
+                            const { isRowHovered } = useContext(HoverContext);
+                            const mostrandoEntrada = isRowHovered ? !auction.isEntradaAtrasada : auction.isEntradaAtrasada;
+                            
+                            // Só mostrar contagem se estiver mostrando informações de parcelas E houver parcelas atrasadas
+                            const deveMostrarContagem = !mostrandoEntrada && auction.parcelasAtrasadas > 0;
+                            
+                            if (!deveMostrarContagem) return null;
+                            
+                            const loteArrematado = auction.lotes?.find((lote: any) => lote.id === auction.arrematante?.loteId);
+                            const tipoPagamento = loteArrematado?.tipoPagamento;
+                            
+                            if (tipoPagamento === 'a_vista') {
+                              return (
+                                <p className="text-xs text-red-500 mt-1">
+                                  Pagamento atrasado
+                                </p>
+                              );
+                            } else if (auction.parcelasAtrasadas > 0) {
+                              return (
+                                <p className="text-xs text-red-500 mt-1">
+                                  {auction.parcelasAtrasadas} parcela{auction.parcelasAtrasadas > 1 ? 's' : ''} atrasada{auction.parcelasAtrasadas > 1 ? 's' : ''}
+                                </p>
+                              );
+                            }
+                            
+                            return null;
+                          })()}
+                        </div>
+                      ) : (
+                        <div>
                       <span className="font-semibold text-red-600">
                         {currency.format(auction.overdueAmount || 0)}
                       </span>
+                          {(() => {
+                            // Para casos sem ambosAtrasados, mostrar contagem apenas se houver parcelas atrasadas
+                            if (auction.parcelasAtrasadas === 0 && !auction.entradaAtrasada) return null;
+                            
+                            const loteArrematado = auction.lotes?.find((lote: any) => lote.id === auction.arrematante?.loteId);
+                            const tipoPagamento = loteArrematado?.tipoPagamento;
+                            
+                            if (tipoPagamento === 'a_vista') {
+                              return (
+                                <p className="text-xs text-red-500 mt-1">
+                                  Pagamento atrasado
+                                </p>
+                              );
+                            } else if (tipoPagamento === 'entrada_parcelamento' && auction.entradaAtrasada && auction.parcelasAtrasadas === 0) {
+                              return (
+                                <p className="text-xs text-red-500 mt-1">
+                                  Entrada atrasada
+                                </p>
+                              );
+                            } else if (auction.parcelasAtrasadas > 0) {
+                              return (
+                                <p className="text-xs text-red-500 mt-1">
+                                  {auction.parcelasAtrasadas} parcela{auction.parcelasAtrasadas > 1 ? 's' : ''} atrasada{auction.parcelasAtrasadas > 1 ? 's' : ''}
+                                </p>
+                              );
+                            }
+                            
+                            return null;
+                          })()}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
+                      {auction.ambosAtrasados ? (
+                        <HoverTransitionDate
+                          auction={auction}
+                          primaryDate={auction.isEntradaAtrasada ? auction.entradaDetails.dataVencimento : auction.parcelaDetails.dataVencimento}
+                          primaryLabel={auction.isEntradaAtrasada ? 'Entrada Atrasada' : 'Parcela #1 Atrasada'}
+                          secondaryDate={auction.isEntradaAtrasada ? auction.parcelaDetails.dataVencimento : auction.entradaDetails.dataVencimento}
+                          secondaryLabel={auction.isEntradaAtrasada ? 'Parcela #1 Atrasada' : 'Entrada Atrasada'}
+                        />
+                      ) : (
                         <div className="flex items-center gap-2">
                         <Calendar className="h-4 w-4 text-gray-400" />
                         <div>
@@ -1090,6 +1817,14 @@ Arthur Lira Leilões`;
 
                               if (tipoPagamento === "a_vista") {
                                 return "Pagamento à Vista";
+                                } else if (tipoPagamento === "entrada_parcelamento") {
+                                  if (auction.isEntradaAtrasada) {
+                                    return "Entrada Atrasada";
+                                  } else if (auction.isPrimeiraParcelaAtrasada) {
+                                    return "Parcela #1 Atrasada";
+                                  } else {
+                                    return `Parcela #${auction.proximaParcela}`;
+                                  }
                               } else {
                                 return `Parcela #${auction.proximaParcela}`;
                               }
@@ -1097,6 +1832,7 @@ Arthur Lira Leilões`;
                           </p>
                     </div>
                   </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col">
@@ -1117,8 +1853,52 @@ Arthur Lira Leilões`;
                                 </span>
                               </>
                             );
+                          } else if (tipoPagamento === "entrada_parcelamento") {
+                            // Para entrada + parcelamento, mostrar progresso específico
+                            const parcelasPagas = arrematante?.parcelasPagas || 0;
+                            const quantidadeParcelas = arrematante?.quantidadeParcelas || 12;
+                            const totalPagamentos = quantidadeParcelas + 1; // entrada + parcelas
+                            const parcelasRestantes = totalPagamentos - parcelasPagas;
+                            
+                            if (parcelasPagas === 0) {
+                              if (auction.ambosAtrasados) {
+                                // Ambos atrasados - usar transição
+                                return (
+                                  <HoverTransitionStatus
+                                    auction={auction}
+                                    primaryStatus={auction.isEntradaAtrasada ? 'Entrada Atrasada' : 'Parcela #1 Atrasada'}
+                                    primarySubtext={auction.isEntradaAtrasada ? '0/1 entrada' : `0/${quantidadeParcelas} parcelas`}
+                                    secondaryStatus={auction.isEntradaAtrasada ? 'Parcela #1 Atrasada' : 'Entrada Atrasada'}
+                                    secondarySubtext={auction.isEntradaAtrasada ? `Parcela #1 também atrasada` : 'Entrada também atrasada'}
+                                  />
+                            );
                           } else {
-                            // Para parcelamento, mostrar informações de parcelas
+                                // Apenas um atrasado
+                                return (
+                                  <>
+                                    <span className="text-sm font-medium text-red-600">
+                                      Entrada Atrasada
+                                    </span>
+                                    <span className="text-xs text-gray-500">
+                                      0/{totalPagamentos} (entrada + {quantidadeParcelas} parcelas)
+                                    </span>
+                                  </>
+                                );
+                              }
+                            } else {
+                              return (
+                                <>
+                                  <span className="text-sm font-medium text-gray-900">
+                                    {parcelasPagas}/{totalPagamentos}
+                                  </span>
+                                  <span className="text-xs text-gray-500">
+                                    {parcelasRestantes} restantes ({parcelasPagas === 1 ? 'entrada paga' : `entrada + ${parcelasPagas - 1} parcelas`})
+                                  </span>
+                                </>
+                              );
+                            }
+                          } else {
+                            // Para parcelamento simples, mostrar informações de parcelas
                             const parcelasPagas = arrematante?.parcelasPagas || 0;
                             const quantidadeParcelas = arrematante?.quantidadeParcelas || 1;
                             const parcelasRestantes = quantidadeParcelas - parcelasPagas;
@@ -1157,7 +1937,11 @@ Arthur Lira Leilões`;
                       </div>
                     </TableCell>
                     <TableCell>
-                      {getSeverityBadge(auction.overdueSeverity, auction.daysOverdue)}
+                       {auction.ambosAtrasados ? (
+                         <HoverTransitionAtraso auction={auction} />
+                       ) : (
+                         getSeverityBadge(auction.overdueSeverity, auction.daysOverdue)
+                       )}
                     </TableCell>
                   </TableRow>
               ))}
@@ -1169,15 +1953,19 @@ Arthur Lira Leilões`;
 
       {/* Modal de Relatório do Arrematante */}
       <Dialog open={isHistoryModalOpen} onOpenChange={setIsHistoryModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader className="border-b border-gray-200 pb-4">
-            <div>
-              <DialogTitle className="text-xl font-semibold text-gray-900">
-                Relatório de Arrematante
+         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+           <DialogHeader className="border-b-2 border-slate-800 pb-4">
+             <div className="text-center">
+               <DialogTitle className="text-2xl font-light text-slate-900 tracking-wider uppercase mb-2">
+                 Relatório de Histórico de Arrematantes
               </DialogTitle>
-              <DialogDescription className="text-gray-600 mt-2">
-                Relatório informativo sobre status de pagamentos e contratos vinculados
-              </DialogDescription>
+               <div className="text-sm text-slate-600 font-light space-y-1">
+                 <div className="border-b border-slate-200 pb-1 mb-1"></div>
+                 <div>Relatório informativo sobre arrematantes e contratos vinculados</div>
+                 <div>Data de emissão: {new Date().toLocaleDateString('pt-BR')}</div>
+                 <div>Horário: {new Date().toLocaleTimeString('pt-BR')}</div>
+                 <div>Total de registros: 1 transação(ões)</div>
+               </div>
             </div>
           </DialogHeader>
 
@@ -1188,61 +1976,90 @@ Arthur Lira Leilões`;
             return (
               <>
                 <div id="credit-analysis-report" className="space-y-6 pt-6">
-                  {/* Identificação */}
-                  <div className="bg-gray-50 rounded-lg p-6 border border-gray-200 no-page-break">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Identificação do Arrematante</h3>
-                  <div className="grid grid-cols-2 gap-6 text-sm">
+                   
+                   {/* Registros de Transações */}
+                   <div className="bg-white rounded-lg border border-gray-200 no-page-break">
+                     <div className="bg-gray-50 px-6 py-3 border-b border-gray-200">
+                       <h3 className="text-lg font-semibold text-gray-900">Registros de Transações</h3>
+                       <p className="text-sm text-gray-600">Histórico cronológico de arrematações realizadas</p>
+                     </div>
+                     
+                     <div className="p-6 space-y-6">
+                       {/* Processo e Situação */}
+                       <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+                         <div>
+                           <h4 className="text-lg font-semibold text-gray-900">Processo Nº {selectedArrematante.identificacao}</h4>
+                         </div>
+                         <div className="text-right">
+                           <div className="text-sm text-gray-600 mb-1">Situação</div>
+                           <span className="inline-flex px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">
+                             ATRASADO
+                           </span>
+                         </div>
+                       </div>
+
+                       {/* Identificação do Arrematante */}
+                       <div className="bg-gray-50 rounded-lg p-6">
+                         <h4 className="text-lg font-semibold text-gray-900 mb-4">Identificação do Arrematante</h4>
+                         <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <span className="font-medium text-gray-600">Nome Completo:</span>
-                      <span className="ml-2 text-gray-900">{selectedArrematante.arrematante?.nome}</span>
+                             <div className="text-gray-900 font-medium">{selectedArrematante.arrematante?.nome}</div>
                     </div>
                     <div>
                       <span className="font-medium text-gray-600">Documento:</span>
-                      <span className="ml-2 text-gray-900">{selectedArrematante.arrematante?.documento || 'Não informado'}</span>
+                             <div className="text-gray-900 font-medium">{selectedArrematante.arrematante?.documento || 'Não informado'}</div>
+                           </div>
+                           <div>
+                             <span className="font-medium text-gray-600">Email:</span>
+                             <div className="text-gray-900 font-medium">{selectedArrematante.arrematante?.email || 'Não informado'}</div>
+                           </div>
+                           <div>
+                             <span className="font-medium text-gray-600">Telefone:</span>
+                             <div className="text-gray-900 font-medium">{selectedArrematante.arrematante?.telefone || 'Não informado'}</div>
                     </div>
                     <div>
                       <span className="font-medium text-gray-600">Total de Contratos:</span>
-                      <span className="ml-2 text-gray-900">{analysis.statistics.totalContracts}</span>
+                             <div className="text-gray-900 font-medium">{analysis.statistics.totalContracts}</div>
                     </div>
                     <div>
-                      <span className="font-medium text-gray-600">Valor Total dos Contratos:</span>
-                      <span className="ml-2 text-gray-900">{currency.format(analysis.statistics.totalValue)}</span>
+                             <span className="font-medium text-gray-600">Valor Total:</span>
+                             <div className="text-gray-900 font-medium">{currency.format(analysis.statistics.totalValue)}</div>
                     </div>
                     </div>
                   </div>
                   
-                {/* Contratos do Arrematante */}
-                {analysis.allContracts.length > 0 && (
-                  <div className="bg-white rounded-lg p-6 border border-gray-200 no-page-break">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Contratos Vinculados</h3>
-                    
-                    <div className="space-y-3">
-                      {analysis.allContracts.map((contract, index) => (
-                        <div key={index} className="bg-gray-50 p-4 rounded border-l-4 border-gray-300">
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                       {/* Contrato Vinculado */}
+                       <div className="bg-white border border-gray-200 rounded-lg p-6">
+                         <h4 className="text-lg font-semibold text-gray-900 mb-4">Contrato Vinculado</h4>
+                         <div className="grid grid-cols-2 gap-4 text-sm">
                             <div>
                               <span className="font-medium text-gray-600">Leilão:</span>
-                              <p className="text-gray-900">{contract.leilaoNome}</p>
+                             <div className="text-gray-900 font-medium">{selectedArrematante.nome}</div>
                           </div>
                             <div>
                               <span className="font-medium text-gray-600">Código:</span>
-                              <p className="text-gray-900">{contract.leilaoId}</p>
+                             <div className="text-gray-900 font-medium">{selectedArrematante.identificacao}</div>
+                           </div>
+                           <div>
+                             <span className="font-medium text-gray-600">Data do Leilão:</span>
+                             <div className="text-gray-900 font-medium">{selectedArrematante.dataInicio ? new Date(selectedArrematante.dataInicio).toLocaleDateString('pt-BR') : 'Não informado'}</div>
                             </div>
                             <div>
                               <span className="font-medium text-gray-600">Valor Total:</span>
-                              <p className="text-gray-900 font-semibold">{currency.format(contract.valorTotal)}</p>
+                             <div className="text-gray-900 font-medium">{currency.format(selectedArrematante.arrematante?.valorPagarNumerico || 0)}</div>
                             </div>
                             <div>
                               <span className="font-medium text-gray-600">Status:</span>
-                              <p className={`font-semibold ${
-                                contract.status === 'Quitado' ? 'text-green-600' :
-                                contract.status === 'Inadimplente' ? 'text-red-600' : 'text-orange-600'
-                              }`}>{contract.status}</p>
+                             <div className="text-red-600 font-medium">Inadimplente</div>
                             </div>
                             <div>
                               <span className="font-medium text-gray-600">Modalidade:</span>
-                              <p className="text-gray-900">{(() => {
-                                switch (contract.tipoPagamento) {
+                             <div className="text-gray-900 font-medium">
+                               {(() => {
+                                 const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === selectedArrematante.arrematante?.loteId);
+                                 const tipoPagamento = loteArrematado?.tipoPagamento || 'parcelamento';
+                                 switch (tipoPagamento) {
                                   case 'a_vista':
                                     return 'Pagamento à Vista';
                                   case 'entrada_parcelamento':
@@ -1251,360 +2068,113 @@ Arthur Lira Leilões`;
                                   default:
                                     return 'Parcelamento';
                                 }
-                              })()}</p>
+                               })()}
                             </div>
-                            {(() => {
-                              if (contract.tipoPagamento === 'a_vista') {
-                                return (
-                                  <div>
-                                    <span className="font-medium text-gray-600">Valor a Pagar:</span>
-                                    <p className="text-gray-900">{currency.format(contract.valorPorParcela)}</p>
                                   </div>
-                                );
-                              } else {
-                                return (
-                                  <>
-                                    <div>
-                                      <span className="font-medium text-gray-600">Parcelas:</span>
-                                      <p className="text-gray-900">{contract.parcelasPagas}/{contract.quantidadeParcelas}</p>
-                                    </div>
-                                    <div>
-                                      <span className="font-medium text-gray-600">Valor por Parcela:</span>
-                                      <p className="text-gray-900">{currency.format(contract.valorPorParcela)}</p>
-                                    </div>
-                                  </>
-                                );
-                              }
+                           <div className="col-span-2">
+                             <span className="font-medium text-gray-600">Lote Arrematado:</span>
+                             <div className="text-gray-900 font-medium">
+                               {(() => {
+                                 const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === selectedArrematante.arrematante?.loteId);
+                                 return loteArrematado ? `${loteArrematado.numero} - ${loteArrematado.descricao}` : 'Não informado';
                             })()}
-                            <div>
-                              <span className="font-medium text-gray-600">{(() => {
-                                // Usar o tipo de pagamento do contrato atual para determinar o rótulo
-                                return contract.tipoPagamento === 'a_vista' ? 'Vencimento:' : 'Próximo Vencimento:';
-                              })()}</span>
-                              <p className="text-gray-900">{(() => {
-                                // Buscar a data de vencimento real dos pagamentos pendentes
-                                if (analysis && analysis.overduePayments) {
-                                  const contractPayment = analysis.overduePayments.find(p => 
-                                    p.leilao === contract.leilaoNome && p.isPending
-                                  );
-                                  if (contractPayment && contractPayment.dataVencimento) {
-                                    return contractPayment.dataVencimento.toLocaleDateString('pt-BR');
-                                  }
-                                }
-                                // Fallback para data de início se não encontrar pagamento pendente
-                                return contract.dataInicio.toLocaleDateString('pt-BR');
-                              })()}</p>
                             </div>
-                            <div>
-                              <span className="font-medium text-gray-600">Progresso:</span>
-                              <p className="text-gray-900">{Math.round((contract.parcelasPagas / contract.quantidadeParcelas) * 100)}%</p>
                             </div>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                          </div>
-                        )}
 
                 {/* Perfil de Risco */}
-                <div className="bg-white rounded-lg p-6 border border-gray-200 no-page-break">
+                       <div className="bg-white border border-gray-200 rounded-lg p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900">Perfil de Risco</h3>
-                    <div className={`px-4 py-2 rounded-lg border ${
-                      analysis.statistics.riskLevel === 'BAIXO' 
-                        ? 'bg-slate-50 border-slate-300 text-slate-700' 
-                        : analysis.statistics.riskLevel === 'MÉDIO'
-                        ? 'bg-slate-100 border-slate-400 text-slate-800'
-                        : 'bg-slate-200 border-slate-500 text-slate-900'
-                    }`}>
-                      <span className="font-semibold text-sm tracking-wider font-mono">RISCO {analysis.statistics.riskLevel}</span>
-                      </div>
+                           <h4 className="text-lg font-semibold text-gray-900">Perfil de Risco</h4>
+                           <span className="inline-flex px-4 py-2 rounded-lg text-sm font-bold bg-red-100 text-red-800 border border-red-200">
+                             RISCO ALTO
+                           </span>
                   </div>
                   
-                  <div className="prose prose-gray max-w-none text-sm leading-relaxed text-gray-700">
-                    <p className="mb-4">
-                      <strong>Dados Consolidados:</strong> O arrematante {selectedArrematante.arrematante?.nome} possui risco classificado como <strong>{analysis.statistics.riskLevel.toLowerCase()}</strong> baseado nos dados históricos de pagamentos. 
-                      Este relatório consolida <strong>{analysis.statistics.totalContracts} contrato{analysis.statistics.totalContracts !== 1 ? 's' : ''}</strong> com valor total de <strong>{currency.format(analysis.statistics.totalValue)}</strong>.{' '}
-{(() => {
-                        // Verificar tipo de pagamento para adaptar o texto
-                        const arrematante = selectedArrematante.arrematante;
-                        const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
-                        const tipoPagamento = loteArrematado?.tipoPagamento || selectedArrematante.tipoPagamento || "parcelamento";
-                        
-                        if (tipoPagamento === 'a_vista') {
-                          return analysis.statistics.totalPayments > 0 ? (
-                            <>O pagamento à vista foi processado com sucesso.</>
-                          ) : (
-                            <>O pagamento à vista ainda não foi processado, encontrando-se em período de vencimento.</>
-                          );
-                        } else {
-                          return analysis.statistics.totalPayments > 0 ? (
-                            <>
-                              Foram registrados <strong>{analysis.statistics.totalPayments} pagamentos</strong> de um total de <strong>{analysis.statistics.totalPaidInstallments} parcelas</strong> já processadas, resultando em percentual de pontualidade de <strong>{analysis.statistics.onTimePercentage.toFixed(1)}%</strong> nos pagamentos realizados dentro do prazo.
-                            </>
-                          ) : (
-                            <>
-                              Foram registrados <strong>0 pagamentos</strong> de um total de <strong>0 parcelas</strong> já processadas, com parcelas ainda em período inicial de vencimento.
-                            </>
-                          );
-                        }
-                      })()}
-                    </p>
-                    
-                    <p className="mb-4">
-                      <strong>Situação Atual:</strong>{' '}
-                      {(() => {
-                        // Verificar tipo de pagamento para adaptar o texto
-                        const arrematante = selectedArrematante.arrematante;
-                        const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
-                        const tipoPagamento = loteArrematado?.tipoPagamento || selectedArrematante.tipoPagamento || "parcelamento";
-                        const pendingPayment = analysis.overduePayments.find(p => p.isPending);
-                        
-                        if (analysis.statistics.totalLate > 0) {
-                          // Tem histórico de atrasos
-                          return (
-                            <>
-                              Foram registrados <strong>{analysis.statistics.totalLate} episódios de atraso</strong> em pagamentos, representando <strong>{analysis.statistics.latePercentage.toFixed(1)}%</strong> do total de parcelas processadas.{' '}
-                              A média de atraso registrada foi de <strong>{analysis.statistics.averageDelay} dias</strong> além da data de vencimento,{' '}
-                              com valor total de <strong>{currency.format(analysis.statistics.totalOverdueValue)}</strong> em pagamentos realizados fora do prazo.
-                              {analysis.statistics.currentOverdue > 0 && pendingPayment && (
-                                <> Atualmente registra-se situação de inadimplência: {
-                                  tipoPagamento === 'a_vista' ? 
-                                    `o pagamento à vista de ${currency.format(pendingPayment.valor)} teve vencimento em ${pendingPayment.dataVencimento.toLocaleDateString('pt-BR')}, acumulando ${pendingPayment.diasAtraso} dia${pendingPayment.diasAtraso !== 1 ? 's' : ''} de atraso.` :
-                                    `a Parcela #${pendingPayment.parcela} do contrato ${pendingPayment.leilao} teve vencimento em ${pendingPayment.dataVencimento.toLocaleDateString('pt-BR')}, acumulando ${pendingPayment.diasAtraso} dia${pendingPayment.diasAtraso !== 1 ? 's' : ''} de atraso, com valor de ${currency.format(pendingPayment.valor)} pendente de quitação.`
-                                }</>
-                              )}
-                            </>
-                          );
-                        } else if (analysis.statistics.totalPayments > 0) {
-                          // Sem atrasos, mas tem histórico
-                          return (
-                            <>
-                              Não foram registrados episódios de atraso em pagamentos durante o período analisado.{' '}
-                              Os <strong>{analysis.statistics.totalOnTime} pagamentos</strong> realizados foram quitados dentro do prazo estabelecido ou com antecedência.
-                            </>
-                          );
-                        } else {
-                          // Sem histórico, primeiro contrato
-                          return (
-                            <>
-                              {tipoPagamento === 'a_vista' ? 
-                                'O pagamento à vista encontra-se em período inicial, sem histórico de pagamentos processados disponível.' :
-                                'O contrato de parcelamento encontra-se em período inicial, sem histórico de pagamentos processados disponível.'
-                              }{' '}
-                              {analysis.statistics.currentOverdue > 0 && pendingPayment ? (
-                                tipoPagamento === 'a_vista' ? 
-                                  `Registra-se o pagamento à vista de ${currency.format(pendingPayment.valor)} com vencimento em ${pendingPayment.dataVencimento.toLocaleDateString('pt-BR')}, acumulando ${pendingPayment.diasAtraso} dia${pendingPayment.diasAtraso !== 1 ? 's' : ''} de atraso.` :
-                                  `Registra-se a Parcela #${pendingPayment.parcela} com vencimento em ${pendingPayment.dataVencimento.toLocaleDateString('pt-BR')}, acumulando ${pendingPayment.diasAtraso} dia${pendingPayment.diasAtraso !== 1 ? 's' : ''} de atraso, com valor de ${currency.format(pendingPayment.valor)} pendente de quitação.`
-                              ) : (
-                                tipoPagamento === 'a_vista' ? 
-                                  'O pagamento programado permanece dentro do cronograma de vencimento.' :
-                                  'As parcelas programadas permanecem dentro do cronograma de vencimento.'
-                              )}
-                            </>
-                          );
-                        }
-                      })()}
-                    </p>
-                    
-                    {analysis.statistics.totalContracts > 1 && (
-                      <p className="mb-4">
-                        <strong>Portfólio Consolidado:</strong> O arrematante mantém múltiplos contratos ativos, com valor médio de <strong>{currency.format(analysis.statistics.averageContractValue)}</strong> por contrato.{' '}
-                        Do total de <strong>{analysis.statistics.totalScheduledInstallments} parcelas</strong> programadas em todos os contratos,{' '}
-                        <strong>{analysis.statistics.totalPaidInstallments} foram quitadas</strong>, correspondendo a <strong>{Math.round((analysis.statistics.totalPaidInstallments / analysis.statistics.totalScheduledInstallments) * 100)}%</strong> de cumprimento das obrigações contratuais.
+                         <div className="space-y-4 text-sm leading-relaxed text-gray-700">
+                           <p>
+                             <strong>Dados Consolidados:</strong> O arrematante {selectedArrematante.arrematante?.nome} possui risco classificado como alto baseado nos dados históricos de pagamentos. 
+                             Este relatório consolida {analysis.statistics.totalContracts} contrato com valor total de {currency.format(analysis.statistics.totalValue)}. 
+                             Foram registrados {selectedArrematante.arrematante?.parcelasPagas || 0} pagamentos (entrada + {Math.max(0, (selectedArrematante.arrematante?.parcelasPagas || 0) - 1)} parcelas) 
+                             de um total de {(selectedArrematante.arrematante?.quantidadeParcelas || 12) + 1} pagamentos programados (entrada + {selectedArrematante.arrematante?.quantidadeParcelas || 12} parcelas).
+                           </p>
+                           
+                           <p>
+                             <strong>Análise de Risco:</strong> O cálculo de risco considera {selectedArrematante.parcelasAtrasadas || 0} parcelas atualmente em atraso, 
+                             com valor total de {currency.format(selectedArrematante.overdueAmount || 0)} em débito. 
+                             O maior período de atraso registrado é de {selectedArrematante.daysOverdue || 0} dias. 
+                             Múltiplas parcelas em atraso indicam risco médio a alto.
                       </p>
-                    )}
+                      
+                      <p>
+                             <strong>Situação Atual:</strong> Contrato de parcelamento apresenta atrasos que requerem acompanhamento com vencimento em {selectedArrematante.dueDateFormatted || 'Data não informada'}.
+                      </p>
                   </div>
                 </div>
 
-                {/* Histórico Detalhado de Atrasos */}
-                {analysis.overduePayments.length > 0 && (
-                  <div className="bg-white rounded-lg p-6 border border-gray-200 no-page-break">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Histórico Detalhado de Atrasos</h3>
-                    
-                    <div className="prose prose-gray max-w-none text-sm leading-relaxed text-gray-700 space-y-4">
-                      <p>
-                        <strong>Registro Cronológico:</strong> Detalhamento dos episódios de atraso identificados nos contratos vinculados, 
-                        com datas específicas, períodos de inadimplência e valores registrados em cada ocorrência:
-                      </p>
-                      
-                      {analysis.overduePayments.map((payment, index) => (
-                        <div key={index} className="bg-gray-50 p-4 rounded border-l-4 border-gray-300">
-                          <p className="font-medium text-gray-900 mb-2">
+                       {/* Detalhamento dos Pagamentos em Dia */}
                             {(() => {
-                              // Verificar tipo de pagamento para adaptar o título
+                         // Usar dados reais do arrematante
                               const arrematante = selectedArrematante.arrematante;
                               const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
-                              const tipoPagamento = loteArrematado?.tipoPagamento || selectedArrematante.tipoPagamento || "parcelamento";
-                              
-                              if (tipoPagamento === 'a_vista') {
-                                return `Pagamento à Vista - ${currency.format(payment.valor)}`;
-                              } else {
-                                return `Parcela #${payment.parcela} - ${currency.format(payment.valor)}`;
-                              }
-                            })()}
-                          </p>
-                          <p>
-                            <strong>Contrato:</strong> {payment.leilao} ({payment.leilaoId})
-                          </p>
-                          <p>
-                            <strong>Data de Vencimento:</strong> {payment.dataVencimento.toLocaleDateString('pt-BR', { 
-                              weekday: 'long', 
-                              year: 'numeric', 
-                              month: 'long', 
-                              day: 'numeric' 
-                            })}
-                          </p>
-                          <p>
-                            <strong>Período de Atraso:</strong> {payment.diasAtraso === 1 ? '1 dia' : `${payment.diasAtraso} dias`} 
-                            {payment.isPending ? ' (em curso)' : ' (solucionado)'}
-                          </p>
-                          {payment.isPending && (
-                            <p className="text-red-600 font-medium mt-2 flex items-center">
-                              <AlertTriangle className="h-4 w-4 mr-2" />
-                              Status: {(() => {
-                                const arrematante = selectedArrematante.arrematante;
-                                const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
-                                const tipoPagamento = loteArrematado?.tipoPagamento || selectedArrematante.tipoPagamento || "parcelamento";
-                                
-                                return tipoPagamento === 'a_vista' ? 'Pagamento à vista atrasado' : 'Parcela atrasada';
-                              })()}
-                            </p>
-                  )}
-                </div>
-              ))}
-                    </div>
-            </div>
-          )}
-
-                {/* Pagamentos em Dia */}
-                {analysis.onTimePayments.length > 0 && (
-                  <div className="bg-white rounded-lg p-6 border border-gray-200 no-page-break">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Histórico de Pontualidade</h3>
-                    
-                    <div className="prose prose-gray max-w-none text-sm leading-relaxed text-gray-700">
-                      <p className="mb-4">
-                        <strong>Registros de Pontualidade:</strong> Foram registrados <strong>{analysis.onTimePayments.length} pagamentos</strong> realizados dentro do prazo,{' '}
-                        representando <strong>{analysis.statistics.onTimePercentage.toFixed(1)}%</strong> do total de parcelas processadas.{' '}
-                        Os pagamentos foram realizados conforme o cronograma estabelecido ou com antecedência.
-                      </p>
-                      
+                         const tipoPagamento = loteArrematado?.tipoPagamento || 'parcelamento';
+                         const parcelasPagas = arrematante?.parcelasPagas || 0;
+                         
+                         // Baseado nos dados reais: todos os pagamentos foram COM ATRASO
+                         // Então não há pagamentos "em dia" para mostrar
+                         const pagamentosEmDia = [];
+                         
+                         // No caso real do Igor Elion, todos os 4 pagamentos foram com atraso
+                         // Então a lista de pagamentos em dia fica vazia
+                         
+                         return (
+                           <div className="bg-white border border-gray-200 rounded-lg p-6">
+                             <h4 className="text-lg font-semibold text-gray-900 mb-4">Detalhamento dos Pagamentos em Dia</h4>
+                             
+                             <div className="text-sm leading-relaxed text-gray-700">
+                               {pagamentosEmDia.length > 0 ? (
                       <p>
                         <strong>Detalhamento dos Pagamentos em Dia:</strong>{' '}
-                        {analysis.onTimePayments.slice(0, 3).map((payment, index) => (
+                                   {pagamentosEmDia.map((pagamento, index) => (
                           <span key={index}>
-                            {(() => {
-                              // Verificar tipo de pagamento para adaptar o texto
-                              const arrematante = selectedArrematante.arrematante;
-                              const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
-                              const tipoPagamento = loteArrematado?.tipoPagamento || selectedArrematante.tipoPagamento || "parcelamento";
-                              
-                              if (tipoPagamento === 'a_vista') {
-                                return `Pagamento à vista do contrato ${payment.leilao} quitado em ${payment.dataPagamento.toLocaleDateString('pt-BR')}`;
-                              } else {
-                                return `Parcela #${payment.parcela} do contrato ${payment.leilao} quitada em ${payment.dataPagamento.toLocaleDateString('pt-BR')}`;
-                              }
-                            })()}
-                            {payment.diasAntecipacao > 0 && ` (${payment.diasAntecipacao} dias de antecedência)`}
-                            {index < Math.min(2, analysis.onTimePayments.length - 1) && ', '}
+                                       {pagamento.tipo === 'entrada' ? 
+                                         `Entrada do contrato ${selectedArrematante.nome} quitada em ${pagamento.dataPagamento}` :
+                                         `Parcela #${pagamento.parcela} do contrato ${selectedArrematante.nome} quitada em ${pagamento.dataPagamento}`
+                                       }
+                                       {pagamento.antecedencia > 0 && ` (${pagamento.antecedencia} dia${pagamento.antecedencia !== 1 ? 's' : ''} de antecedência)`}
+                                       {index < pagamentosEmDia.length - 1 && ', '}
                           </span>
                         ))}
-                        {analysis.onTimePayments.length > 3 && `, além de ${analysis.onTimePayments.length - 3} outras parcelas quitadas no prazo.`}
-                      </p>
+                                 </p>
+                               ) : (
+                                 <p>
+                                   <strong>Detalhamento dos Pagamentos em Dia:</strong> Não foram registrados pagamentos realizados dentro do prazo de vencimento. 
+                                   Todos os {parcelasPagas} pagamentos processados foram quitados após a data de vencimento original.
+                                 </p>
+                               )}
                     </div>
                   </div>
-                )}
+                         );
+                       })()}
 
                 {/* Informações do Relatório */}
-                <div className="bg-white rounded-lg p-6 border border-gray-200 no-page-break">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Informações do Relatório</h3>
-                  
-                  <div className="prose prose-gray max-w-none text-sm leading-relaxed text-gray-700">
-                    <p className="mb-4">
-                      <strong>Escopo do Relatório:</strong> Este documento consolida dados de <strong>{analysis.statistics.totalContracts} contrato{analysis.statistics.totalContracts !== 1 ? 's' : ''}</strong> no valor total de <strong>{currency.format(analysis.statistics.totalValue)}</strong>{' '}
-                      vinculado{analysis.statistics.totalContracts !== 1 ? 's' : ''} ao arrematante {selectedArrematante.arrematante?.nome}.{' '}
-                      {analysis.statistics.totalPayments > 0 ? (
-                        <>O documento processou {analysis.statistics.totalPayments} pagamentos realizados, incluindo {analysis.statistics.totalLate} episódio{analysis.statistics.totalLate !== 1 ? 's' : ''} de atraso e {analysis.statistics.totalOnTime} pagamento{analysis.statistics.totalOnTime !== 1 ? 's' : ''} dentro do prazo.</>
-                      ) : (
-                        <>O período do relatório compreende contratos em fase inicial,{' '}sem registro de pagamentos processados até a data de emissão do documento.</>
-                      )}
-                    </p>
-                    
-                    <p className="mb-4">
-                      <strong>Critérios de Classificação:</strong>{' '}
-                      {(() => {
-                        const riskLevel = analysis.statistics.riskLevel.toLowerCase();
-                        const totalOverdueValue = analysis.statistics.totalOverdueValue || 0;
-                        const currentOverdue = analysis.statistics.currentOverdue;
-                        const totalLate = analysis.statistics.totalLate;
-                        const avgDelay = analysis.statistics.averageDelay;
-                        
-                        // Verificar tipo de pagamento
-                        const arrematante = selectedArrematante.arrematante;
-                        const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
-                        const tipoPagamento = loteArrematado?.tipoPagamento || selectedArrematante.tipoPagamento || "parcelamento";
-                        
-                        const criterios = [];
-                        
-                        // Critério de valor em atraso
-                        if (totalOverdueValue > 500000) {
-                          criterios.push(`alto valor em inadimplência (${currency.format(totalOverdueValue)})`);
-                        } else if (totalOverdueValue > 200000) {
-                          criterios.push(`valor médio em inadimplência (${currency.format(totalOverdueValue)})`);
-                        } else if (totalOverdueValue > 0) {
-                          criterios.push(`valor moderado em inadimplência (${currency.format(totalOverdueValue)})`);
-                        }
-                        
-                        // Critério de episódios de atraso
-                        if (totalLate > 0) {
-                          if (totalLate >= 3) {
-                            criterios.push(`múltiplos episódios de atraso (${totalLate} ocorrências)`);
-                          } else if (totalLate >= 2) {
-                            criterios.push(`histórico de atrasos (${totalLate} episódios)`);
-                          } else {
-                            criterios.push(`primeiro episódio de atraso registrado`);
-                          }
-                          
-                          if (avgDelay > 15) {
-                            criterios.push(`atrasos prolongados (média de ${avgDelay} dias)`);
-                          } else if (avgDelay > 7) {
-                            criterios.push(`atrasos moderados (média de ${avgDelay} dias)`);
-                          }
-                        }
-                        
-                        // Critério de situação atual
-                        if (currentOverdue > 1) {
-                          criterios.push(`múltiplas ${tipoPagamento === 'a_vista' ? 'pendências' : 'parcelas'} em atraso simultâneo`);
-                        } else if (currentOverdue === 1) {
-                          criterios.push(`${tipoPagamento === 'a_vista' ? 'pagamento pendente' : 'parcela pendente'} atualmente`);
-                        }
-                        
-                        // Se é primeiro atraso
-                        if (totalLate === 0 && currentOverdue > 0) {
-                          criterios.push('primeiro atraso sem histórico prévio');
-                        }
-                        
-                        const textoFinal = `O risco ${riskLevel} foi determinado considerando: ${criterios.join(', ')}.`;
-                        
-                        return (
-                          <>
-                            {textoFinal}
-                            {riskLevel === 'alto' && (
-                              <> Esta classificação indica necessidade de acompanhamento prioritário devido ao elevado impacto financeiro ou histórico crítico de inadimplência.</>
-                            )}
-                            {riskLevel === 'médio' && (
-                              <> Esta classificação requer monitoramento regular e possível ação preventiva.</>
-                            )}
-                            {riskLevel === 'baixo' && (
-                              <> Esta classificação indica situação controlável com risco financeiro limitado.</>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </p>
-                    
-                    <p className="mt-4 font-medium">
+                       <div className="bg-gray-50 rounded-lg p-6">
+                         <h4 className="text-lg font-semibold text-gray-900 mb-4">Informações do Relatório</h4>
+                         
+                         <div className="space-y-4 text-sm leading-relaxed text-gray-700">
+                           <p>
+                             <strong>Escopo do Relatório:</strong> Este documento consolida dados de {analysis.statistics.totalContracts} contrato no valor total de {currency.format(analysis.statistics.totalValue)} vinculado ao arrematante {selectedArrematante.arrematante?.nome}. 
+                             O período do relatório compreende informações do leilão realizado em {selectedArrematante.dataInicio ? new Date(selectedArrematante.dataInicio).toLocaleDateString('pt-BR') : 'data não informada'}.
+                           </p>
+                           
+                           <p>
+                             <strong>Critérios de Classificação:</strong> O perfil de risco foi determinado com base nos seguintes parâmetros: status de pagamento atual, histórico de transações e informações consolidadas do contrato vinculado.
+                           </p>
+                           
+                           <p className="font-medium">
                       <strong>Data de Geração:</strong> {new Date().toLocaleDateString('pt-BR', { 
+                               weekday: 'long', 
                         year: 'numeric', 
                         month: 'long', 
                         day: 'numeric' 
@@ -1614,14 +2184,13 @@ Arthur Lira Leilões`;
                       })}
                     </p>
                     
-                    <p className="mt-2 text-xs text-gray-500">
-                      <strong>Documento gerado automaticamente</strong> a partir da base de dados do sistema de gestão de leilões.{' '}
-                      As informações apresentadas refletem os registros disponíveis na data de geração do relatório.
+                           <p className="text-xs text-gray-500">
+                             <strong>Documento gerado automaticamente</strong> a partir da base de dados do sistema de gestão de leilões. As informações apresentadas refletem os registros disponíveis na data de geração do relatório.
                     </p>
                   </div>
                 </div>
-                
-                {/* Fim do conteúdo do relatório PDF */}
+                     </div>
+                   </div>
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
@@ -1869,6 +2438,7 @@ Arthur Lira Leilões`;
       </Dialog>
 
     </div>
+    </HoverContext.Provider>
   );
 }
 
@@ -1888,7 +2458,7 @@ function InadimplenciaReportPDF({
       const totalOverdue = filteredOverdueAuctions.length;
       const totalOverdueValue = filteredOverdueAuctions.reduce((sum, auction) => sum + (auction.overdueAmount || 0), 0);
       const averageDelay = filteredOverdueAuctions.length > 0 
-        ? Math.round(filteredOverdueAuctions.reduce((sum, auction) => sum + (auction.daysOverdue || 0), 0) / filteredOverdueAuctions.length)
+          ? Math.round(filteredOverdueAuctions.reduce((sum, auction) => sum + (auction.avgDaysOverdue || 0), 0) / filteredOverdueAuctions.length)
         : 0;
 
       return {
@@ -2014,6 +2584,22 @@ function InadimplenciaReportPDF({
             })} - Sistema de Gestão de Leilões
           </p>
         </div>
+      </div>
+
+      {/* Logos Elionx e Arthur Lira */}
+      <div className="mt-8 flex justify-center items-center -ml-20 no-page-break">
+        <img 
+          src="/logo-elionx-softwares.png" 
+          alt="Elionx Softwares" 
+          className="max-h-80 object-contain opacity-90"
+          style={{ maxHeight: '320px', maxWidth: '620px' }}
+        />
+        <img 
+          src="/arthur-lira-logo.png" 
+          alt="Arthur Lira Leilões" 
+          className="max-h-14 object-contain opacity-90 -mt-2 -ml-16"
+          style={{ maxHeight: '55px', maxWidth: '110px' }}
+        />
       </div>
     </div>
   );

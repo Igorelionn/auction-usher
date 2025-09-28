@@ -29,6 +29,17 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
     parcelasPadrao: auction.parcelasPadrao?.toString() || '',
     mesInicioPagamento: auction.mesInicioPagamento || '',
   });
+  // Função para converter string de moeda para número
+  const parseCurrencyToNumber = (currencyString: string): number => {
+    if (!currencyString) return 0;
+    // Remove R$, espaços, pontos (milhares) e converte vírgula para ponto decimal
+    const cleanString = currencyString
+      .replace(/[R$\s]/g, '')
+      .replace(/\./g, '')
+      .replace(',', '.');
+    return parseFloat(cleanString) || 0;
+  };
+
   const formatCurrency = (value: string | number | undefined) => {
     if (!value && value !== 0) return 'R$ 0,00';
     
@@ -40,29 +51,22 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
     }
     
     if (typeof value === 'string') {
-      // Se já tem formatação R$, retorna como está
-      if (value.startsWith('R$')) return value;
+      // Se já tem formatação R$, usa parseCurrencyToNumber para converter corretamente
+      if (value.startsWith('R$')) {
+        const numericValue = parseCurrencyToNumber(value);
+        return new Intl.NumberFormat('pt-BR', {
+          style: 'currency',
+          currency: 'BRL'
+        }).format(numericValue);
+      }
       
-      // Tenta converter string para número
-      const cleanValue = value.replace(/[^\d.,]/g, '');
-      if (cleanValue.includes(',')) {
-        // Formato brasileiro (ex: 90.000,00 ou 90000,00)
-        const numericValue = parseFloat(cleanValue.replace(/\./g, '').replace(',', '.'));
-        if (!isNaN(numericValue)) {
-          return new Intl.NumberFormat('pt-BR', {
-            style: 'currency',
-            currency: 'BRL'
-          }).format(numericValue);
-        }
-      } else if (cleanValue) {
-        // Formato americano ou número inteiro
-        const numericValue = parseFloat(cleanValue);
-        if (!isNaN(numericValue)) {
-          return new Intl.NumberFormat('pt-BR', {
-            style: 'currency',
-            currency: 'BRL'
-          }).format(numericValue);
-        }
+      // Para strings sem R$, tenta converter diretamente
+      const numericValue = parseCurrencyToNumber(`R$ ${value}`);
+      if (!isNaN(numericValue) && numericValue > 0) {
+        return new Intl.NumberFormat('pt-BR', {
+          style: 'currency',
+          currency: 'BRL'
+        }).format(numericValue);
       }
       
       // Se não conseguiu converter, adiciona R$ se não tiver
@@ -502,7 +506,19 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
                                {mercadoria.quantidade && ` (Qtd: ${mercadoria.quantidade})`}
                              </span>
                             <span className="text-gray-500 font-medium">
-                              R$ {mercadoria.valorNumerico?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              {(() => {
+                                // Priorizar valorNumerico se disponível e maior que 0
+                                if (mercadoria.valorNumerico && mercadoria.valorNumerico > 0) {
+                                  return formatCurrency(mercadoria.valorNumerico);
+                                }
+                                
+                                // Fallback para valor (que pode estar como string formatada)
+                                if (mercadoria.valor) {
+                                  return formatCurrency(mercadoria.valor);
+                                }
+                                
+                                return 'R$ 0,00';
+                              })()}
                             </span>
                            </div>
                          ))}
@@ -770,10 +786,9 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
                      <FileText className="h-4 w-4 text-gray-600" />
                      <div className="flex-1">
                        <p className="font-semibold text-gray-900">{doc.nome}</p>
-                       <div className="text-sm text-gray-600 grid grid-cols-3 gap-2">
+                       <div className="text-sm text-gray-600 grid grid-cols-2 gap-2">
                          <span><strong>Tipo:</strong> {doc.tipo}</span>
                          <span><strong>Tamanho:</strong> {formatFileSize(doc.tamanho)}</span>
-                         <span><strong>Upload:</strong> {formatDate(doc.dataUpload)}</span>
                        </div>
                      </div>
                    </div>
@@ -880,7 +895,21 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
                                  <p className="text-gray-700 font-medium">{mercadoria.tipo}</p>
                                </div>
                                <div className="text-right">
-                                 <p className="text-lg font-semibold text-gray-900">{formatCurrency(mercadoria.valor)}</p>
+                                 <p className="text-lg font-semibold text-gray-900">
+                                  {(() => {
+                                    // Priorizar valorNumerico se disponível e maior que 0
+                                    if (mercadoria.valorNumerico && mercadoria.valorNumerico > 0) {
+                                      return formatCurrency(mercadoria.valorNumerico);
+                                    }
+                                    
+                                    // Fallback para valor (que pode estar como string formatada)
+                                    if (mercadoria.valor) {
+                                      return formatCurrency(mercadoria.valor);
+                                    }
+                                    
+                                    return 'R$ 0,00';
+                                  })()}
+                                </p>
                                </div>
                              </div>
 
@@ -958,17 +987,7 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
                            <span className="font-semibold text-gray-700">Tamanho:</span>
                            <p className="text-gray-800">{formatFileSize(doc.tamanho)}</p>
                          </div>
-                         <div>
-                           <span className="font-semibold text-gray-700">Upload:</span>
-                           <p className="text-gray-800">{formatDate(doc.dataUpload)}</p>
-                         </div>
                        </div>
-                       {doc.url && (
-                         <div className="mt-2 bg-white p-2 rounded border border-gray-200 text-xs">
-                           <span className="font-semibold text-gray-600">URL:</span>
-                           <p className="text-gray-700 font-mono break-all">{doc.url}</p>
-                         </div>
-                       )}
                      </div>
                    </div>
                  ))}
@@ -997,17 +1016,7 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
                            <span className="font-semibold text-gray-700">Tamanho:</span>
                            <p className="text-gray-800">{formatFileSize(foto.tamanho)}</p>
                          </div>
-                         <div>
-                           <span className="font-semibold text-gray-700">Upload:</span>
-                           <p className="text-gray-800">{formatDate(foto.dataUpload)}</p>
-                         </div>
                        </div>
-                       {foto.url && (
-                         <div className="mt-2 bg-white p-2 rounded border border-gray-200 text-xs">
-                           <span className="font-semibold text-gray-600">URL:</span>
-                           <p className="text-gray-700 font-mono break-all">{foto.url}</p>
-                         </div>
-                       )}
                      </div>
                    </div>
                  ))}
@@ -1055,6 +1064,32 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
             <span>Data: {new Date().toLocaleDateString('pt-BR')} - {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
         </div>
+      </div>
+
+      {/* Logos Elionx e Arthur Lira */}
+      <div className="mt-8 flex justify-center items-center -ml-20 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+        <img 
+          src="/logo-elionx-softwares.png" 
+          alt="Elionx Softwares" 
+          className="max-h-80 object-contain opacity-90"
+          style={{ maxHeight: '320px', maxWidth: '620px' }}
+          onError={(e) => {
+            console.error('Erro ao carregar logo da Elionx:', e);
+            e.currentTarget.style.display = 'none';
+          }}
+          onLoad={() => console.log('Logo da Elionx carregado com sucesso')}
+        />
+        <img 
+          src="/arthur-lira-logo.png" 
+          alt="Arthur Lira Leilões" 
+          className="max-h-14 object-contain opacity-90 -mt-2 -ml-16"
+          style={{ maxHeight: '55px', maxWidth: '110px' }}
+          onError={(e) => {
+            console.error('Erro ao carregar logo do Arthur Lira:', e);
+            e.currentTarget.style.display = 'none';
+          }}
+          onLoad={() => console.log('Logo do Arthur Lira carregado com sucesso')}
+        />
       </div>
       </div>
     </div>

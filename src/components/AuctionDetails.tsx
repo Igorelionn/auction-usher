@@ -713,8 +713,16 @@ export function AuctionDetails({ auction }: AuctionDetailsProps) {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{doc.nome}</p>
                         <p className="text-xs text-gray-500">
-                          {doc.tamanho ? `${(doc.tamanho / 1024).toFixed(1)} KB` : 'N/A'} •{" "}
-                          {doc.dataUpload ? new Date(doc.dataUpload).toLocaleDateString('pt-BR') : 'N/A'}
+                          {doc.tamanho ? `${(doc.tamanho / 1024).toFixed(1)} KB` : 'N/A'}{(() => {
+                            if (!doc.dataUpload) return '';
+                            try {
+                              const date = new Date(doc.dataUpload);
+                              if (isNaN(date.getTime())) return '';
+                              return ` • ${date.toLocaleDateString('pt-BR')}`;
+                            } catch {
+                              return '';
+                            }
+                          })()}
                         </p>
                       </div>
                       {doc.url && (
