@@ -178,33 +178,20 @@ export default function Dashboard() {
           const valorRestante = valorTotal - valorEntrada;
           const valorPorParcela = valorRestante / quantidadeParcelas;
           
-          // Calcular valor recebido: entrada + parcelas pagas (com juros se aplicável)
+          // Calcular valor recebido: entrada + parcelas pagas
           if (parcelasPagas >= 1) {
-            // Entrada foi paga - aplicar juros na entrada se estiver atrasada
-            const { valorComJuros: entradaComJuros } = calcularJurosAtraso(arrematante, auction, valorEntrada);
+            // Entrada foi paga
             const parcelasEfetivasPagas = Math.max(0, parcelasPagas - 1);
-            
-            // Aplicar juros nas parcelas pagas se estiverem atrasadas
-            const { valorComJuros: parcelaComJuros } = calcularJurosAtraso(arrematante, auction, valorPorParcela);
-            
-            return total + entradaComJuros + (parcelasEfetivasPagas * parcelaComJuros);
+            return total + valorEntrada + (parcelasEfetivasPagas * valorPorParcela);
           }
         } else if (tipoPagamento === 'parcelamento' || !tipoPagamento) {
-          // Para parcelamento simples (com juros se aplicável)
+          // Para parcelamento simples
           const quantidadeParcelas = arrematante?.quantidadeParcelas || 1;
           const valorPorParcela = valorTotal / quantidadeParcelas;
-          
-          // Aplicar juros nas parcelas pagas se estiverem atrasadas
-          const { valorComJuros: parcelaComJuros } = calcularJurosAtraso(arrematante, auction, valorPorParcela);
-          
-          return total + (parcelasPagas * parcelaComJuros);
+          return total + (parcelasPagas * valorPorParcela);
         } else if (tipoPagamento === 'a_vista') {
-          // Para à vista, se parcelasPagas > 0, foi pago (com juros se aplicável)
-          if (parcelasPagas > 0) {
-            const { valorComJuros } = calcularJurosAtraso(arrematante, auction, valorTotal);
-            return total + valorComJuros;
-          }
-          return total;
+          // Para à vista, se parcelasPagas > 0, foi pago
+          return total + (parcelasPagas > 0 ? valorTotal : 0);
         }
       }
       
@@ -220,16 +207,12 @@ export default function Dashboard() {
   // CORREÇÃO: Usar cálculo local para garantir que conte apenas leilões não arquivados
   const localActiveAuctionsCount = activeAuctions.filter(a => a.status === "em_andamento").length;
 
-  // Calcular valores localmente para evitar duplicatas (incluindo juros quando há atraso)
+  // Calcular valores localmente para evitar duplicatas
   const localTotalAReceber = activeAuctions
     .filter(auction => auction.arrematante && !auction.arrematante.pago)
     .reduce((total, auction) => {
       const valorPagar = auction.arrematante?.valorPagarNumerico || 0;
-      
-      // Aplicar juros se estiver atrasado
-      const { valorComJuros } = calcularJurosAtraso(auction.arrematante, auction, valorPagar);
-      
-      return total + valorComJuros;
+      return total + valorPagar;
     }, 0);
 
   const localTotalArrematantes = activeAuctions
@@ -354,42 +337,6 @@ export default function Dashboard() {
     }
   };
 
-  // Função para calcular juros por atraso
-  const calcularJurosAtraso = (arrematante: any, auction: any, valorOriginal: number): { valorComJuros: number, jurosAplicados: number, mesesAtraso: number } => {
-    if (!arrematante?.percentualJurosAtraso || arrematante.percentualJurosAtraso <= 0 || arrematante.pago) {
-      return { valorComJuros: valorOriginal, jurosAplicados: 0, mesesAtraso: 0 };
-    }
-
-    const nextPaymentDate = calculateNextPaymentDate(arrematante, auction);
-    if (!nextPaymentDate) {
-      return { valorComJuros: valorOriginal, jurosAplicados: 0, mesesAtraso: 0 };
-    }
-
-    const now = new Date();
-    const vencimento = new Date(nextPaymentDate);
-    
-    // Se não está atrasado, retorna valor original
-    if (now <= vencimento) {
-      return { valorComJuros: valorOriginal, jurosAplicados: 0, mesesAtraso: 0 };
-    }
-
-    // Calcular meses de atraso
-    const diffTime = now.getTime() - vencimento.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    const mesesAtraso = Math.ceil(diffDays / 30); // Aproximação: 30 dias = 1 mês
-
-    // Calcular juros compostos automaticamente
-    const taxaMensal = arrematante.percentualJurosAtraso / 100;
-    
-    // Juros compostos: M = C * (1 + i)^t
-    // Onde: C = capital inicial, i = taxa mensal, t = tempo em meses
-    const valorComJuros = valorOriginal * Math.pow(1 + taxaMensal, mesesAtraso);
-
-    const jurosAplicados = valorComJuros - valorOriginal;
-
-    return { valorComJuros, jurosAplicados, mesesAtraso };
-  };
-
   const getProximaDataVencimento = (arrematante: any, auction: any) => {
     const nextDate = calculateNextPaymentDate(arrematante, auction);
     if (!nextDate || isNaN(nextDate.getTime())) {
@@ -455,16 +402,13 @@ export default function Dashboard() {
       } else if (isOverdue(auction.arrematante, auction)) {
         status = "atrasado";
       }
-         
-         // Calcular juros se estiver atrasado
-         const { valorComJuros } = calcularJurosAtraso(auction.arrematante, auction, valorPorParcela);
-         
-         return {
-           id: `invoice-${auction.id}`,
-           bidder: auction.arrematante?.nome || "—",
-           amount: currency.format(valorComJuros),
-           dueDate: getProximaDataVencimento(auction.arrematante, auction),
-           status,
+      
+      return {
+        id: `invoice-${auction.id}`,
+        bidder: auction.arrematante?.nome || "—",
+        amount: currency.format(valorPorParcela),
+        dueDate: getProximaDataVencimento(auction.arrematante, auction),
+        status,
         parcelas: (() => {
           if (!loteArrematado || !loteArrematado.tipoPagamento) {
             return `${auction.arrematante?.parcelasPagas || 0}/${auction.arrematante?.quantidadeParcelas || 1}`;
@@ -982,19 +926,13 @@ export default function Dashboard() {
                                       ? auction.arrematante.valorPagarNumerico 
                                       : (typeof auction.arrematante?.valorPagar === 'number' ? auction.arrematante.valorPagar : 0);
                                     
-                                     if (!loteArrematado || !loteArrematado.tipoPagamento) {
-                                       const valorPorParcela = valorTotal / (auction.arrematante?.quantidadeParcelas || 1);
-                                       const { valorComJuros } = calcularJurosAtraso(auction.arrematante, auction, valorPorParcela);
-                                       const valorExibir = valorComJuros > valorPorParcela ? valorComJuros : valorPorParcela;
-                                       return `Parcelas: ${auction.arrematante?.parcelasPagas || 0}/${auction.arrematante?.quantidadeParcelas || 1} • ${currency.format(valorExibir)} por parcela${valorComJuros > valorPorParcela ? ' (c/ juros)' : ''}`;
-                                     }
+                                    if (!loteArrematado || !loteArrematado.tipoPagamento) {
+                                      return `Parcelas: ${auction.arrematante?.parcelasPagas || 0}/${auction.arrematante?.quantidadeParcelas || 1} • ${currency.format(valorTotal / (auction.arrematante?.quantidadeParcelas || 1))} por parcela`;
+                                    }
                                     
                                     switch (loteArrematado.tipoPagamento) {
-                                      case 'a_vista': {
-                                        const { valorComJuros } = calcularJurosAtraso(auction.arrematante, auction, valorTotal);
-                                        const valorExibir = valorComJuros > valorTotal ? valorComJuros : valorTotal;
-                                        return `Valor total: ${currency.format(valorExibir)} (à vista)${valorComJuros > valorTotal ? ' (c/ juros)' : ''}`;
-                                      }
+                                      case 'a_vista':
+                                        return `Valor total: ${currency.format(valorTotal)} (à vista)`;
                                       
                                       case 'entrada_parcelamento': {
                                         const parcelasPagas = auction.arrematante?.parcelasPagas || 0;
@@ -1007,17 +945,13 @@ export default function Dashboard() {
                                           // Mostra entrada + info das parcelas futuras
                                           const valorRestante = valorTotal - valorEntrada;
                                           const valorPorParcela = valorRestante / quantidadeParcelasTotal;
-                                          const { valorComJuros } = calcularJurosAtraso(auction.arrematante, auction, valorEntrada);
-                                          const valorExibir = valorComJuros > valorEntrada ? valorComJuros : valorEntrada;
-                                          return `Entrada: ${currency.format(valorExibir)} ${valorComJuros > valorEntrada ? '(c/ juros)' : ''} • Parcelas: ${quantidadeParcelasTotal}x ${currency.format(valorPorParcela)}`;
+                                          return `Entrada: ${currency.format(valorEntrada)} • Parcelas: ${quantidadeParcelasTotal}x ${currency.format(valorPorParcela)}`;
                                         } else {
                                           // Mostra parcelas após entrada (parcelasPagas-1 porque a primeira "parcela paga" é a entrada)
                                           const parcelasEfetivasPagas = Math.max(0, parcelasPagas - 1);
                                           const valorRestante = valorTotal - valorEntrada;
                                           const valorPorParcela = valorRestante / quantidadeParcelasTotal;
-                                          const { valorComJuros } = calcularJurosAtraso(auction.arrematante, auction, valorPorParcela);
-                                          const valorExibir = valorComJuros > valorPorParcela ? valorComJuros : valorPorParcela;
-                                          return `Entrada + ${quantidadeParcelasTotal} parcelas: ${parcelasEfetivasPagas}/${quantidadeParcelasTotal} • ${currency.format(valorExibir)} por parcela${valorComJuros > valorPorParcela ? ' (c/ juros)' : ''}`;
+                                          return `Entrada + ${quantidadeParcelasTotal} parcelas: ${parcelasEfetivasPagas}/${quantidadeParcelasTotal} • ${currency.format(valorPorParcela)} por parcela`;
                                         }
                                       }
                                       
@@ -1026,9 +960,7 @@ export default function Dashboard() {
                                         const quantidadeParcelas = loteArrematado.parcelasPadrao || 1;
                                         const parcelasPagas = auction.arrematante?.parcelasPagas || 0;
                                         const valorPorParcela = valorTotal / quantidadeParcelas;
-                                        const { valorComJuros } = calcularJurosAtraso(auction.arrematante, auction, valorPorParcela);
-                                        const valorExibir = valorComJuros > valorPorParcela ? valorComJuros : valorPorParcela;
-                                        return `Parcelas: ${parcelasPagas}/${quantidadeParcelas} • ${currency.format(valorExibir)} por parcela${valorComJuros > valorPorParcela ? ' (c/ juros)' : ''}`;
+                                        return `Parcelas: ${parcelasPagas}/${quantidadeParcelas} • ${currency.format(valorPorParcela)} por parcela`;
                                       }
                                     }
                                   })()}
