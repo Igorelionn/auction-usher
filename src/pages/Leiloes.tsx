@@ -183,7 +183,10 @@ function Leiloes() {
     parcelasPagas: 0,
     mesInicioPagamento: new Date().toISOString().slice(0, 7), // YYYY-MM formato
     pago: false,
-    documentos: [] as DocumentoInfo[]
+    documentos: [] as DocumentoInfo[],
+    // Campos de juros
+    percentualJurosAtraso: 0, // Percentual de juros por mês de atraso
+    tipoJurosAtraso: "composto" as "simples" | "composto" // Sempre juros compostos
   });
   const [documentType, setDocumentType] = useState<'CPF' | 'CNPJ'>('CPF');
 
@@ -360,7 +363,10 @@ function Leiloes() {
               : `${new Date().getFullYear()}-${addingArrematanteFor.arrematante.mesInicioPagamento}`)
           : new Date().toISOString().slice(0, 7),
         pago: addingArrematanteFor.arrematante.pago || false,
-        documentos: addingArrematanteFor.arrematante.documentos || []
+        documentos: addingArrematanteFor.arrematante.documentos || [],
+        // Campos de juros
+        percentualJurosAtraso: addingArrematanteFor.arrematante.percentualJurosAtraso || 0,
+        tipoJurosAtraso: "composto" // Sempre juros compostos
       });
       
       // Detectar tipo de documento automaticamente
@@ -393,7 +399,10 @@ function Leiloes() {
         parcelasPagas: 0,
         mesInicioPagamento: mesLeilao,
         pago: false,
-        documentos: []
+        documentos: [],
+        // Campos de juros
+        percentualJurosAtraso: 0,
+        tipoJurosAtraso: "simples"
       });
       setDocumentType('CPF'); // Resetar para CPF como padrão
       setArrematanteMode('edit');
@@ -683,7 +692,10 @@ function Leiloes() {
       parcelasPagas: typeof arrematanteForm.parcelasPagas === 'number' ? arrematanteForm.parcelasPagas : 0,
       mesInicioPagamento: arrematanteForm.mesInicioPagamento,
       pago: arrematanteForm.pago,
-      documentos: arrematanteForm.documentos
+      documentos: arrematanteForm.documentos,
+      // Campos de juros
+      percentualJurosAtraso: arrematanteForm.percentualJurosAtraso,
+      tipoJurosAtraso: arrematanteForm.tipoJurosAtraso
     };
 
     // Preparar os lotes atualizados se um lote foi arrematado
@@ -721,7 +733,10 @@ function Leiloes() {
       parcelasPagas: 0,
       mesInicioPagamento: new Date().toISOString().slice(0, 7),
       pago: false,
-      documentos: []
+      documentos: [],
+      // Campos de juros
+      percentualJurosAtraso: 0,
+      tipoJurosAtraso: "composto"
     });
     setAddingArrematanteFor(null);
   };
@@ -742,7 +757,10 @@ function Leiloes() {
       parcelasPagas: 0,
       mesInicioPagamento: new Date().toISOString().slice(0, 7),
       pago: false,
-      documentos: []
+      documentos: [],
+      // Campos de juros
+      percentualJurosAtraso: 0,
+      tipoJurosAtraso: "composto"
     });
     setDocumentType('CPF'); // Resetar tipo de documento
     setAddingArrematanteFor(null);
@@ -2402,6 +2420,54 @@ function Leiloes() {
                 
                 return null;
               })()}
+
+              {/* Configuração de Juros por Atraso */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium text-gray-700">Juros por Atraso</Label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="percentualJurosAtraso" className="text-sm font-medium text-gray-700">
+                      Percentual de Juros (% ao mês)
+                    </Label>
+                    <Input
+                      id="percentualJurosAtraso"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={arrematanteForm.percentualJurosAtraso || ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === "") {
+                          handleArrematanteFormChange("percentualJurosAtraso", 0);
+                        } else {
+                          const numValue = parseFloat(value);
+                          if (!isNaN(numValue) && numValue >= 0 && numValue <= 100) {
+                            handleArrematanteFormChange("percentualJurosAtraso", numValue);
+                          }
+                        }
+                      }}
+                      placeholder="Ex: 2.5"
+                      className="h-10 border-gray-300 focus:!border-gray-900 focus:!ring-0 focus:!outline-none bg-white text-sm"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Taxa de juros aplicada por mês de atraso (0 = sem juros)
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-gray-700">
+                      Tipo de Juros
+                    </Label>
+                    <div className="flex h-10 w-full items-center justify-between rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                      <span>Juros Compostos (Automático)</span>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Juros são calculados automaticamente sobre o valor total atrasado, aumentando a cada mês de atraso
+                    </p>
+                  </div>
+                </div>
+              </div>
 
               {/* Documentos */}
               <div className="space-y-3">

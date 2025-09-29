@@ -55,6 +55,9 @@ export interface ArrematanteInfo {
   mesInicioPagamento: string; // mês de início do pagamento (formato YYYY-MM)
   pago?: boolean; // se está completamente quitado
   documentos?: DocumentoInfo[]; // informações completas dos documentos
+  // Campos de juros por atraso
+  percentualJurosAtraso?: number; // percentual de juros por mês de atraso (0-100)
+  tipoJurosAtraso?: "simples" | "composto"; // tipo de juros aplicado
 }
 
 export interface Auction {

@@ -262,7 +262,10 @@ function Arrematantes() {
     parcelasPagas: 0,
     mesInicioPagamento: new Date().toISOString().slice(0, 7),
     pago: false,
-    documentos: [] as DocumentoInfo[]
+    documentos: [] as DocumentoInfo[],
+    // Campos de juros
+    percentualJurosAtraso: 0,
+    tipoJurosAtraso: "composto" as "simples" | "composto"
   });
 
   // 🔄 FUNÇÃO DE SINCRONIZAÇÃO ROBUSTA COM DEBOUNCE
@@ -345,7 +348,10 @@ function Arrematantes() {
     nome: "",
     email: "",
     valorPagar: "",
-    documentos: [] as DocumentoInfo[]
+    documentos: [] as DocumentoInfo[],
+    // Campos de juros
+    percentualJurosAtraso: 0,
+    tipoJurosAtraso: "composto" as "simples" | "composto"
   });
 
   // Limpar blob URLs quando componente desmontar
@@ -398,12 +404,6 @@ function Arrematantes() {
     if (selectedArrematanteForFullEdit) {
       const auction = auctions.find(a => a.id === selectedArrematanteForFullEdit.leilaoId);
       if (auction && auction.arrematante) {
-        console.log('🔍 Carregando dados do arrematante no modal:', {
-          documento: auction.arrematante.documento,
-          endereco: auction.arrematante.endereco,
-          nome: auction.arrematante.nome,
-          email: auction.arrematante.email
-        });
         
         setFullEditForm({
           nome: auction.arrematante.nome || "",
@@ -419,12 +419,10 @@ function Arrematantes() {
           parcelasPagas: auction.arrematante.parcelasPagas || 0,
           mesInicioPagamento: auction.arrematante.mesInicioPagamento || new Date().toISOString().slice(0, 7),
           pago: auction.arrematante.pago || false,
-          documentos: auction.arrematante.documentos || []
-        });
-        
-        console.log('🔄 FullEditForm preenchido com documentos:', {
-          documentos: auction.arrematante.documentos?.length || 0,
-          documentosList: auction.arrematante.documentos?.map(d => ({nome: d.nome, hasUrl: !!d.url})) || []
+          documentos: auction.arrematante.documentos || [],
+          // Campos de juros
+          percentualJurosAtraso: auction.arrematante.percentualJurosAtraso || 0,
+          tipoJurosAtraso: "composto" // Sempre juros compostos
         });
       }
     }
@@ -809,7 +807,10 @@ function Arrematantes() {
       nome: arrematanteAtualizado.nome,
       email: arrematanteAtualizado.email || "",
       valorPagar: arrematanteAtualizado.valorPagar,
-      documentos: arrematanteAtualizado.documentos || []
+      documentos: arrematanteAtualizado.documentos || [],
+        // Campos de juros
+        percentualJurosAtraso: arrematanteAtualizado.percentualJurosAtraso || 0,
+        tipoJurosAtraso: "composto" // Sempre juros compostos
     });
     setIsEditModalOpen(true);
   };
@@ -927,7 +928,10 @@ function Arrematantes() {
           parcelasPagas: selectedArrematante.parcelasPagas,
           mesInicioPagamento: selectedArrematante.mesInicioPagamento,
           pago: selectedArrematante.pago,
-          documentos: documentosProcessados
+          documentos: documentosProcessados,
+          // Campos de juros
+          percentualJurosAtraso: editForm.percentualJurosAtraso,
+          tipoJurosAtraso: editForm.tipoJurosAtraso
         }
       };
 
@@ -1284,7 +1288,10 @@ function Arrematantes() {
       parcelasPagas: 0,
       mesInicioPagamento: new Date().toISOString().slice(0, 7),
       pago: false,
-      documentos: []
+      documentos: [],
+      // Campos de juros
+      percentualJurosAtraso: 0,
+      tipoJurosAtraso: "simples"
     });
   };
 
@@ -1298,12 +1305,6 @@ function Arrematantes() {
     setIsSavingFullEdit(true);
     
     try {
-      console.log('🔍 Dados do formulário antes de salvar:', {
-        documento: fullEditForm.documento,
-        endereco: fullEditForm.endereco,
-        nome: fullEditForm.nome,
-        email: fullEditForm.email
-      });
       
       // Verificar se campos relevantes do arrematante diferem dos padrões do leilão
       const shouldSyncAuctionDefaults = (
@@ -1419,7 +1420,10 @@ function Arrematantes() {
           parcelasPagas: fullEditForm.parcelasPagas,
           mesInicioPagamento: fullEditForm.mesInicioPagamento,
           pago: fullEditForm.pago,
-          documentos: documentosProcessados
+          documentos: documentosProcessados,
+          // Campos de juros
+          percentualJurosAtraso: fullEditForm.percentualJurosAtraso,
+          tipoJurosAtraso: fullEditForm.tipoJurosAtraso
         }
       };
 
@@ -1445,7 +1449,6 @@ function Arrematantes() {
 
       }
 
-      console.log('🔍 Dados sendo salvos:', updateData);
       
       await updateAuction({
         id: auction.id,
@@ -2690,6 +2693,43 @@ function Arrematantes() {
                   placeholder="R$ 0,00"
                 />
               </div>
+              
+              {/* Campos de Juros */}
+              <div>
+                <Label htmlFor="edit-percentual-juros" className="text-sm font-medium text-gray-700">
+                  Juros por Atraso (% ao mês)
+                </Label>
+                <Input
+                  id="edit-percentual-juros"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={editForm.percentualJurosAtraso || ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === "") {
+                      setEditForm(prev => ({ ...prev, percentualJurosAtraso: 0 }));
+                    } else {
+                      const numValue = parseFloat(value);
+                      if (!isNaN(numValue) && numValue >= 0 && numValue <= 100) {
+                        setEditForm(prev => ({ ...prev, percentualJurosAtraso: numValue }));
+                      }
+                    }
+                  }}
+                  placeholder="Ex: 2.5"
+                  className="mt-1 h-11 border-gray-300 bg-white no-focus-outline"
+                />
+              </div>
+
+              <div>
+                <Label className="text-sm font-medium text-gray-700">
+                  Tipo de Juros
+                </Label>
+                <div className="mt-1 flex h-11 w-full items-center justify-between rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                  <span>Juros Compostos (Automático)</span>
+                </div>
+              </div>
             </div>
 
             {/* Informações do Tipo de Pagamento */}
@@ -3494,6 +3534,54 @@ function Arrematantes() {
                     </>
                   );
                 })()}
+              </div>
+
+              {/* Configuração de Juros por Atraso */}
+              <div className="border-t border-gray-200 pt-6">
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Configuração de Juros por Atraso</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="full-edit-percentual-juros" className="text-sm font-medium text-gray-700">
+                      Percentual de Juros (% ao mês)
+                    </Label>
+                    <Input
+                      id="full-edit-percentual-juros"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={fullEditForm.percentualJurosAtraso || ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === "") {
+                          handleFullEditFormChange("percentualJurosAtraso", 0);
+                        } else {
+                          const numValue = parseFloat(value);
+                          if (!isNaN(numValue) && numValue >= 0 && numValue <= 100) {
+                            handleFullEditFormChange("percentualJurosAtraso", numValue);
+                          }
+                        }
+                      }}
+                      placeholder="Ex: 2.5"
+                      className="h-10 focus:!ring-0 focus:!ring-offset-0 focus:!border-gray-300 focus:!outline-none focus:!shadow-none"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Taxa de juros aplicada por mês de atraso (0 = sem juros)
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-gray-700">
+                      Tipo de Juros
+                    </Label>
+                    <div className="h-10 flex items-center justify-between rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                      <span>Juros Compostos (Automático)</span>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Juros são calculados automaticamente sobre o valor total atrasado, aumentando a cada mês de atraso
+                    </p>
+                  </div>
+                </div>
               </div>
 
               {/* Documentos */}

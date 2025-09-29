@@ -231,6 +231,134 @@ const HoverSyncHeader = ({
 };
 
 
+// Função para calcular próxima data de pagamento
+const calculateNextPaymentDate = (arrematante: any, auction: any): Date | null => {
+  if (!arrematante || !auction) return null;
+  
+  const loteArrematado = auction.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+  if (!loteArrematado) return null;
+  
+  const tipoPagamento = loteArrematado.tipoPagamento || 'parcelamento';
+  
+  switch (tipoPagamento) {
+    case 'a_vista': {
+      const dataVencimento = loteArrematado.dataVencimentoVista;
+      if (!dataVencimento) return null;
+      return new Date(dataVencimento);
+    }
+    
+    case 'entrada_parcelamento': {
+      // Priorizar dados do arrematante (mais confiáveis)
+      const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
+      const diaVencimentoPadrao = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
+      
+      if (!mesInicioPagamento || !diaVencimentoPadrao) return null;
+      
+      const parcelasPagas = arrematante.parcelasPagas || 0;
+      const quantidadeParcelas = arrematante.quantidadeParcelas || loteArrematado.parcelasPadrao || 1;
+      
+      if (parcelasPagas === 0) {
+        // Próxima é a entrada
+        const dataEntrada = loteArrematado.dataEntrada;
+        if (!dataEntrada) return null;
+        return new Date(dataEntrada);
+      } else if (parcelasPagas >= quantidadeParcelas + 1) {
+        // +1 porque entrada conta como 1
+        return null;
+      } else {
+        // Próxima é uma parcela
+        let startYear, startMonth;
+        
+        // Verificar se mesInicioPagamento está no formato "YYYY-MM" ou só "MM"
+        if (mesInicioPagamento.includes('-')) {
+          const parts = mesInicioPagamento.split('-');
+          if (parts.length !== 2) return null;
+          [startYear, startMonth] = parts.map(Number);
+        } else {
+          // Se for só o mês, usar ano atual
+          startYear = new Date().getFullYear();
+          startMonth = Number(mesInicioPagamento);
+        }
+        
+        const day = Number(diaVencimentoPadrao);
+        
+        if (isNaN(startYear) || isNaN(startMonth) || isNaN(day)) return null;
+        
+        return new Date(startYear, startMonth - 1 + (parcelasPagas - 1), day);
+      }
+    }
+    
+    case 'parcelamento':
+    default: {
+      // Priorizar dados do arrematante (mais confiáveis)
+      const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
+      const diaVencimentoPadrao = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
+      
+      if (!mesInicioPagamento || !diaVencimentoPadrao) return null;
+      
+      const parcelasPagas = arrematante.parcelasPagas || 0;
+      const quantidadeParcelas = loteArrematado.parcelasPadrao || arrematante.quantidadeParcelas || 1;
+      
+      if (parcelasPagas >= quantidadeParcelas) return null;
+      
+      let startYear, startMonth;
+      
+      // Verificar se mesInicioPagamento está no formato "YYYY-MM" ou só "MM"
+      if (mesInicioPagamento.includes('-')) {
+        const parts = mesInicioPagamento.split('-');
+        if (parts.length !== 2) return null;
+        [startYear, startMonth] = parts.map(Number);
+      } else {
+        // Se for só o mês, usar ano atual
+        startYear = new Date().getFullYear();
+        startMonth = Number(mesInicioPagamento);
+      }
+      
+      const day = Number(diaVencimentoPadrao);
+      
+      if (isNaN(startYear) || isNaN(startMonth) || isNaN(day)) return null;
+      
+      return new Date(startYear, startMonth - 1 + parcelasPagas, day);
+    }
+  }
+};
+
+// Função para calcular juros por atraso
+const calcularJurosAtraso = (arrematante: any, auction: any, valorOriginal: number): { valorComJuros: number, jurosAplicados: number, mesesAtraso: number } => {
+  if (!arrematante?.percentualJurosAtraso || arrematante.percentualJurosAtraso <= 0 || arrematante.pago) {
+    return { valorComJuros: valorOriginal, jurosAplicados: 0, mesesAtraso: 0 };
+  }
+
+  const nextPaymentDate = calculateNextPaymentDate(arrematante, auction);
+  if (!nextPaymentDate) {
+    return { valorComJuros: valorOriginal, jurosAplicados: 0, mesesAtraso: 0 };
+  }
+
+  const now = new Date();
+  const vencimento = new Date(nextPaymentDate);
+  
+  // Se não está atrasado, retorna valor original
+  if (now <= vencimento) {
+    return { valorComJuros: valorOriginal, jurosAplicados: 0, mesesAtraso: 0 };
+  }
+
+  // Calcular meses de atraso
+  const diffTime = now.getTime() - vencimento.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  const mesesAtraso = Math.ceil(diffDays / 30); // Aproximação: 30 dias = 1 mês
+
+  // Calcular juros compostos automaticamente
+  const taxaMensal = arrematante.percentualJurosAtraso / 100;
+  
+  // Juros compostos: M = C * (1 + i)^t
+  // Onde: C = capital inicial, i = taxa mensal, t = tempo em meses
+  const valorComJuros = valorOriginal * Math.pow(1 + taxaMensal, mesesAtraso);
+
+  const jurosAplicados = valorComJuros - valorOriginal;
+
+  return { valorComJuros, jurosAplicados, mesesAtraso };
+};
+
 export default function Inadimplencia() {
   const { auctions } = useSupabaseAuctions();
   const { toast } = useToast();
@@ -1219,9 +1347,10 @@ Atenciosamente,
           const valorRestante = valorTotal - valorEntrada;
           const valorPorParcelaCalc = valorRestante / quantidadeParcelas;
           
-          // Se entrada não foi paga, somar valor da entrada
+          // Se entrada não foi paga, somar valor da entrada (com juros se aplicável)
           if (parcelasPagas === 0) {
-            valorTotalEmAtraso += valorEntrada;
+            const { valorComJuros: entradaComJuros } = calcularJurosAtraso(arrematante, auction, valorEntrada);
+            valorTotalEmAtraso += entradaComJuros;
           }
           
           // Somar valor das parcelas atrasadas
@@ -1233,13 +1362,14 @@ Atenciosamente,
             const parcelasEfetivasPagas = Math.max(0, parcelasPagas - 1); // -1 porque entrada conta como 1
             const now = new Date();
             
-            // Contar e somar valor das parcelas atrasadas
+            // Contar e somar valor das parcelas atrasadas (com juros se aplicável)
             for (let i = 0; i < quantidadeParcelas; i++) {
               const parcelaDate = new Date(startYear, startMonth - 1 + i, diaVenc);
               parcelaDate.setHours(23, 59, 59, 999);
               
               if (now > parcelaDate && i >= parcelasEfetivasPagas) {
-                valorTotalEmAtraso += valorPorParcelaCalc;
+                const { valorComJuros: parcelaComJuros } = calcularJurosAtraso(arrematante, auction, valorPorParcelaCalc);
+                valorTotalEmAtraso += parcelaComJuros;
               }
             }
           }
@@ -1259,13 +1389,14 @@ Atenciosamente,
             const [startYear, startMonth] = mesInicio.split('-').map(Number);
             const now = new Date();
             
-            // Contar e somar valor das parcelas atrasadas
+            // Contar e somar valor das parcelas atrasadas (com juros se aplicável)
             for (let i = parcelasPagas; i < quantidadeParcelas; i++) {
               const parcelaDate = new Date(startYear, startMonth - 1 + i, diaVenc);
               parcelaDate.setHours(23, 59, 59, 999);
               
               if (now > parcelaDate) {
-                valorTotalEmAtraso += valorPorParcelaCalc;
+                const { valorComJuros: parcelaComJuros } = calcularJurosAtraso(arrematante, auction, valorPorParcelaCalc);
+                valorTotalEmAtraso += parcelaComJuros;
               } else {
                 break; // Se chegou em uma que não está atrasada, para
               }
@@ -1273,11 +1404,12 @@ Atenciosamente,
           }
           
         } else if (loteArrematado && loteArrematado.tipoPagamento === 'a_vista') {
-          // Para à vista, se está inadimplente, é o valor total
+          // Para à vista, se está inadimplente, é o valor total (com juros se aplicável)
           const valorTotal = arrematante?.valorPagarNumerico !== undefined 
             ? arrematante.valorPagarNumerico 
             : (typeof arrematante?.valorPagar === 'number' ? arrematante.valorPagar : 0);
-          valorTotalEmAtraso = valorTotal;
+          const { valorComJuros } = calcularJurosAtraso(arrematante, auction, valorTotal);
+          valorTotalEmAtraso = valorComJuros;
         }
         
         return {
