@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { useSupabaseAuctions } from "@/hooks/use-supabase-auctions";
 import { useToast } from "@/hooks/use-toast";
+import { useActivityLogger } from "@/hooks/use-activity-logger";
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -234,6 +235,26 @@ const HoverSyncHeader = ({
 export default function Inadimplencia() {
   const { auctions } = useSupabaseAuctions();
   const { toast } = useToast();
+  const { logReportAction } = useActivityLogger();
+
+  // Função para calcular juros progressivos mês a mês
+  const calcularJurosProgressivos = (valorOriginal: number, percentualJuros: number, mesesAtraso: number) => {
+    if (mesesAtraso < 1 || !percentualJuros) {
+      return valorOriginal;
+    }
+
+    let valorAtual = valorOriginal;
+    const taxaMensal = percentualJuros / 100;
+    
+    // Aplicar juros mês a mês de forma progressiva
+    for (let mes = 1; mes <= mesesAtraso; mes++) {
+      const jurosMes = valorAtual * taxaMensal;
+      valorAtual = valorAtual + jurosMes;
+      console.log(`📈 Juros Progressivos - Mês ${mes}: Valor=${valorAtual.toFixed(2)}, Juros aplicados=${jurosMes.toFixed(2)}`);
+    }
+    
+    return Math.round(valorAtual * 100) / 100;
+  };
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("due_date");
@@ -308,6 +329,16 @@ export default function Inadimplencia() {
       };
       
       await html2pdf().set(options).from(element).save();
+      
+      // Log da geração do relatório
+      await logReportAction('generate', 'inadimplencia', `Relatório de inadimplência - ${selectedArrematante.arrematante?.nome}`, {
+        metadata: {
+          arrematante_name: selectedArrematante.arrematante?.nome,
+          auction_id: selectedArrematante.id,
+          report_format: 'pdf',
+          generation_date: new Date().toISOString()
+        }
+      });
       
       toast({
         title: "PDF Gerado com Sucesso!",
@@ -709,11 +740,31 @@ Atenciosamente,
 
   // Função para verificar se um arrematante está inadimplente (considera tipos de pagamento)
   const isOverdue = (arrematante: any, auction: any) => {
-    if (arrematante.pago) return false;
+    console.log(`🔍 [isOverdue] Verificando ${arrematante.nome}:`, {
+      pago: arrematante.pago,
+      loteId: arrematante.loteId,
+      totalLotes: auction.lotes?.length || 0
+    });
+    
+    if (arrematante.pago) {
+      console.log(`✅ [isOverdue] ${arrematante.nome} já está pago`);
+      return false;
+    }
     
     // Encontrar o lote arrematado para obter as configurações específicas de pagamento
     const loteArrematado = auction.lotes?.find((lote: any) => lote.id === arrematante.loteId);
-    if (!loteArrematado || !loteArrematado.tipoPagamento) return false;
+    
+    console.log(`🔍 [isOverdue] Lote encontrado para ${arrematante.nome}:`, {
+      loteEncontrado: !!loteArrematado,
+      loteId: arrematante.loteId,
+      tipoPagamento: loteArrematado?.tipoPagamento,
+      lotesDisponiveis: auction.lotes?.map(l => ({ id: l.id, numero: l.numero })) || []
+    });
+    
+    if (!loteArrematado || !loteArrematado.tipoPagamento) {
+      console.log(`❌ [isOverdue] ${arrematante.nome} - Lote não encontrado ou sem tipo de pagamento`);
+      return false;
+    }
     
     const tipoPagamento = loteArrematado.tipoPagamento;
     const now = new Date();
@@ -727,57 +778,136 @@ Atenciosamente,
         // Usar construtor Date(year, month, day) que ignora fuso horário
         const dueDate = new Date(year, month - 1, day); // month é zero-indexed
         dueDate.setHours(23, 59, 59, 999);
-        return now > dueDate;
+        
+        const isOverdueResult = now > dueDate;
+        console.log(`🔍 [isOverdue] ${arrematante.nome} - À vista:`, {
+          dataVencimento: dateStr,
+          dueDate: dueDate.toISOString(),
+          now: now.toISOString(),
+          isOverdue: isOverdueResult,
+          diasAtraso: Math.ceil((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24))
+        });
+        
+        return isOverdueResult;
       }
       
       case 'entrada_parcelamento': {
         const parcelasPagas = arrematante.parcelasPagas || 0;
         const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
         
+        console.log(`🔍 [isOverdue] ${arrematante.nome} - Entrada + Parcelamento:`, {
+          parcelasPagas,
+          quantidadeParcelas,
+          totalEsperado: 1 + quantidadeParcelas,
+          dataEntrada: loteArrematado.dataEntrada,
+          mesInicioPagamento: arrematante.mesInicioPagamento,
+          diaVencimentoMensal: arrematante.diaVencimentoMensal
+        });
+        
         // Para entrada_parcelamento: entrada + parcelas
         // Se parcelasPagas >= (1 + quantidadeParcelas), está tudo pago
-        if (parcelasPagas >= (1 + quantidadeParcelas)) return false;
+        if (parcelasPagas >= (1 + quantidadeParcelas)) {
+          console.log(`✅ [isOverdue] ${arrematante.nome} - Tudo pago (${parcelasPagas}/${1 + quantidadeParcelas})`);
+          return false;
+        }
         
         if (parcelasPagas === 0) {
           // Entrada não foi paga - verificar se está atrasada
-          if (!loteArrematado.dataEntrada) return false;
+          if (!loteArrematado.dataEntrada) {
+            console.log(`❌ [isOverdue] ${arrematante.nome} - Sem data de entrada definida`);
+            return false;
+          }
           const entradaDueDate = new Date(loteArrematado.dataEntrada);
           entradaDueDate.setHours(23, 59, 59, 999);
-          return now > entradaDueDate;
+          const isEntradaOverdue = now > entradaDueDate;
+          
+          console.log(`🔍 [isOverdue] ${arrematante.nome} - Verificando entrada:`, {
+            dataEntrada: loteArrematado.dataEntrada,
+            entradaDueDate: entradaDueDate.toISOString(),
+            now: now.toISOString(),
+            isOverdue: isEntradaOverdue,
+            diasAtraso: Math.ceil((now.getTime() - entradaDueDate.getTime()) / (1000 * 60 * 60 * 24))
+          });
+          
+          return isEntradaOverdue;
         } else {
           // Entrada foi paga - verificar se há parcelas atrasadas
-          if (!arrematante.mesInicioPagamento || !arrematante.diaVencimentoMensal) return false;
+          if (!arrematante.mesInicioPagamento || !arrematante.diaVencimentoMensal) {
+            console.log(`❌ [isOverdue] ${arrematante.nome} - Sem dados de parcelamento`);
+            return false;
+          }
           const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
           
           // Verificar todas as parcelas que deveriam ter sido pagas até agora
           const parcelasEfetivasPagas = parcelasPagas - 1; // -1 porque a primeira "parcela paga" é a entrada
           
+          console.log(`🔍 [isOverdue] ${arrematante.nome} - Verificando parcelas:`, {
+            parcelasEfetivasPagas,
+            startYear,
+            startMonth,
+            diaVencimento: arrematante.diaVencimentoMensal
+          });
+          
           for (let i = 0; i < quantidadeParcelas; i++) {
             const parcelaDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal);
             parcelaDate.setHours(23, 59, 59, 999);
             
-            if (now > parcelaDate && i >= parcelasEfetivasPagas) {
+            const isParcelaOverdue = now > parcelaDate && i >= parcelasEfetivasPagas;
+            
+            console.log(`🔍 [isOverdue] ${arrematante.nome} - Parcela ${i + 1}:`, {
+              dataVencimento: parcelaDate.toISOString(),
+              vencida: now > parcelaDate,
+              deveriaTerSidoPaga: i < parcelasEfetivasPagas,
+              isOverdue: isParcelaOverdue
+            });
+            
+            if (isParcelaOverdue) {
+              console.log(`❌ [isOverdue] ${arrematante.nome} - Parcela ${i + 1} em atraso!`);
               return true; // Encontrou uma parcela em atraso
             }
           }
           
+          console.log(`✅ [isOverdue] ${arrematante.nome} - Nenhuma parcela em atraso`);
           return false; // Nenhuma parcela está atrasada
         }
       }
       
       case 'parcelamento':
       default: {
-        if (!arrematante.mesInicioPagamento || !arrematante.diaVencimentoMensal) return false;
+        console.log(`🔍 [isOverdue] ${arrematante.nome} - Parcelamento simples:`, {
+          mesInicioPagamento: arrematante.mesInicioPagamento,
+          diaVencimentoMensal: arrematante.diaVencimentoMensal,
+          parcelasPagas: arrematante.parcelasPagas,
+          quantidadeParcelas: arrematante.quantidadeParcelas
+        });
+        
+        if (!arrematante.mesInicioPagamento || !arrematante.diaVencimentoMensal) {
+          console.log(`❌ [isOverdue] ${arrematante.nome} - Sem dados de parcelamento`);
+          return false;
+        }
         
         const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
         const parcelasPagas = arrematante.parcelasPagas || 0;
         const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
         
-        if (parcelasPagas >= quantidadeParcelas) return false;
+        if (parcelasPagas >= quantidadeParcelas) {
+          console.log(`✅ [isOverdue] ${arrematante.nome} - Tudo pago (${parcelasPagas}/${quantidadeParcelas})`);
+          return false;
+        }
         
         const nextPaymentDate = new Date(startYear, startMonth - 1 + parcelasPagas, arrematante.diaVencimentoMensal);
         nextPaymentDate.setHours(23, 59, 59, 999);
-        return now > nextPaymentDate;
+        const isOverdueResult = now > nextPaymentDate;
+        
+        console.log(`🔍 [isOverdue] ${arrematante.nome} - Próximo pagamento:`, {
+          proximaParcela: parcelasPagas + 1,
+          dataVencimento: nextPaymentDate.toISOString(),
+          now: now.toISOString(),
+          isOverdue: isOverdueResult,
+          diasAtraso: Math.ceil((now.getTime() - nextPaymentDate.getTime()) / (1000 * 60 * 60 * 24))
+        });
+        
+        return isOverdueResult;
       }
     }
   };
@@ -889,13 +1019,43 @@ Atenciosamente,
   const overdueAuctions = useMemo(() => {
     const activeAuctions = auctions.filter(auction => !auction.arquivado);
     
-    return activeAuctions
+    console.log('🔍 [Inadimplência] Analisando leilões ativos:', {
+      totalAuctions: auctions.length,
+      activeAuctions: activeAuctions.length,
+      archivedAuctions: auctions.filter(a => a.arquivado).length
+    });
+    
+    const overdueResults = activeAuctions
       .filter(auction => {
         const arrematante = auction.arrematante;
-        if (!arrematante) return false;
+        if (!arrematante) {
+          console.log(`⚠️ [Inadimplência] Leilão ${auction.nome} sem arrematante`);
+          return false;
+        }
         
-        return isOverdue(arrematante, auction);
-      })
+        const isOverdueResult = isOverdue(arrematante, auction);
+        console.log(`🔍 [Inadimplência] Leilão ${auction.nome}:`, {
+          arrematante: arrematante.nome,
+          pago: arrematante.pago,
+          isOverdue: isOverdueResult,
+          parcelasPagas: arrematante.parcelasPagas,
+          quantidadeParcelas: arrematante.quantidadeParcelas,
+          mesInicioPagamento: arrematante.mesInicioPagamento,
+          diaVencimentoMensal: arrematante.diaVencimentoMensal
+        });
+        
+        return isOverdueResult;
+      });
+      
+    console.log('✅ [Inadimplência] Resultado final:', {
+      totalOverdue: overdueResults.length,
+      overdueAuctions: overdueResults.map(a => ({
+        nome: a.nome,
+        arrematante: a.arrematante?.nome
+      }))
+    });
+    
+    return overdueResults
       .map(auction => {
         const arrematante = auction.arrematante;
         const overdueInfo = calculateOverdueInfo(arrematante, auction);
@@ -1152,12 +1312,13 @@ Atenciosamente,
               dataEntrada.setHours(23, 59, 59, 999);
               
               if (now > dataEntrada) {
-                entradaAtrasada = true; // Marca entrada como atrasada, mas não conta no número
+                entradaAtrasada = true; // Marca entrada como atrasada
+                parcelasAtrasadas++; // Conta entrada atrasada no total
               }
             }
           }
           
-          // Contar APENAS parcelas mensais atrasadas (não incluir entrada)
+          // Contar parcelas mensais atrasadas (entrada já foi contada acima se atrasada)
           if (mesInicio && diaVenc) {
             const [startYear, startMonth] = mesInicio.split('-').map(Number);
             const parcelasEfetivasPagas = Math.max(0, parcelasPagas - 1); // -1 porque entrada conta como 1
@@ -1168,7 +1329,7 @@ Atenciosamente,
               parcelaDate.setHours(23, 59, 59, 999);
               
               if (now > parcelaDate && i >= parcelasEfetivasPagas) {
-                parcelasAtrasadas++; // Conta apenas parcelas mensais
+                parcelasAtrasadas++; // Conta parcelas mensais atrasadas
               }
             }
           }
@@ -1219,9 +1380,20 @@ Atenciosamente,
           const valorRestante = valorTotal - valorEntrada;
           const valorPorParcelaCalc = valorRestante / quantidadeParcelas;
           
-          // Se entrada não foi paga, somar valor da entrada
-          if (parcelasPagas === 0) {
-            valorTotalEmAtraso += valorEntrada;
+          // Se entrada não foi paga, somar valor da entrada (com juros se aplicável)
+          if (parcelasPagas === 0 && loteArrematado.dataEntrada) {
+            const dataEntrada = new Date(loteArrematado.dataEntrada + 'T23:59:59');
+            const now = new Date();
+            if (now > dataEntrada) {
+              // Calcular meses de atraso da entrada
+              const mesesAtraso = Math.max(0, Math.floor((now.getTime() - dataEntrada.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+              if (mesesAtraso >= 1 && arrematante.percentualJurosAtraso) {
+                const valorEntradaComJuros = calcularJurosProgressivos(valorEntrada, arrematante.percentualJurosAtraso, mesesAtraso);
+                valorTotalEmAtraso += valorEntradaComJuros;
+              } else {
+                valorTotalEmAtraso += valorEntrada;
+              }
+            }
           }
           
           // Somar valor das parcelas atrasadas
@@ -1239,7 +1411,14 @@ Atenciosamente,
               parcelaDate.setHours(23, 59, 59, 999);
               
               if (now > parcelaDate && i >= parcelasEfetivasPagas) {
-                valorTotalEmAtraso += valorPorParcelaCalc;
+                // Calcular meses de atraso para aplicar juros se necessário
+                const mesesAtraso = Math.max(0, Math.floor((now.getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                if (mesesAtraso >= 1 && arrematante.percentualJurosAtraso) {
+                  const valorComJuros = calcularJurosProgressivos(valorPorParcelaCalc, arrematante.percentualJurosAtraso, mesesAtraso);
+                  valorTotalEmAtraso += valorComJuros;
+                } else {
+                  valorTotalEmAtraso += valorPorParcelaCalc;
+                }
               }
             }
           }
@@ -1265,7 +1444,14 @@ Atenciosamente,
               parcelaDate.setHours(23, 59, 59, 999);
               
               if (now > parcelaDate) {
-                valorTotalEmAtraso += valorPorParcelaCalc;
+                // Calcular meses de atraso para aplicar juros se necessário
+                const mesesAtraso = Math.max(0, Math.floor((now.getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                if (mesesAtraso >= 1 && arrematante.percentualJurosAtraso) {
+                  const valorComJuros = calcularJurosProgressivos(valorPorParcelaCalc, arrematante.percentualJurosAtraso, mesesAtraso);
+                  valorTotalEmAtraso += valorComJuros;
+                } else {
+                  valorTotalEmAtraso += valorPorParcelaCalc;
+                }
               } else {
                 break; // Se chegou em uma que não está atrasada, para
               }
@@ -1633,21 +1819,16 @@ Arthur Lira Leilões`;
                        // Determinar se há casos de ambos atrasados
                        const hasAmbosAtrasados = filteredOverdueAuctions.some(auction => auction.ambosAtrasados);
 
-                      // Se tem ambos ou apenas parcelado, usar "Valor da Parcela"
-                      // Se tem apenas à vista, usar "Valor a Pagar"
-                       let baseText = "";
-                      if (hasAVista && !hasParcelado) {
-                         baseText = "Valor a Pagar";
-                      } else {
-                         baseText = "Valor da Parcela";
-                       }
+                      // Se tem ambos ou apenas parcelado, usar "Valor Total Atrasado"
+                      // Se tem apenas à vista, usar "Valor Total Atrasado"
+                       let baseText = "Valor Total Atrasado";
                        
                        // Se há casos de ambos atrasados, usar componente de sincronização
                        if (hasAmbosAtrasados) {
                          return (
                            <HoverSyncHeader
                              primaryText={baseText}
-                             secondaryText="Valor da Entrada"
+                             secondaryText="Valor Total Atrasado"
                              className="font-semibold text-gray-700"
                            />
                          );
@@ -1717,81 +1898,54 @@ Arthur Lira Leilões`;
                     </div>
                     </TableCell>
                     <TableCell>
-                      {auction.ambosAtrasados ? (
-                        <div>
-                          <HoverTransitionValue
-                            auction={auction}
-                            primaryValue={currency.format(auction.isEntradaAtrasada ? auction.entradaDetails.valor : auction.parcelaDetails.valor)}
-                            primaryLabel={auction.isEntradaAtrasada ? 'Valor da Entrada' : 'Valor da Parcela #1'}
-                            secondaryValue={currency.format(auction.isEntradaAtrasada ? auction.parcelaDetails.valor : auction.entradaDetails.valor)}
-                            secondaryLabel={auction.isEntradaAtrasada ? 'Valor da Parcela #1' : 'Valor da Entrada'}
-                          />
-                          {(() => {
-                            // Determinar se está mostrando informações da entrada ou da parcela
-                            const { isRowHovered } = useContext(HoverContext);
-                            const mostrandoEntrada = isRowHovered ? !auction.isEntradaAtrasada : auction.isEntradaAtrasada;
-                            
-                            // Só mostrar contagem se estiver mostrando informações de parcelas E houver parcelas atrasadas
-                            const deveMostrarContagem = !mostrandoEntrada && auction.parcelasAtrasadas > 0;
-                            
-                            if (!deveMostrarContagem) return null;
-                            
-                            const loteArrematado = auction.lotes?.find((lote: any) => lote.id === auction.arrematante?.loteId);
-                            const tipoPagamento = loteArrematado?.tipoPagamento;
-                            
-                            if (tipoPagamento === 'a_vista') {
-                              return (
-                                <p className="text-xs text-red-500 mt-1">
-                                  Pagamento atrasado
-                                </p>
-                              );
-                            } else if (auction.parcelasAtrasadas > 0) {
-                              return (
-                                <p className="text-xs text-red-500 mt-1">
-                                  {auction.parcelasAtrasadas} parcela{auction.parcelasAtrasadas > 1 ? 's' : ''} atrasada{auction.parcelasAtrasadas > 1 ? 's' : ''}
-                                </p>
-                              );
+                      <div>
+                        <span className="font-semibold text-red-600">
+                          {currency.format(auction.overdueAmount || 0)}
+                        </span>
+                        {(() => {
+                          // Mostrar informação de quantas parcelas/entrada estão atrasadas
+                          const loteArrematado = auction.lotes?.find((lote: any) => lote.id === auction.arrematante?.loteId);
+                          const tipoPagamento = loteArrematado?.tipoPagamento;
+                          
+                          if (tipoPagamento === 'a_vista') {
+                            return (
+                              <div className="text-xs text-gray-500 mt-1">
+                                Pagamento à vista atrasado
+                              </div>
+                            );
+                          } else if (tipoPagamento === 'entrada_parcelamento') {
+                            // Para entrada + parcelamento, mostrar o que está atrasado
+                            const partes = [];
+                            if (auction.entradaAtrasada) {
+                              partes.push('entrada');
+                            }
+                            if (auction.parcelasAtrasadas > 0) {
+                              partes.push(auction.parcelasAtrasadas === 1 ? '1 parcela' : `${auction.parcelasAtrasadas} parcelas`);
                             }
                             
-                            return null;
-                          })()}
-                        </div>
-                      ) : (
-                        <div>
-                      <span className="font-semibold text-red-600">
-                        {currency.format(auction.overdueAmount || 0)}
-                      </span>
-                          {(() => {
-                            // Para casos sem ambosAtrasados, mostrar contagem apenas se houver parcelas atrasadas
-                            if (auction.parcelasAtrasadas === 0 && !auction.entradaAtrasada) return null;
-                            
-                            const loteArrematado = auction.lotes?.find((lote: any) => lote.id === auction.arrematante?.loteId);
-                            const tipoPagamento = loteArrematado?.tipoPagamento;
-                            
-                            if (tipoPagamento === 'a_vista') {
+                            if (partes.length > 0) {
                               return (
-                                <p className="text-xs text-red-500 mt-1">
-                                  Pagamento atrasado
-                                </p>
-                              );
-                            } else if (tipoPagamento === 'entrada_parcelamento' && auction.entradaAtrasada && auction.parcelasAtrasadas === 0) {
-                              return (
-                                <p className="text-xs text-red-500 mt-1">
-                                  Entrada atrasada
-                                </p>
-                              );
-                            } else if (auction.parcelasAtrasadas > 0) {
-                              return (
-                                <p className="text-xs text-red-500 mt-1">
-                                  {auction.parcelasAtrasadas} parcela{auction.parcelasAtrasadas > 1 ? 's' : ''} atrasada{auction.parcelasAtrasadas > 1 ? 's' : ''}
-                                </p>
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {partes.join(' + ')} atrasada{partes.length > 1 ? 's' : ''}
+                                </div>
                               );
                             }
-                            
-                            return null;
-                          })()}
-                        </div>
-                      )}
+                          } else {
+                            // Para parcelamento simples
+                            if (auction.parcelasAtrasadas > 0) {
+                              return (
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {auction.parcelasAtrasadas === 1 
+                                    ? '1 parcela atrasada' 
+                                    : `${auction.parcelasAtrasadas} parcelas atrasadas`}
+                                </div>
+                              );
+                            }
+                          }
+                          
+                          return null;
+                        })()}
+                      </div>
                     </TableCell>
                     <TableCell>
                       {auction.ambosAtrasados ? (
@@ -1867,7 +2021,7 @@ Arthur Lira Leilões`;
                                   <HoverTransitionStatus
                                     auction={auction}
                                     primaryStatus={auction.isEntradaAtrasada ? 'Entrada Atrasada' : 'Parcela #1 Atrasada'}
-                                    primarySubtext={auction.isEntradaAtrasada ? '0/1 entrada' : `0/${quantidadeParcelas} parcelas`}
+                                    primarySubtext={auction.isEntradaAtrasada ? 'Entrada pendente' : `${quantidadeParcelas} parcelas pendentes`}
                                     secondaryStatus={auction.isEntradaAtrasada ? 'Parcela #1 Atrasada' : 'Entrada Atrasada'}
                                     secondarySubtext={auction.isEntradaAtrasada ? `Parcela #1 também atrasada` : 'Entrada também atrasada'}
                                   />
@@ -1880,7 +2034,7 @@ Arthur Lira Leilões`;
                                       Entrada Atrasada
                                     </span>
                                     <span className="text-xs text-gray-500">
-                                      0/{totalPagamentos} (entrada + {quantidadeParcelas} parcelas)
+                                      0/{totalPagamentos} (Pendentes: entrada + {quantidadeParcelas} parcelas)
                                     </span>
                                   </>
                                 );
@@ -1892,7 +2046,7 @@ Arthur Lira Leilões`;
                                     {parcelasPagas}/{totalPagamentos}
                                   </span>
                                   <span className="text-xs text-gray-500">
-                                    {parcelasRestantes} restantes ({parcelasPagas === 1 ? 'entrada paga' : `entrada + ${parcelasPagas - 1} parcelas`})
+                                    {parcelasRestantes} restantes (Pagos: {parcelasPagas === 1 ? 'entrada' : `entrada + ${parcelasPagas - 1} parcelas`})
                                   </span>
                                 </>
                               );

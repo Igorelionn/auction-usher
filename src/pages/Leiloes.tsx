@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSupabaseAuctions } from "@/hooks/use-supabase-auctions";
 import { useToast } from "@/hooks/use-toast";
+import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { AuctionForm, AuctionFormValues, createEmptyAuctionForm } from "@/components/AuctionForm";
 import { AuctionDetails } from "@/components/AuctionDetails";
 import { PdfReport } from "@/components/PdfReport";
@@ -55,6 +56,7 @@ import { Calendar as CalendarIcon, CreditCard } from "lucide-react";
 function Leiloes() {
   const { auctions, isLoading, createAuction, updateAuction, deleteAuction, archiveAuction, unarchiveAuction, duplicateAuction } = useSupabaseAuctions();
   const { toast } = useToast();
+  const { logAuctionAction, logBidderAction, logLotAction, logMerchandiseAction, logDocumentAction, logReportAction } = useActivityLogger();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<AuctionStatus | "todos">("todos");
   const [localFilter, setLocalFilter] = useState<string>("todos");
@@ -183,7 +185,9 @@ function Leiloes() {
     parcelasPagas: 0,
     mesInicioPagamento: new Date().toISOString().slice(0, 7), // YYYY-MM formato
     pago: false,
-    documentos: [] as DocumentoInfo[]
+    documentos: [] as DocumentoInfo[],
+    percentualJurosAtraso: 0,
+    tipoJurosAtraso: "composto" as "simples" | "composto"
   });
   const [documentType, setDocumentType] = useState<'CPF' | 'CNPJ'>('CPF');
 
@@ -360,7 +364,9 @@ function Leiloes() {
               : `${new Date().getFullYear()}-${addingArrematanteFor.arrematante.mesInicioPagamento}`)
           : new Date().toISOString().slice(0, 7),
         pago: addingArrematanteFor.arrematante.pago || false,
-        documentos: addingArrematanteFor.arrematante.documentos || []
+        documentos: addingArrematanteFor.arrematante.documentos || [],
+        percentualJurosAtraso: addingArrematanteFor.arrematante.percentualJurosAtraso || 0,
+        tipoJurosAtraso: addingArrematanteFor.arrematante.tipoJurosAtraso || "composto"
       });
       
       // Detectar tipo de documento automaticamente
@@ -393,7 +399,9 @@ function Leiloes() {
         parcelasPagas: 0,
         mesInicioPagamento: mesLeilao,
         pago: false,
-        documentos: []
+        documentos: [],
+        percentualJurosAtraso: 0,
+        tipoJurosAtraso: "composto" as "simples" | "composto"
       });
       setDocumentType('CPF'); // Resetar para CPF como padrão
       setArrematanteMode('edit');
@@ -683,7 +691,9 @@ function Leiloes() {
       parcelasPagas: typeof arrematanteForm.parcelasPagas === 'number' ? arrematanteForm.parcelasPagas : 0,
       mesInicioPagamento: arrematanteForm.mesInicioPagamento,
       pago: arrematanteForm.pago,
-      documentos: arrematanteForm.documentos
+      documentos: arrematanteForm.documentos,
+      percentualJurosAtraso: arrematanteForm.percentualJurosAtraso,
+      tipoJurosAtraso: arrematanteForm.tipoJurosAtraso
     };
 
     // Preparar os lotes atualizados se um lote foi arrematado
@@ -706,6 +716,26 @@ function Leiloes() {
         lotes: lotesAtualizados
       }
     });
+
+    // Log da criação/edição do arrematante
+    const isEditing = !!addingArrematanteFor.arrematante;
+    await logBidderAction(
+      isEditing ? 'update' : 'create', 
+      arrematanteData.nome, 
+      addingArrematanteFor.nome, 
+      addingArrematanteFor.id,
+      {
+        metadata: {
+          valor_total: arrematanteData.valorPagarNumerico,
+          quantidade_parcelas: arrematanteData.quantidadeParcelas,
+          parcelas_pagas: arrematanteData.parcelasPagas,
+          percentual_juros_atraso: arrematanteData.percentualJurosAtraso,
+          tipo_juros: arrematanteData.tipoJurosAtraso,
+          lote_id: arrematanteData.loteId,
+          has_documents: (arrematanteData.documentos?.length || 0) > 0
+        }
+      }
+    );
     
     setArrematanteForm({
       nome: "",
@@ -721,7 +751,9 @@ function Leiloes() {
       parcelasPagas: 0,
       mesInicioPagamento: new Date().toISOString().slice(0, 7),
       pago: false,
-      documentos: []
+      documentos: [],
+      percentualJurosAtraso: 0,
+      tipoJurosAtraso: "composto" as "simples" | "composto"
     });
     setAddingArrematanteFor(null);
   };
@@ -742,7 +774,9 @@ function Leiloes() {
       parcelasPagas: 0,
       mesInicioPagamento: new Date().toISOString().slice(0, 7),
       pago: false,
-      documentos: []
+      documentos: [],
+      percentualJurosAtraso: 0,
+      tipoJurosAtraso: "composto" as "simples" | "composto"
     });
     setDocumentType('CPF'); // Resetar tipo de documento
     setAddingArrematanteFor(null);
@@ -775,19 +809,65 @@ function Leiloes() {
   });
 
   const handleCreateAuction = async (values: AuctionFormValues) => {
-    await createAuction(values);
-    setIsCreateModalOpen(false);
+    try {
+      const newAuction = await createAuction(values);
+      
+      // Log da criação do leilão
+      await logAuctionAction('create', values.nome, newAuction.id, {
+        metadata: {
+          local: values.local,
+          data_inicio: values.dataInicio,
+          status: values.status,
+          total_lotes: values.lotes?.length || 0
+        }
+      });
+      
+      setIsCreateModalOpen(false);
+      toast({
+        title: "Leilão criado",
+        description: `O leilão "${values.nome}" foi criado com sucesso.`,
+      });
+    } catch (error) {
+      console.error("Erro ao criar leilão:", error);
+      toast({
+        title: "Erro ao criar leilão",
+        description: "Não foi possível criar o leilão. Tente novamente.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleEditAuction = async (values: AuctionFormValues) => {
     if (!editingAuction) return;
     try {
-    await updateAuction({ id: editingAuction.id, data: values });
-    setEditingAuction(null);
+      await updateAuction({ id: editingAuction.id, data: values });
+      
+      // Log da edição do leilão
+      await logAuctionAction('update', values.nome, editingAuction.id, {
+        metadata: {
+          local: values.local,
+          data_inicio: values.dataInicio,
+          status: values.status,
+          total_lotes: values.lotes?.length || 0,
+          changes: auctionFormChanges
+        }
+      });
+      
+      setEditingAuction(null);
       setIsFormBeingEdited(false);
       setAuctionFormChanges({}); // Limpar mudanças após salvar
+      
+      toast({
+        title: "Leilão atualizado",
+        description: `O leilão "${values.nome}" foi atualizado com sucesso.`,
+      });
     } catch (error) {
       console.error("Erro ao atualizar leilão:", error);
+      toast({
+        title: "Erro ao atualizar leilão",
+        description: "Não foi possível atualizar o leilão. Tente novamente.",
+        variant: "destructive",
+      });
       // Manter modal aberto em caso de erro
     }
   };
@@ -924,6 +1004,17 @@ function Leiloes() {
 
       await html2pdf().set(opt).from(element).save();
       
+      // Log da geração do relatório
+      await logReportAction('generate', 'leilao', `Relatório do leilão ${auction.nome}`, {
+        metadata: {
+          auction_id: auction.id,
+          auction_name: auction.nome,
+          auction_status: auction.status,
+          report_format: 'pdf',
+          generation_date: new Date().toISOString()
+        }
+      });
+      
       toast({
         title: "PDF Gerado com Sucesso!",
         description: `Relatório do leilão ${auction.identificacao || auction.id} foi baixado.`,
@@ -1004,7 +1095,122 @@ function Leiloes() {
   };
 
   const handleDeleteAuction = async (id: string) => {
-    await deleteAuction(id);
+    try {
+      const auction = auctions.find(a => a.id === id);
+      if (auction) {
+        await deleteAuction(id);
+        
+        // Log da exclusão do leilão
+        await logAuctionAction('delete', auction.nome, id, {
+          metadata: {
+            local: auction.local,
+            status: auction.status,
+            total_lotes: auction.lotes?.length || 0,
+            had_bidder: !!auction.arrematante
+          }
+        });
+        
+        toast({
+          title: "Leilão excluído",
+          description: `O leilão "${auction.nome}" foi excluído com sucesso.`,
+        });
+      }
+    } catch (error) {
+      console.error("Erro ao excluir leilão:", error);
+      toast({
+        title: "Erro ao excluir leilão",
+        description: "Não foi possível excluir o leilão. Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleArchiveAuction = async (id: string) => {
+    try {
+      const auction = auctions.find(a => a.id === id);
+      if (auction) {
+        await archiveAuction(id);
+        
+        // Log do arquivamento do leilão
+        await logAuctionAction('archive', auction.nome, id, {
+          metadata: {
+            local: auction.local,
+            status: auction.status,
+            total_lotes: auction.lotes?.length || 0
+          }
+        });
+        
+        toast({
+          title: "Leilão arquivado",
+          description: `O leilão "${auction.nome}" foi arquivado com sucesso.`,
+        });
+      }
+    } catch (error) {
+      console.error("Erro ao arquivar leilão:", error);
+      toast({
+        title: "Erro ao arquivar leilão",
+        description: "Não foi possível arquivar o leilão. Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUnarchiveAuction = async (id: string) => {
+    try {
+      const auction = auctions.find(a => a.id === id);
+      if (auction) {
+        await unarchiveAuction(id);
+        
+        // Log do desarquivamento do leilão
+        await logAuctionAction('unarchive', auction.nome, id, {
+          metadata: {
+            local: auction.local,
+            status: auction.status,
+            total_lotes: auction.lotes?.length || 0
+          }
+        });
+        
+        toast({
+          title: "Leilão desarquivado",
+          description: `O leilão "${auction.nome}" foi desarquivado com sucesso.`,
+        });
+      }
+    } catch (error) {
+      console.error("Erro ao desarquivar leilão:", error);
+      toast({
+        title: "Erro ao desarquivar leilão",
+        description: "Não foi possível desarquivar o leilão. Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDuplicateAuction = async (auction: Auction) => {
+    try {
+      const duplicatedAuction = await duplicateAuction(auction);
+      
+      // Log da duplicação do leilão
+      await logAuctionAction('duplicate', auction.nome, duplicatedAuction.id, {
+        metadata: {
+          original_auction_id: auction.id,
+          local: auction.local,
+          status: auction.status,
+          total_lotes: auction.lotes?.length || 0
+        }
+      });
+      
+      toast({
+        title: "Leilão duplicado",
+        description: `O leilão "${auction.nome}" foi duplicado com sucesso.`,
+      });
+    } catch (error) {
+      console.error("Erro ao duplicar leilão:", error);
+      toast({
+        title: "Erro ao duplicar leilão",
+        description: "Não foi possível duplicar o leilão. Tente novamente.",
+        variant: "destructive",
+      });
+    }
   };
 
   const getStatusBadge = (status: AuctionStatus) => {
@@ -1498,7 +1704,7 @@ function Leiloes() {
                               </DropdownMenuItem>
                               <DropdownMenuItem 
                                 className="gap-2 focus:bg-gray-100 focus:text-gray-900"
-                                onClick={() => duplicateAuction(auction)}
+                                onClick={() => handleDuplicateAuction(auction)}
                               >
                                 <Copy className="h-4 w-4" />
                                 Duplicar Leilão
@@ -1506,7 +1712,7 @@ function Leiloes() {
                               {showArchived ? (
                                 <DropdownMenuItem 
                                   className="gap-2 focus:bg-gray-100 focus:text-gray-900"
-                                  onClick={() => unarchiveAuction(auction.id)}
+                                  onClick={() => handleUnarchiveAuction(auction.id)}
                                 >
                                   <RefreshCw className="h-4 w-4" />
                                   Desarquivar Leilão
@@ -1514,7 +1720,7 @@ function Leiloes() {
                               ) : (
                                 <DropdownMenuItem 
                                   className="gap-2 focus:bg-gray-100 focus:text-gray-900"
-                                  onClick={() => archiveAuction(auction.id)}
+                                  onClick={() => handleArchiveAuction(auction.id)}
                                 >
                                   <Archive className="h-4 w-4" />
                                   Arquivar Leilão
@@ -1641,12 +1847,7 @@ function Leiloes() {
 
       {/* Modal de Adicionar Arrematante */}
       <Dialog open={!!addingArrematanteFor} onOpenChange={(open) => !open && handleCancelArrematante()}>
-        <DialogContent className={`max-w-6xl ${(() => {
-          const loteId = arrematanteForm.loteId;
-          const lotesSelecionado = addingArrematanteFor?.lotes?.find(lote => lote.id === loteId);
-          const tipoPagamento = lotesSelecionado?.tipoPagamento || "parcelamento";
-          return tipoPagamento === "entrada_parcelamento" ? "max-h-[85vh] overflow-y-auto" : "";
-        })()}`}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold">
               {addingArrematanteFor?.arrematante ? "Editar Arrematante" : "Adicionar Arrematante"}
@@ -2281,6 +2482,36 @@ function Leiloes() {
               </div>
                         </div>
                       </div>
+
+                      {/* Terceira linha: Campo de Juros por Atraso */}
+                      <div className="grid grid-cols-1 gap-2">
+                        <div className="space-y-0.5">
+                          <Label htmlFor="percentualJurosAtrasoEntrada" className="text-sm font-medium text-gray-700">
+                            Percentual de Juros por Atraso (% ao mês) - Juros Compostos
+                          </Label>
+                          <Input
+                            id="percentualJurosAtrasoEntrada"
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.1"
+                            value={arrematanteForm.percentualJurosAtraso || ""}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (value === "") {
+                                handleArrematanteFormChange("percentualJurosAtraso", 0);
+                              } else {
+                                const numValue = parseFloat(value);
+                                if (!isNaN(numValue) && numValue >= 0 && numValue <= 100) {
+                                  handleArrematanteFormChange("percentualJurosAtraso", numValue);
+                                }
+                              }
+                            }}
+                            placeholder="0.0"
+                            className="h-10 border-gray-300 focus:!border-gray-900 focus:!ring-0 focus:!outline-none bg-white text-sm"
+                          />
+                        </div>
+                      </div>
                     </div>
                   );
                 }
@@ -2361,6 +2592,34 @@ function Leiloes() {
                         placeholder="0"
                         className="h-10 border-gray-300 focus:!border-gray-900 focus:!ring-0 focus:!outline-none bg-white text-sm"
                       />
+                </div>
+
+                {/* Campo de Juros por Atraso */}
+                <div className="space-y-2">
+                  <Label htmlFor="percentualJurosAtraso" className="text-sm font-medium text-gray-700">
+                    Percentual de Juros por Atraso (% ao mês) - Juros Compostos
+                  </Label>
+                  <Input
+                    id="percentualJurosAtraso"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={arrematanteForm.percentualJurosAtraso || ""}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === "") {
+                        handleArrematanteFormChange("percentualJurosAtraso", 0);
+                      } else {
+                        const numValue = parseFloat(value);
+                        if (!isNaN(numValue) && numValue >= 0 && numValue <= 100) {
+                          handleArrematanteFormChange("percentualJurosAtraso", numValue);
+                        }
+                      }
+                    }}
+                    placeholder="0.0"
+                    className="h-10 border-gray-300 focus:!border-gray-900 focus:!ring-0 focus:!outline-none bg-white text-sm"
+                  />
                 </div>
               </div>
                 );

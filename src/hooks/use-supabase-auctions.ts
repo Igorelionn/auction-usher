@@ -131,7 +131,9 @@ export function useSupabaseAuctions() {
             email,
             telefone,
             lote_id,
-            pago
+            pago,
+            percentual_juros_atraso,
+            tipo_juros_atraso
           ),
           documents (
             id,
@@ -184,6 +186,8 @@ export function useSupabaseAuctions() {
             parcelasPagas: bidder.parcelas_pagas || 0,
             mesInicioPagamento: bidder.mes_inicio_pagamento || new Date().toISOString().slice(0, 7),
             pago: bidder.pago || false,
+            percentualJurosAtraso: bidder.percentual_juros_atraso || 0,
+            tipoJurosAtraso: bidder.tipo_juros_atraso || "composto",
             documentos: arrematanteDocumentos.map((doc: any) => ({
               id: doc.id?.toString() || Date.now().toString(),
               nome: doc.nome,
@@ -467,6 +471,8 @@ export function useSupabaseAuctions() {
             parcelas_pagas: data.arrematante.parcelasPagas,
             mes_inicio_pagamento: data.arrematante.mesInicioPagamento,
             pago: data.arrematante.pago || false,
+            percentual_juros_atraso: data.arrematante.percentualJurosAtraso || 0,
+            tipo_juros_atraso: data.arrematante.tipoJurosAtraso || 'composto',
             });
 
           if (bidderError) throw bidderError;

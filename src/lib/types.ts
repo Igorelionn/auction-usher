@@ -7,6 +7,7 @@ export interface DocumentoInfo {
   tamanho: number; // tamanho em bytes
   dataUpload: string; // ISO date
   url?: string; // URL do arquivo se armazenado
+  categoria?: string; // categoria da foto (lote, mercadoria, etc.)
 }
 
 export interface MercadoriaInfo {
@@ -55,6 +56,8 @@ export interface ArrematanteInfo {
   mesInicioPagamento: string; // mês de início do pagamento (formato YYYY-MM)
   pago?: boolean; // se está completamente quitado
   documentos?: DocumentoInfo[]; // informações completas dos documentos
+  percentualJurosAtraso?: number; // percentual de juros por mês de atraso (0-100)
+  tipoJurosAtraso?: "simples" | "composto"; // tipo de juros aplicado
 }
 
 export interface Auction {

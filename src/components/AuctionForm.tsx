@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Auction, AuctionStatus, DocumentoInfo, MercadoriaInfo, LoteInfo } from "@/lib/types";
 import { parseCurrencyToNumber } from "@/lib/utils";
+import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +58,7 @@ export function AuctionForm({
 }) {
   const [values, setValues] = useState<AuctionFormValues>(initial);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { logDocumentAction } = useActivityLogger();
   const [newNote, setNewNote] = useState("");
   const [editingMercadoria, setEditingMercadoria] = useState<string | null>(null);
   const [tempMercadoriaNome, setTempMercadoriaNome] = useState("");
@@ -75,6 +77,46 @@ export function AuctionForm({
     }
   }, [initial, hasUserChanges]);
 
+  // 🔄 SINCRONIZAÇÃO: Escutar mudanças de lotes vindas da página de Lotes
+  useEffect(() => {
+    const handleLoteChanged = (event: CustomEvent) => {
+      const { auctionId, loteId, lote, action, allLotes } = event.detail;
+      
+      console.log("📡 AuctionForm recebeu evento loteChanged:", {
+        auctionId,
+        loteId,
+        action,
+        currentAuctionId: initial.id,
+        hasLotes: !!(values.lotes && values.lotes.length > 0)
+      });
+      
+      // Verificar se o lote pertence ao leilão atual
+      if (initial.id && auctionId === initial.id) {
+        console.log("✅ Lote pertence ao leilão atual, atualizando...");
+        
+        // Atualizar os lotes do formulário com os dados mais recentes
+        const newValues = { ...values, lotes: allLotes };
+        setValues(newValues);
+        
+        // Não marcar como mudança do usuário, pois é uma sincronização externa
+        // setHasUserChanges permanece como estava
+        
+        // Notificar o onChange se fornecido
+        if (onChange) {
+          onChange(newValues, 'lotes');
+        }
+        
+        console.log("✅ Lotes sincronizados com sucesso no AuctionForm");
+      }
+    };
+
+    window.addEventListener('loteChanged', handleLoteChanged as EventListener);
+    
+    return () => {
+      window.removeEventListener('loteChanged', handleLoteChanged as EventListener);
+    };
+  }, [initial.id, values, onChange]);
+
   // Limpar blob URLs quando componente desmontar
   useEffect(() => {
     return () => {
@@ -90,6 +132,22 @@ export function AuctionForm({
     const newValues = { ...values, [key]: val };
     setValues(newValues);
     setHasUserChanges(true); // Marcar que o usuário fez alterações
+    
+    // 🔄 SINCRONIZAÇÃO: Emitir evento quando lotes forem modificados
+    if (key === 'lotes' && initial.id) {
+      console.log("📡 AuctionForm emitindo evento loteChangedFromForm:", {
+        auctionId: initial.id,
+        lotesCount: (val as LoteInfo[])?.length || 0
+      });
+      
+      window.dispatchEvent(new CustomEvent('loteChangedFromForm', {
+        detail: {
+          auctionId: initial.id,
+          lotes: val,
+          allValues: newValues
+        }
+      }));
+    }
     
     // Chamar callback onChange se fornecido
     if (onChange) {

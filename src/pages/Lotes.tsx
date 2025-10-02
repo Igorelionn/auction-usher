@@ -20,7 +20,19 @@ import { Lot, Auction, DocumentoInfo, MercadoriaInfo, LoteInfo } from "@/lib/typ
 import { useSupabaseAuctions } from "@/hooks/use-supabase-auctions";
 import { supabaseClient } from "@/lib/supabase-client";
 import { useQueryClient } from "@tanstack/react-query";
+import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { AuctionDetails } from "@/components/AuctionDetails";
+
+// Função para converter string de moeda para número
+const parseCurrencyToNumber = (currencyString: string): number => {
+  if (!currencyString) return 0;
+  // Remove R$, espaços, pontos (milhares) e converte vírgula para ponto decimal
+  const cleanString = currencyString
+    .replace(/[R$\s]/g, '')
+    .replace(/\./g, '')
+    .replace(',', '.');
+  return parseFloat(cleanString) || 0;
+};
 
 interface LoteExtendido extends Lot {
   leilaoNome: string;
@@ -232,7 +244,8 @@ function Lotes() {
   const navigate = useNavigate();
   const { auctions, isLoading, updateAuction, archiveAuction, unarchiveAuction } = useSupabaseAuctions();
   const queryClient = useQueryClient();
-  
+  const { logLotAction, logMerchandiseAction, logDocumentAction } = useActivityLogger();
+
   // Estados para Lotes
   const [searchTermLotes, setSearchTermLotes] = useState("");
   const [searchInputValueLotes, setSearchInputValueLotes] = useState("");
@@ -248,6 +261,11 @@ function Lotes() {
   const [selectedLoteForPhotos, setSelectedLoteForPhotos] = useState<LoteExtendido | null>(null);
   const [isFilterSelectOpen, setIsFilterSelectOpen] = useState(false);
   const [isAuctionSelectOpen, setIsAuctionSelectOpen] = useState(false);
+  
+  // Estados para operações assíncronas
+  const [isSavingLote, setIsSavingLote] = useState(false);
+  const [isArchivingLote, setIsArchivingLote] = useState(false);
+  const [isLoadingLoteData, setIsLoadingLoteData] = useState(false);
   
   // Estados para modal de detalhes do leilão
   const [viewingAuction, setViewingAuction] = useState<Auction | null>(null);
@@ -276,6 +294,7 @@ function Lotes() {
     descricao: "",
     valorProduto: "",
     mercadoria: "",
+    quantidade: "",
     fotos: [] as DocumentoInfo[],
     documentos: [] as DocumentoInfo[],
     certificados: [] as DocumentoInfo[]
@@ -332,6 +351,36 @@ function Lotes() {
   // Mock data - Em um sistema real, isso viria de uma API
   const mockLotes: LoteExtendido[] = lotesFromAuctions;
 
+  // Debug: Monitorar mudanças nas fotos do formulário
+  useEffect(() => {
+    if (loteForm.fotos.length > 0) {
+      console.log("🔍 [Debug] Fotos no formulário mudaram:", {
+        fotosCount: loteForm.fotos.length,
+        isEditing: isEditingLote,
+        fotos: loteForm.fotos.map(f => ({
+          id: f.id,
+          nome: f.nome,
+          hasUrl: !!f.url,
+          urlType: f.url?.startsWith('blob:') ? 'blob' : f.url?.startsWith('data:') ? 'base64' : 'other',
+          urlValid: f.url ? (f.url.startsWith('blob:') ? tempBlobUrlsRef.current.has(f.url) : true) : false
+        }))
+      });
+      
+      // Verificar se alguma URL blob foi perdida
+      const fotosComBlobPerdida = loteForm.fotos.filter(f => 
+        f.url?.startsWith('blob:') && !tempBlobUrlsRef.current.has(f.url)
+      );
+      
+      if (fotosComBlobPerdida.length > 0) {
+        console.warn("⚠️ URLs blob perdidas detectadas:", fotosComBlobPerdida.map(f => f.nome));
+        
+        // Tentar recuperar as URLs blob perdidas (isso pode acontecer em re-renderizações)
+        // Por enquanto, apenas logamos o problema. Em uma implementação mais robusta,
+        // poderíamos tentar recriar as URLs ou converter para base64
+      }
+    }
+  }, [loteForm.fotos, isEditingLote]);
+
   // Debounce para busca de lotes
   useEffect(() => {
     if (searchTimeoutLotes.current) {
@@ -362,6 +411,75 @@ function Lotes() {
       tempBlobUrlsRef.current.clear();
     };
   }, [searchInputValueLotes, searchTermLotes]);
+
+  // 🔄 SINCRONIZAÇÃO: Escutar mudanças de lotes vindas do AuctionForm
+  useEffect(() => {
+    const handleLoteChangedFromForm = (event: CustomEvent) => {
+      const { auctionId, lotes, allValues } = event.detail;
+      
+      console.log("📡 Lotes.tsx recebeu evento loteChangedFromForm:", {
+        auctionId,
+        lotesCount: lotes?.length || 0,
+        isEditingLote: isEditingLote,
+        selectedLote: selectedLote?.id
+      });
+      
+      // Se estamos editando um lote e ele pertence ao leilão que foi modificado,
+      // podemos precisar atualizar o selectedLote para refletir as mudanças
+      if (selectedLote && selectedLote.auctionId === auctionId) {
+        const originalLoteId = selectedLote.id.includes('-') 
+          ? selectedLote.id.replace(`${selectedLote.auctionId}-`, '')
+          : selectedLote.id;
+        
+        const loteAtualizado = lotes?.find((l: LoteInfo) => l.id === originalLoteId);
+        
+        if (loteAtualizado) {
+          console.log("✅ Lote selecionado foi atualizado no AuctionForm, sincronizando...");
+          
+          // Atualizar o selectedLote com os dados mais recentes
+          const loteExtendidoAtualizado: LoteExtendido = {
+            ...selectedLote,
+            numero: loteAtualizado.numero,
+            descricao: loteAtualizado.descricao,
+            mercadorias: loteAtualizado.mercadorias,
+            status: loteAtualizado.status,
+            tipoPagamento: loteAtualizado.tipoPagamento,
+            dataVencimentoVista: loteAtualizado.dataVencimentoVista,
+            diaVencimentoMensal: loteAtualizado.diaVencimentoMensal,
+            quantidadeParcelas: loteAtualizado.quantidadeParcelas,
+            mesInicioPagamento: loteAtualizado.mesInicioPagamento,
+            valorEntrada: loteAtualizado.valorEntrada
+          };
+          
+          setSelectedLote(loteExtendidoAtualizado);
+          
+          // Se estamos editando, atualizar o formulário também
+          if (isEditingLote) {
+            const primeiraMercadoria = loteAtualizado.mercadorias?.[0];
+            setLoteForm(prev => ({
+              ...prev,
+              numero: loteAtualizado.numero,
+              descricao: loteAtualizado.descricao,
+              mercadoria: primeiraMercadoria?.tipo || prev.mercadoria,
+              quantidade: primeiraMercadoria?.quantidade ? primeiraMercadoria.quantidade.toString() : prev.quantidade,
+              valorProduto: primeiraMercadoria?.valor || prev.valorProduto
+            }));
+          }
+          
+          console.log("✅ Lote sincronizado com sucesso na página de Lotes");
+        }
+      }
+      
+      // Invalidar cache para forçar refresh da lista de lotes
+      queryClient.invalidateQueries({ queryKey: ['auctions'] });
+    };
+
+    window.addEventListener('loteChangedFromForm', handleLoteChangedFromForm as EventListener);
+    
+    return () => {
+      window.removeEventListener('loteChangedFromForm', handleLoteChangedFromForm as EventListener);
+    };
+  }, [selectedLote, isEditingLote, queryClient]);
 
   // Filtros de lotes
   const filteredLotes = mockLotes.filter(lote => {
@@ -412,9 +530,78 @@ function Lotes() {
       descricao: "",
       valorProduto: "",
       mercadoria: "",
+      quantidade: "",
       fotos: [],
       documentos: [],
       certificados: []
+    });
+  };
+
+  // Função auxiliar para atualizar o formulário preservando as imagens
+  const updateLoteFormSafely = (updates: Partial<typeof loteForm>) => {
+    setLoteForm(prev => {
+      const newForm = { ...prev, ...updates };
+      
+      // Debug: Log da atualização
+      if (updates.fotos !== undefined) {
+        console.log("🔄 Atualizando fotos do formulário:", {
+          prevFotosCount: prev.fotos.length,
+          newFotosCount: newForm.fotos.length,
+          updates: Object.keys(updates),
+          fotosDetalhes: newForm.fotos.map(f => ({
+            id: f.id,
+            nome: f.nome,
+            hasUrl: !!f.url,
+            urlType: f.url?.startsWith('blob:') ? 'blob' : f.url?.startsWith('data:') ? 'base64' : 'other'
+          }))
+        });
+      }
+      
+      return newForm;
+    });
+  };
+
+  // Função específica para adicionar fotos de forma segura
+  const addFotoSafely = (novaFoto: DocumentoInfo) => {
+    setLoteForm(prev => {
+      const fotosAtualizadas = [...prev.fotos, novaFoto];
+      console.log("📸 Adicionando nova foto:", {
+        nome: novaFoto.nome,
+        id: novaFoto.id,
+        fotosAntes: prev.fotos.length,
+        fotosDepois: fotosAtualizadas.length,
+        urlType: novaFoto.url?.startsWith('blob:') ? 'blob' : novaFoto.url?.startsWith('data:') ? 'base64' : 'other'
+      });
+      
+      // Garantir que a URL blob seja registrada
+      if (novaFoto.url?.startsWith('blob:')) {
+        tempBlobUrlsRef.current.add(novaFoto.url);
+      }
+      
+      return { ...prev, fotos: fotosAtualizadas };
+    });
+  };
+
+  // Função específica para remover fotos de forma segura
+  const removeFotoSafely = (fotoId: string) => {
+    setLoteForm(prev => {
+      const fotoParaRemover = prev.fotos.find(f => f.id === fotoId);
+      const fotosAtualizadas = prev.fotos.filter(f => f.id !== fotoId);
+      
+      console.log("🗑️ Removendo foto:", {
+        nome: fotoParaRemover?.nome,
+        id: fotoId,
+        fotosAntes: prev.fotos.length,
+        fotosDepois: fotosAtualizadas.length
+      });
+      
+      // Limpar blob URL se for temporária
+      if (fotoParaRemover?.url && tempBlobUrlsRef.current.has(fotoParaRemover.url)) {
+        URL.revokeObjectURL(fotoParaRemover.url);
+        tempBlobUrlsRef.current.delete(fotoParaRemover.url);
+      }
+      
+      return { ...prev, fotos: fotosAtualizadas };
     });
   };
 
@@ -424,19 +611,123 @@ function Lotes() {
     setIsLoteModalOpen(true);
   };
 
+  // Função para buscar e combinar fotos do lote e da mercadoria
+  const handleViewPhotos = async (lote: LoteExtendido) => {
+    console.log("📸 Buscando fotos do lote e mercadoria:", {
+      loteId: lote.id,
+      loteNumero: lote.numero,
+      auctionId: lote.auctionId,
+      fotosMercadoriaCount: lote.fotosMercadoria?.length || 0
+    });
+
+    try {
+      // Buscar fotos específicas do lote (categoria: lote_fotos)
+      const { data: fotosLote, error: errorLote } = await supabaseClient
+        .from('documents')
+        .select('id, nome, tipo, tamanho, data_upload, url, categoria, descricao')
+        .eq('auction_id', lote.auctionId)
+        .eq('categoria', 'lote_fotos')
+        .like('descricao', `Lote ${lote.numero} - %`)
+        .order('data_upload', { ascending: false });
+
+      if (errorLote) {
+        console.error('❌ Erro ao buscar fotos do lote:', errorLote);
+      }
+
+      console.log("📷 Fotos do lote encontradas:", fotosLote?.length || 0);
+      console.log("📷 Fotos da mercadoria disponíveis:", lote.fotosMercadoria?.length || 0);
+
+      // Combinar fotos do lote com fotos da mercadoria
+      const todasFotos: DocumentoInfo[] = [];
+
+      // Adicionar fotos específicas do lote
+      if (fotosLote && fotosLote.length > 0) {
+        fotosLote.forEach(foto => {
+          todasFotos.push({
+            id: foto.id,
+            nome: foto.nome,
+            tipo: foto.tipo,
+            tamanho: foto.tamanho,
+            dataUpload: foto.data_upload,
+            url: foto.url,
+            categoria: 'lote' // Marcar como foto do lote
+          });
+        });
+      }
+
+      // Adicionar fotos da mercadoria (do leilão)
+      if (lote.fotosMercadoria && lote.fotosMercadoria.length > 0) {
+        lote.fotosMercadoria.forEach(foto => {
+          todasFotos.push({
+            ...foto,
+            categoria: 'mercadoria' // Marcar como foto da mercadoria
+          });
+        });
+      }
+
+      console.log("📸 Total de fotos combinadas:", todasFotos.length, {
+        fotosLote: fotosLote?.length || 0,
+        fotosMercadoria: lote.fotosMercadoria?.length || 0
+      });
+
+      // Atualizar o lote com todas as fotos combinadas
+      const loteComTodasFotos: LoteExtendido = {
+        ...lote,
+        fotosMercadoria: todasFotos
+      };
+
+      setSelectedLoteForPhotos(loteComTodasFotos);
+      setIsPhotoViewerOpen(true);
+    } catch (error) {
+      console.error('❌ Erro ao buscar fotos:', error);
+      // Em caso de erro, mostrar apenas as fotos da mercadoria que já existem
+      setSelectedLoteForPhotos(lote);
+      setIsPhotoViewerOpen(true);
+    }
+  };
+
   const handleSaveLote = async () => {
     // Validações básicas
     if (!loteForm.auctionId || !loteForm.numero || !loteForm.descricao || !loteForm.mercadoria) {
-      console.error("Campos obrigatórios não preenchidos");
+      console.error("❌ Campos obrigatórios não preenchidos");
       return;
     }
 
+    // Validar valor do produto
+    if (!loteForm.valorProduto || loteForm.valorProduto.trim() === "") {
+      console.error("❌ Valor do produto não informado");
+      return;
+    }
+
+    const valorNumerico = parseCurrencyToNumber(loteForm.valorProduto);
+    if (isNaN(valorNumerico) || valorNumerico <= 0) {
+      console.error("❌ Valor do produto inválido");
+      return;
+    }
+
+    setIsSavingLote(true);
     try {
+      console.log(`🔄 ${isEditingLote ? 'Atualizando' : 'Criando'} lote...`, {
+        auctionId: loteForm.auctionId,
+        numero: loteForm.numero,
+        isEditing: isEditingLote,
+        selectedLote: selectedLote?.id
+      });
+
       // Encontrar o leilão selecionado
       const auction = auctions?.find(a => a.id === loteForm.auctionId);
       if (!auction) {
-        console.error("Leilão não encontrado");
+        console.error("❌ Leilão não encontrado");
         return;
+      }
+
+      // Verificar se já existe um lote com o mesmo número (apenas para criação)
+      if (!isEditingLote) {
+        const loteExistente = auction.lotes?.find(l => l.numero === loteForm.numero);
+        if (loteExistente) {
+          console.error("❌ Já existe um lote com este número");
+          return;
+        }
       }
 
       // Criar/atualizar mercadoria
@@ -447,33 +738,72 @@ function Lotes() {
         nome: loteForm.mercadoria,
         tipo: loteForm.mercadoria,
         descricao: loteForm.mercadoria,
-        quantidade: undefined, // Não coletamos quantidade neste formulário
+        quantidade: loteForm.quantidade ? parseInt(loteForm.quantidade) : undefined,
         valor: loteForm.valorProduto,
-        valorNumerico: parseFloat(loteForm.valorProduto.replace(/[^\d.,]/g, '').replace(',', '.')) || 0
+        valorNumerico: valorNumerico
       };
 
       const lotes = auction.lotes || [];
       let lotesAtualizados: LoteInfo[];
 
       if (isEditingLote && selectedLote) {
-        // EDITAR lote existente
-        const loteAtualizado: LoteInfo = {
-          id: selectedLote.id,
+        // EDITAR lote existente - atualizar apenas campos modificados
+        console.log("✏️ Editando lote existente:", {
+          loteId: selectedLote.id,
           numero: loteForm.numero,
           descricao: loteForm.descricao,
-          mercadorias: [mercadoria],
-          status: selectedLote.status || 'disponivel',
-          tipoPagamento: selectedLote.tipoPagamento,
-          dataVencimentoVista: selectedLote.dataVencimentoVista,
-          diaVencimentoMensal: selectedLote.diaVencimentoMensal,
-          quantidadeParcelas: selectedLote.quantidadeParcelas,
-          mesInicioPagamento: selectedLote.mesInicioPagamento,
-          valorEntrada: selectedLote.valorEntrada
+          mercadoria: mercadoria.tipo,
+          valor: mercadoria.valorNumerico
+        });
+
+        // Extrair o ID original do lote (remove o prefixo do auction.id se necessário)
+        const originalLoteId = selectedLote.id.includes('-') 
+          ? selectedLote.id.replace(`${selectedLote.auctionId}-`, '')
+          : selectedLote.id;
+
+        // Encontrar o lote original no array de lotes
+        const loteOriginal = lotes.find(l => l.id === originalLoteId);
+        
+        if (!loteOriginal) {
+          console.error("❌ Lote original não encontrado");
+          return;
+        }
+
+        // Atualizar apenas os campos que foram modificados
+        // Preservar a mercadoria existente e atualizar apenas os dados modificados
+        const mercadoriaAtualizada: MercadoriaInfo = {
+          ...loteOriginal.mercadorias[0], // Preservar dados originais da mercadoria
+          id: mercadoria.id, // Manter o mesmo ID
+          nome: loteForm.mercadoria,
+          tipo: loteForm.mercadoria,
+          descricao: loteForm.mercadoria,
+          quantidade: loteForm.quantidade ? parseInt(loteForm.quantidade) : loteOriginal.mercadorias[0]?.quantidade,
+          valor: loteForm.valorProduto,
+          valorNumerico: valorNumerico
+        };
+
+        const loteAtualizado: LoteInfo = {
+          ...loteOriginal, // Preservar todos os campos originais
+          numero: loteForm.numero,
+          descricao: loteForm.descricao,
+          mercadorias: [mercadoriaAtualizada] // Atualizar apenas a mercadoria modificada
         };
 
         lotesAtualizados = lotes.map(lote => 
-          lote.id === selectedLote.id ? loteAtualizado : lote
+          lote.id === originalLoteId ? loteAtualizado : lote
         );
+
+        console.log("📝 Lote atualizado (preservando dados originais):", {
+          original: loteOriginal,
+          atualizado: loteAtualizado,
+          camposModificados: {
+            numero: loteOriginal.numero !== loteAtualizado.numero,
+            descricao: loteOriginal.descricao !== loteAtualizado.descricao,
+            mercadoria: loteOriginal.mercadorias[0]?.tipo !== mercadoriaAtualizada.tipo,
+            valor: loteOriginal.mercadorias[0]?.valorNumerico !== mercadoriaAtualizada.valorNumerico,
+            quantidade: loteOriginal.mercadorias[0]?.quantidade !== mercadoriaAtualizada.quantidade
+          }
+        });
       } else {
         // CRIAR novo lote
         const novoLote: LoteInfo = {
@@ -485,12 +815,83 @@ function Lotes() {
         };
 
         lotesAtualizados = [...lotes, novoLote];
+        console.log("➕ Novo lote criado:", novoLote);
       }
 
+      console.log("💾 Salvando lote no banco de dados...");
       await updateAuction({
         id: auction.id,
         data: { lotes: lotesAtualizados }
       });
+      console.log("✅ Lote salvo no banco de dados com sucesso!");
+
+      // 🔄 SINCRONIZAÇÃO: Emitir evento para notificar o AuctionForm sobre a mudança
+      const loteModificado = isEditingLote && selectedLote ? 
+        lotesAtualizados.find(l => l.id === selectedLote.id.replace(`${selectedLote.auctionId}-`, '')) :
+        lotesAtualizados[lotesAtualizados.length - 1];
+
+      if (loteModificado) {
+        console.log("📡 Emitindo evento loteChanged para sincronização:", {
+          auctionId: auction.id,
+          loteId: loteModificado.id,
+          action: isEditingLote ? 'update' : 'create'
+        });
+
+        window.dispatchEvent(new CustomEvent('loteChanged', {
+          detail: {
+            auctionId: auction.id,
+            loteId: loteModificado.id,
+            lote: loteModificado,
+            action: isEditingLote ? 'update' : 'create',
+            allLotes: lotesAtualizados
+          }
+        }));
+      }
+
+      // Log da criação/edição do lote
+      const loteParaLog = isEditingLote && selectedLote ? 
+        lotesAtualizados.find(l => l.id === selectedLote.id.replace(`${selectedLote.auctionId}-`, '')) :
+        lotesAtualizados[lotesAtualizados.length - 1];
+      
+      if (loteParaLog) {
+        await logLotAction(
+          isEditingLote ? 'update' : 'create',
+          `Lote ${loteParaLog.numero}`,
+          auction.nome,
+          auction.id,
+          {
+            metadata: {
+              numero: loteParaLog.numero,
+              descricao: loteParaLog.descricao,
+              mercadorias: loteParaLog.mercadorias?.length || 0,
+              valor_total: loteParaLog.mercadorias?.[0]?.valorNumerico || 0,
+              status: loteParaLog.status,
+              has_images: !!(loteForm.fotos && loteForm.fotos.length > 0),
+              images_count: loteForm.fotos?.length || 0
+            }
+          }
+        );
+
+        // Log da mercadoria associada
+        if (loteParaLog.mercadorias?.[0]) {
+          const mercadoria = loteParaLog.mercadorias[0];
+          await logMerchandiseAction(
+            isEditingLote ? 'update' : 'create',
+            mercadoria.nome,
+            loteParaLog.numero,
+            auction.nome,
+            auction.id,
+            {
+              metadata: {
+                lote_numero: loteParaLog.numero,
+                tipo: mercadoria.tipo,
+                valor: mercadoria.valorNumerico,
+                quantidade: mercadoria.quantidade
+              }
+            }
+          );
+        }
+      }
 
       // Salvar imagens do lote na tabela documents se houver
       console.log('🖼️ Verificando imagens para salvar:', {
@@ -501,10 +902,13 @@ function Lotes() {
       
       // Primeiro, sempre remover imagens antigas do lote se estiver editando
       if (isEditingLote && selectedLote) {
+        // Usar o número original do lote para buscar as imagens antigas
+        const numeroOriginal = selectedLote.numero;
         console.log('🗑️ Removendo imagens antigas do lote:', {
           auctionId: auction.id,
-          loteNumero: selectedLote.numero,
-          searchPattern: `Lote ${selectedLote.numero} - %`
+          numeroOriginal: numeroOriginal,
+          numeroNovo: loteForm.numero,
+          searchPattern: `Lote ${numeroOriginal} - %`
         });
         
         const { error: deleteError } = await supabaseClient
@@ -512,7 +916,7 @@ function Lotes() {
           .delete()
           .eq('auction_id', auction.id)
           .eq('categoria', 'lote_fotos')
-          .like('descricao', `Lote ${selectedLote.numero} - %`);
+          .like('descricao', `Lote ${numeroOriginal} - %`);
           
         if (deleteError) {
           console.error('❌ Erro ao remover imagens antigas:', deleteError);
@@ -527,8 +931,8 @@ function Lotes() {
           lotesAtualizados[lotesAtualizados.length - 1].id;
 
         // Salvar novas imagens via Supabase (usando auction_id e descrição do lote)
-        const loteNumero = isEditingLote && selectedLote ? selectedLote.numero : 
-          lotesAtualizados[lotesAtualizados.length - 1].numero;
+        // Usar o número atual do formulário (que pode ter sido alterado)
+        const loteNumero = loteForm.numero;
         
         console.log('💾 Preparando para salvar imagens:', {
           auctionId: auction.id,
@@ -578,8 +982,18 @@ function Lotes() {
               } catch (error) {
                 console.error(`❌ Erro ao converter ${foto.nome} para base64:`, error);
               }
+            } else if (foto.url && foto.url.startsWith('data:')) {
+              // Se já é base64, usar diretamente
+              base64Data = foto.url;
+              console.log(`✅ Imagem ${foto.nome} já em base64, reutilizando:`, {
+                base64Length: base64Data?.length || 0,
+                base64Start: base64Data?.substring(0, 50)
+              });
             } else {
-              console.log(`⚠️ Imagem ${foto.nome} não tem URL blob válida`);
+              console.log(`⚠️ Imagem ${foto.nome} não tem URL válida:`, {
+                hasUrl: !!foto.url,
+                urlStart: foto.url?.substring(0, 20) || 'no-url'
+              });
             }
 
             return {
@@ -624,6 +1038,24 @@ function Lotes() {
           });
         } else {
           console.log(`✅ ${loteForm.fotos.length} imagens salvas com sucesso para o lote ${loteId}`);
+          
+          // Log do upload de documentos/imagens
+          await logDocumentAction(
+            'upload',
+            `${loteForm.fotos.length} imagem(ns) do Lote ${loteForm.numero}`,
+            'auction',
+            auction.nome,
+            auction.id,
+            {
+              metadata: {
+                lote_numero: loteForm.numero,
+                categoria: 'lote_fotos',
+                quantidade_arquivos: loteForm.fotos.length,
+                tipos_arquivo: loteForm.fotos.map(f => f.tipo),
+                tamanho_total: loteForm.fotos.reduce((sum, f) => sum + f.tamanho, 0)
+              }
+            }
+          );
         }
       }
 
@@ -633,23 +1065,49 @@ function Lotes() {
       setSelectedLote(null);
       setIsEditingLote(false);
       
-      // Invalidar query para atualizar os dados
+      // Invalidar query para atualizar os dados e forçar sincronização
+      console.log("🔄 Invalidando cache e sincronizando dados...");
       queryClient.invalidateQueries({ queryKey: ['auctions'] });
       
-      console.log(isEditingLote ? "Lote atualizado com sucesso!" : "Lote criado com sucesso!");
+      // Aguardar um momento para garantir que os dados sejam atualizados
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ['auctions'] });
+      }, 500);
+      
+      const successMessage = isEditingLote ? "Lote atualizado com sucesso!" : "Lote criado com sucesso!";
+      console.log(`✅ ${successMessage}`);
       
     } catch (error) {
-      console.error('Erro ao salvar lote:', error);
+      console.error('❌ Erro ao salvar lote:', error);
+      const errorMessage = isEditingLote ? "Erro ao atualizar lote" : "Erro ao criar lote";
+      console.error(`${errorMessage}. Por favor, tente novamente.`);
+    } finally {
+      setIsSavingLote(false);
     }
   };
 
   const handleEditLote = async (lote: LoteExtendido) => {
-    // Para edição, vamos pegar a primeira mercadoria como exemplo
-    const primeiraMercadoria = lote.mercadorias?.[0];
-    
-    // Buscar imagens existentes do banco de dados
-    let fotosExistentes: DocumentoInfo[] = [];
+    setIsLoadingLoteData(true);
     try {
+      console.log("✏️ Iniciando edição do lote:", {
+        loteId: lote.id,
+        numero: lote.numero,
+        auctionId: lote.auctionId,
+        mercadorias: lote.mercadorias?.length || 0
+      });
+
+      // Para edição, vamos pegar a primeira mercadoria como exemplo
+      const primeiraMercadoria = lote.mercadorias?.[0];
+      
+      // Buscar imagens existentes do banco de dados
+      let fotosExistentes: DocumentoInfo[] = [];
+      try {
+      console.log("🔍 Buscando imagens existentes do lote...", {
+        auctionId: lote.auctionId,
+        loteNumero: lote.numero,
+        searchPattern: `Lote ${lote.numero} - %`
+      });
+
       const { data: imagens, error } = await supabaseClient
         .from('documents')
         .select('id, nome, tipo, tamanho, data_upload, url')
@@ -666,45 +1124,94 @@ function Lotes() {
           dataUpload: img.data_upload,
           url: img.url // Carregar URL salva (base64)
         }));
+        console.log(`✅ ${fotosExistentes.length} imagens carregadas para edição`);
+      } else if (error) {
+        console.error('❌ Erro ao buscar imagens existentes:', error);
+      } else {
+        console.log("ℹ️ Nenhuma imagem encontrada para este lote");
       }
-      
-      console.log('📷 Imagens carregadas para edição:', fotosExistentes);
     } catch (error) {
-      console.error('Erro ao buscar imagens existentes:', error);
+      console.error('❌ Erro ao buscar imagens existentes:', error);
     }
     
-    setLoteForm({
+    // Preparar dados do formulário
+    const formData = {
       auctionId: lote.auctionId,
       numero: lote.numero,
       descricao: lote.descricao,
       valorProduto: primeiraMercadoria?.valor || lote.valorInicial.toString(),
       mercadoria: primeiraMercadoria?.tipo || "",
+      quantidade: primeiraMercadoria?.quantidade ? primeiraMercadoria.quantidade.toString() : "",
       fotos: fotosExistentes,
       documentos: lote.documentos || [],
       certificados: lote.certificados || []
+    };
+
+    console.log("📝 Dados carregados no formulário:", {
+      numero: formData.numero,
+      descricao: formData.descricao,
+      valorProduto: formData.valorProduto,
+      mercadoria: formData.mercadoria,
+      fotosCount: formData.fotos.length
     });
-    setSelectedLote(lote);
-    setIsEditingLote(true);
-    setIsLoteModalOpen(true);
+
+      setLoteForm(formData);
+      setSelectedLote(lote);
+      setIsEditingLote(true);
+      setIsLoteModalOpen(true);
+      
+      // Debug: Verificar se as imagens foram carregadas corretamente
+      console.log("🖼️ Imagens carregadas no formulário:", {
+        fotosCount: formData.fotos.length,
+        fotos: formData.fotos.map(f => ({
+          id: f.id,
+          nome: f.nome,
+          hasUrl: !!f.url,
+          urlLength: f.url?.length || 0
+        }))
+      });
+    } catch (error) {
+      console.error('❌ Erro ao carregar dados do lote:', error);
+    } finally {
+      setIsLoadingLoteData(false);
+    }
   };
 
 
   const handleArchiveLote = async (loteId: string) => {
     try {
+      console.log("🗂️ Iniciando arquivamento do lote:", loteId);
+
       // Encontrar o lote específico
       const lote = mockLotes.find(l => l.id === loteId);
-      if (!lote) return;
+      if (!lote) {
+        console.error("❌ Lote não encontrado:", loteId);
+        return;
+      }
 
       // Buscar o leilão original
       const auction = auctions?.find(a => a.id === lote.auctionId);
-      if (!auction || !auction.lotes) return;
+      if (!auction || !auction.lotes) {
+        console.error("❌ Leilão não encontrado ou sem lotes:", lote.auctionId);
+        return;
+      }
 
       // Extrair o ID original do lote (remove o prefixo do auction.id)
       const originalLoteId = lote.id.replace(`${lote.auctionId}-`, '');
       
       // Encontrar o lote específico dentro do leilão
       const loteIndex = auction.lotes.findIndex(l => l.id === originalLoteId);
-      if (loteIndex === -1) return;
+      if (loteIndex === -1) {
+        console.error("❌ Lote não encontrado no leilão:", originalLoteId);
+        return;
+      }
+
+      console.log("📦 Arquivando lote:", {
+        loteNumero: lote.numero,
+        originalLoteId,
+        loteIndex,
+        auctionId: auction.id
+      });
 
       // Criar uma cópia atualizada dos lotes com o status arquivado
       const updatedLotes = [...auction.lotes];
@@ -720,30 +1227,81 @@ function Lotes() {
           lotes: updatedLotes
         }
       });
+
+      // Log do arquivamento do lote
+      await logLotAction(
+        'archive',
+        `Lote ${lote.numero}`,
+        auction.nome,
+        auction.id,
+        {
+          metadata: {
+            numero: lote.numero,
+            descricao: lote.descricao,
+            valor_total: lote.mercadorias?.[0]?.valorNumerico || 0,
+            status_anterior: lote.status
+          }
+        }
+      );
+
+      // 🔄 SINCRONIZAÇÃO: Emitir evento para notificar o AuctionForm sobre a mudança
+      window.dispatchEvent(new CustomEvent('loteChanged', {
+        detail: {
+          auctionId: auction.id,
+          loteId: originalLoteId,
+          lote: updatedLotes[loteIndex],
+          action: 'archive',
+          allLotes: updatedLotes
+        }
+      }));
+
+      // Forçar sincronização
+      queryClient.invalidateQueries({ queryKey: ['auctions'] });
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ['auctions'] });
+      }, 300);
       
-      console.log(`Lote #${lote.numero} arquivado com sucesso`);
+      console.log(`✅ Lote #${lote.numero} arquivado com sucesso`);
       
     } catch (error) {
-      console.error("Erro ao arquivar lote:", error);
+      console.error("❌ Erro ao arquivar lote:", error);
     }
   };
 
   const handleUnarchiveLote = async (loteId: string) => {
     try {
+      console.log("📤 Iniciando desarquivamento do lote:", loteId);
+
       // Encontrar o lote específico
       const lote = mockLotes.find(l => l.id === loteId);
-      if (!lote) return;
+      if (!lote) {
+        console.error("❌ Lote não encontrado:", loteId);
+        return;
+      }
 
       // Buscar o leilão original
       const auction = auctions?.find(a => a.id === lote.auctionId);
-      if (!auction || !auction.lotes) return;
+      if (!auction || !auction.lotes) {
+        console.error("❌ Leilão não encontrado ou sem lotes:", lote.auctionId);
+        return;
+      }
 
       // Extrair o ID original do lote (remove o prefixo do auction.id)
       const originalLoteId = lote.id.replace(`${lote.auctionId}-`, '');
       
       // Encontrar o lote específico dentro do leilão
       const loteIndex = auction.lotes.findIndex(l => l.id === originalLoteId);
-      if (loteIndex === -1) return;
+      if (loteIndex === -1) {
+        console.error("❌ Lote não encontrado no leilão:", originalLoteId);
+        return;
+      }
+
+      console.log("📦 Desarquivando lote:", {
+        loteNumero: lote.numero,
+        originalLoteId,
+        loteIndex,
+        auctionId: auction.id
+      });
 
       // Criar uma cópia atualizada dos lotes com o status disponível
       const updatedLotes = [...auction.lotes];
@@ -759,11 +1317,45 @@ function Lotes() {
           lotes: updatedLotes
         }
       });
+
+      // Log do desarquivamento do lote
+      await logLotAction(
+        'unarchive',
+        `Lote ${lote.numero}`,
+        auction.nome,
+        auction.id,
+        {
+          metadata: {
+            numero: lote.numero,
+            descricao: lote.descricao,
+            valor_total: lote.mercadorias?.[0]?.valorNumerico || 0,
+            status_anterior: lote.status,
+            status_novo: 'disponivel'
+          }
+        }
+      );
+
+      // 🔄 SINCRONIZAÇÃO: Emitir evento para notificar o AuctionForm sobre a mudança
+      window.dispatchEvent(new CustomEvent('loteChanged', {
+        detail: {
+          auctionId: auction.id,
+          loteId: originalLoteId,
+          lote: updatedLotes[loteIndex],
+          action: 'unarchive',
+          allLotes: updatedLotes
+        }
+      }));
+
+      // Forçar sincronização
+      queryClient.invalidateQueries({ queryKey: ['auctions'] });
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ['auctions'] });
+      }, 300);
       
-      console.log(`Lote #${lote.numero} desarquivado com sucesso`);
+      console.log(`✅ Lote #${lote.numero} desarquivado com sucesso`);
       
     } catch (error) {
-      console.error("Erro ao desarquivar lote:", error);
+      console.error("❌ Erro ao desarquivar lote:", error);
     }
   };
 
@@ -1075,28 +1667,28 @@ function Lotes() {
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-                          {lote.fotosMercadoria && lote.fotosMercadoria.length > 0 && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedLoteForPhotos(lote);
-                                setIsPhotoViewerOpen(true);
-                              }}
-                              className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                              title={`Ver fotos (${lote.fotosMercadoria.length})`}
-                            >
-                              <Image className="h-4 w-4" />
-                            </Button>
-                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleViewPhotos(lote)}
+                            className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                            title="Ver todas as fotos do lote e mercadoria"
+                          >
+                            <Image className="h-4 w-4" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => handleEditLote(lote)}
-                            className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                            disabled={isLoadingLoteData}
+                            className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 hover:text-gray-900 disabled:opacity-50"
                             title="Editar"
                           >
-                            <Edit className="h-4 w-4" />
+                            {isLoadingLoteData ? (
+                              <RefreshCw className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Edit className="h-4 w-4" />
+                            )}
                           </Button>
                                                      <AlertDialog>
                              <AlertDialogTrigger asChild>
@@ -1178,10 +1770,14 @@ function Lotes() {
                   <div className="space-y-4">
                     {selectedLote.mercadorias.map((mercadoria, index) => (
                       <div key={index} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                        <div className="grid grid-cols-2 gap-4 mb-3">
+                        <div className="grid grid-cols-3 gap-4 mb-3">
                           <div>
                             <Label className="text-xs font-medium text-gray-600">Tipo</Label>
                             <p className="text-sm font-medium text-gray-900">{mercadoria.tipo}</p>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-medium text-gray-600">Quantidade</Label>
+                            <p className="text-sm font-medium text-gray-900">{mercadoria.quantidade || 'Não informado'}</p>
                           </div>
                           <div>
                             <Label className="text-xs font-medium text-gray-600">Valor</Label>
@@ -1234,6 +1830,21 @@ function Lotes() {
                 auctionId={selectedLote.auctionId}
                 onOpenAuctionDetails={handleOpenAuctionDetails}
               />
+
+              {/* Botão para Ver Todas as Fotos */}
+              <div className="flex justify-center pt-4 border-t border-gray-100">
+                <Button
+                  onClick={() => {
+                    setIsViewLoteModalOpen(false);
+                    handleViewPhotos(selectedLote);
+                  }}
+                  variant="ghost"
+                  className="text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                >
+                  <Image className="h-4 w-4 mr-2" />
+                  Ver Galeria
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
@@ -1255,7 +1866,7 @@ function Lotes() {
                 <Input
                   id="numero"
                   value={loteForm.numero}
-                  onChange={(e) => setLoteForm({...loteForm, numero: e.target.value})}
+                  onChange={(e) => updateLoteFormSafely({ numero: e.target.value })}
                   placeholder="Ex: 001"
                   className="focus:border-black focus:ring-0 focus-visible:ring-0"
                 />
@@ -1264,7 +1875,7 @@ function Lotes() {
                 <Label htmlFor="auctionId">Leilão</Label>
                 <Select 
                   value={loteForm.auctionId} 
-                  onValueChange={(value) => setLoteForm({...loteForm, auctionId: value})}
+                  onValueChange={(value) => updateLoteFormSafely({ auctionId: value })}
                   onOpenChange={setIsAuctionSelectOpen}
                 >
                   <SelectTrigger 
@@ -1283,14 +1894,26 @@ function Lotes() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <Label htmlFor="mercadoria">Mercadoria</Label>
                 <Input
                   id="mercadoria"
                   value={loteForm.mercadoria}
-                  onChange={(e) => setLoteForm({...loteForm, mercadoria: e.target.value})}
+                  onChange={(e) => updateLoteFormSafely({ mercadoria: e.target.value })}
                   placeholder="Ex: Gado Nelore"
+                  className="focus:border-black focus:ring-0 focus-visible:ring-0"
+                />
+              </div>
+              <div>
+                <Label htmlFor="quantidade">Quantidade</Label>
+                <Input
+                  id="quantidade"
+                  type="number"
+                  value={loteForm.quantidade}
+                  onChange={(e) => updateLoteFormSafely({ quantidade: e.target.value })}
+                  placeholder="Ex: 10"
+                  min="1"
                   className="focus:border-black focus:ring-0 focus-visible:ring-0"
                 />
               </div>
@@ -1299,7 +1922,7 @@ function Lotes() {
                 <Input
                   id="valorProduto"
                   value={loteForm.valorProduto}
-                  onChange={(e) => setLoteForm({...loteForm, valorProduto: e.target.value})}
+                  onChange={(e) => updateLoteFormSafely({ valorProduto: e.target.value })}
                   placeholder="Ex: 15.000,00"
                   className="focus:border-black focus:ring-0 focus-visible:ring-0"
                 />
@@ -1311,7 +1934,7 @@ function Lotes() {
               <Textarea
                 id="descricao"
                 value={loteForm.descricao}
-                onChange={(e) => setLoteForm({...loteForm, descricao: e.target.value})}
+                onChange={(e) => updateLoteFormSafely({ descricao: e.target.value })}
                 placeholder="Descreva o lote detalhadamente..."
                 rows={3}
                 className="focus:border-black focus:ring-0 focus-visible:ring-0"
@@ -1333,6 +1956,20 @@ function Lotes() {
                             src={foto.url}
                             alt={foto.nome}
                             className="w-full h-full object-cover"
+                            onLoad={() => {
+                              console.log('✅ Imagem carregada com sucesso:', {
+                                nome: foto.nome,
+                                urlType: foto.url?.startsWith('blob:') ? 'blob' : foto.url?.startsWith('data:') ? 'base64' : 'other'
+                              });
+                            }}
+                            onError={(e) => {
+                              console.error('❌ Erro ao carregar imagem:', {
+                                nome: foto.nome,
+                                url: foto.url?.substring(0, 50) + '...',
+                                urlLength: foto.url?.length,
+                                urlType: foto.url?.startsWith('blob:') ? 'blob' : foto.url?.startsWith('data:') ? 'base64' : 'other'
+                              });
+                            }}
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
@@ -1345,16 +1982,7 @@ function Lotes() {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          onClick={() => {
-                            // Limpar blob URL da foto que será removida
-                            if (foto.url && tempBlobUrlsRef.current.has(foto.url)) {
-                              URL.revokeObjectURL(foto.url);
-                              tempBlobUrlsRef.current.delete(foto.url);
-                            }
-                            
-                            const updatedFotos = loteForm.fotos.filter(f => f.id !== foto.id);
-                            setLoteForm({...loteForm, fotos: updatedFotos});
-                          }}
+                          onClick={() => removeFotoSafely(foto.id)}
                           className="h-5 w-5 p-0 bg-red-500 hover:bg-red-600 text-white rounded-full"
                           title="Remover foto"
                         >
@@ -1389,10 +2017,16 @@ function Lotes() {
                       url: blobUrl
                     };
                     
+                    console.log("🔗 Criando nova URL blob:", {
+                      nome: file.name,
+                      blobUrl: blobUrl,
+                      id: novoDocumento.id
+                    });
+                    
                     // Adicionar URL ao set de URLs temporárias
                     tempBlobUrlsRef.current.add(blobUrl);
                     
-                    setLoteForm(prev => ({...prev, fotos: [...prev.fotos, novoDocumento]}));
+                    addFotoSafely(novoDocumento);
                   });
                 }}
               >
@@ -1431,10 +2065,16 @@ function Lotes() {
                           url: blobUrl
                         };
                         
+                        console.log("🔗 Criando nova URL blob (input):", {
+                          nome: file.name,
+                          blobUrl: blobUrl,
+                          id: novoDocumento.id
+                        });
+                        
                         // Adicionar URL ao set de URLs temporárias
                         tempBlobUrlsRef.current.add(blobUrl);
                         
-                        setLoteForm(prev => ({...prev, fotos: [...prev.fotos, novoDocumento]}));
+                        addFotoSafely(novoDocumento);
                       });
                       e.target.value = '';
                     }}
@@ -1457,9 +2097,17 @@ function Lotes() {
               </Button>
               <Button
                 onClick={handleSaveLote}
-                className="bg-black hover:bg-gray-800"
+                disabled={isSavingLote}
+                className="bg-black hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isEditingLote ? "Salvar Alterações" : "Criar Lote"}
+                {isSavingLote ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    {isEditingLote ? "Salvando..." : "Criando..."}
+                  </>
+                ) : (
+                  isEditingLote ? "Salvar Alterações" : "Criar Lote"
+                )}
               </Button>
             </div>
           </div>
@@ -1478,37 +2126,33 @@ function Lotes() {
           
           {selectedLoteForPhotos?.fotosMercadoria && selectedLoteForPhotos.fotosMercadoria.length > 0 ? (
             <div className="space-y-4">
-              <div className="text-sm text-gray-600">
-                <p><strong>Leilão:</strong> {selectedLoteForPhotos.leilaoNome}</p>
-                <p><strong>Total de fotos:</strong> {selectedLoteForPhotos.fotosMercadoria.length}</p>
+              <div className="text-sm text-gray-500 pb-3 border-b border-gray-100">
+                <span className="font-medium text-gray-900">{selectedLoteForPhotos.leilaoNome}</span>
+                <span className="mx-2">•</span>
+                <span>Lote #{selectedLoteForPhotos.numero}</span>
+                <span className="mx-2">•</span>
+                <span>{selectedLoteForPhotos.fotosMercadoria.length} {selectedLoteForPhotos.fotosMercadoria.length === 1 ? 'foto' : 'fotos'}</span>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[60vh] overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[60vh] overflow-y-auto">
                 {selectedLoteForPhotos.fotosMercadoria.map((foto, index) => (
-                  <div key={foto.id} className="relative group">
-                    <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden border">
+                  <div key={foto.id} className="group cursor-pointer" onClick={() => window.open(foto.url, '_blank')}>
+                    <div className="aspect-square bg-gray-50 rounded overflow-hidden border border-gray-200 hover:border-gray-400 transition-colors">
                       {foto.url ? (
                         <img
                           src={foto.url}
                           alt={foto.nome}
-                          className="w-full h-full object-cover cursor-pointer transition-transform hover:scale-105"
-                          onClick={() => window.open(foto.url, '_blank')}
+                          className="w-full h-full object-cover"
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
-                          <Image className="h-12 w-12 text-gray-400" />
+                          <Image className="h-10 w-10 text-gray-300" />
                         </div>
                       )}
                     </div>
-                    <div className="absolute top-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
-                      {index + 1}/{selectedLoteForPhotos.fotosMercadoria.length}
-                    </div>
-                    <div className="mt-2 text-center">
+                    <div className="mt-1.5 px-1">
                       <p className="text-xs text-gray-600 truncate" title={foto.nome}>
                         {foto.nome}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {(foto.tamanho / 1024 / 1024).toFixed(1)} MB
                       </p>
                     </div>
                   </div>

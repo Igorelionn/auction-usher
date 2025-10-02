@@ -41,7 +41,14 @@ import {
   Crown,
   ArrowDown,
   MoreVertical,
-  Lock
+  Lock,
+  Plus,
+  Archive,
+  Copy,
+  DollarSign,
+  CreditCard,
+  FileText,
+  UserCheck
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
@@ -2129,29 +2136,102 @@ export default function Configuracoes() {
                 userActivities.map((activity, index) => {
                   const getActivityIcon = (type: string) => {
                     switch (type) {
-                      case 'login': return <Activity className="w-4 h-4 text-gray-600" />;
-                      case 'profile_update': return <Edit className="w-4 h-4 text-gray-600" />;
-                      case 'auction_create': return <Gavel className="w-4 h-4 text-gray-600" />;
-                      case 'bidder_add': return <Users className="w-4 h-4 text-gray-600" />;
-                      case 'user_delete': return <Trash2 className="w-4 h-4 text-gray-600" />;
-                      case 'user_deactivate': return <UserMinus className="w-4 h-4 text-gray-600" />;
-                      case 'user_reactivate': return <UserPlus className="w-4 h-4 text-gray-600" />;
-                      default: return <Activity className="w-4 h-4 text-gray-600" />;
+                      case 'login': return <Activity className="w-4 h-4 text-gray-500" />;
+                      case 'profile_update': return <Edit className="w-4 h-4 text-gray-500" />;
+                      
+                      // Leilões
+                      case 'auction_create': return <Plus className="w-4 h-4 text-gray-500" />;
+                      case 'auction_update': return <Edit className="w-4 h-4 text-gray-500" />;
+                      case 'auction_delete': return <Trash2 className="w-4 h-4 text-red-500" />;
+                      case 'auction_archive': return <Archive className="w-4 h-4 text-gray-500" />;
+                      case 'auction_unarchive': return <RefreshCw className="w-4 h-4 text-gray-500" />;
+                      case 'auction_duplicate': return <Copy className="w-4 h-4 text-gray-500" />;
+                      
+                      // Arrematantes
+                      case 'bidder_create': return <UserPlus className="w-4 h-4 text-gray-500" />;
+                      case 'bidder_update': return <Users className="w-4 h-4 text-gray-500" />;
+                      case 'bidder_delete': return <UserMinus className="w-4 h-4 text-red-500" />;
+                      case 'bidder_add': return <Users className="w-4 h-4 text-gray-500" />;
+                      
+                      // Pagamentos (novos)
+                      case 'pagamento_marcar_pago': return <DollarSign className="w-4 h-4 text-gray-500" />;
+                      case 'pagamento_marcar_nao_pago': return <DollarSign className="w-4 h-4 text-gray-500" />;
+                      case 'pagamento_atualizar_parcelas': return <CreditCard className="w-4 h-4 text-gray-500" />;
+                      
+                      // Pagamentos (antigos - compatibilidade)
+                      case 'payment_mark_paid': return <DollarSign className="w-4 h-4 text-gray-500" />;
+                      case 'payment_mark_unpaid': return <DollarSign className="w-4 h-4 text-gray-500" />;
+                      case 'payment_update_installments': return <CreditCard className="w-4 h-4 text-gray-500" />;
+                      
+                      // Documentos
+                      case 'document_upload': return <Upload className="w-4 h-4 text-gray-500" />;
+                      case 'document_delete': return <Trash2 className="w-4 h-4 text-red-500" />;
+                      case 'document_view': return <Eye className="w-4 h-4 text-gray-500" />;
+                      
+                      // Lotes e Mercadorias
+                      case 'lot_create': return <Plus className="w-4 h-4 text-gray-500" />;
+                      case 'lot_update': return <Edit className="w-4 h-4 text-gray-500" />;
+                      case 'lot_delete': return <Trash2 className="w-4 h-4 text-red-500" />;
+                      case 'merchandise_create': return <Plus className="w-4 h-4 text-gray-500" />;
+                      case 'merchandise_update': return <Edit className="w-4 h-4 text-gray-500" />;
+                      case 'merchandise_delete': return <Trash2 className="w-4 h-4 text-red-500" />;
+                      
+                      // Relatórios
+                      case 'report_generate': return <FileText className="w-4 h-4 text-gray-500" />;
+                      case 'report_export': return <Download className="w-4 h-4 text-gray-500" />;
+                      case 'report_view': return <Eye className="w-4 h-4 text-gray-500" />;
+                      
+                      // Usuários
+                      case 'user_create': return <UserPlus className="w-4 h-4 text-gray-500" />;
+                      case 'user_delete': return <Trash2 className="w-4 h-4 text-red-500" />;
+                      case 'user_deactivate': return <UserMinus className="w-4 h-4 text-gray-500" />;
+                      case 'user_reactivate': return <UserPlus className="w-4 h-4 text-gray-500" />;
+                      case 'user_promote': return <UserCheck className="w-4 h-4 text-gray-500" />;
+                      case 'user_demote': return <UserMinus className="w-4 h-4 text-gray-500" />;
+                      case 'password_change': return <Key className="w-4 h-4 text-gray-500" />;
+                      
+                      // Configurações
+                      case 'config_update': return <Settings className="w-4 h-4 text-gray-500" />;
+                      case 'config_backup': return <Database className="w-4 h-4 text-gray-500" />;
+                      case 'config_restore': return <RefreshCw className="w-4 h-4 text-gray-500" />;
+                      case 'history_clear': return <Trash2 className="w-4 h-4 text-red-500" />;
+                      
+                      default: return <Activity className="w-4 h-4 text-gray-500" />;
                     }
                   };
 
                   // Separar título e subtítulo
                   const getActivityTitle = (description: string) => {
-                    if (description.includes('(')) {
-                      return description.split('(')[0].trim();
+                    // Extrair a ação principal (verbo + objeto principal)
+                    if (description.includes('"')) {
+                      // Para ações com nomes entre aspas: "Criou o leilão" + detalhes
+                      const beforeQuote = description.split('"')[0].trim();
+                      return beforeQuote;
+                    } else if (description.includes(' - ')) {
+                      // Para ações com traço: "Marcou parcela como paga para" + detalhes
+                      const beforeDash = description.split(' - ')[0];
+                      if (beforeDash.includes(' para ')) {
+                        return beforeDash.split(' para ')[0].trim();
+                      }
+                      return beforeDash.trim();
                     }
                     return description;
                   };
 
                   const getActivitySubtitle = (description: string) => {
-                    if (description.includes('(')) {
-                      const subtitle = description.split('(')[1];
-                      return subtitle ? subtitle.replace(')', '') : null;
+                    // Extrair os detalhes (nome do item, valores, etc.)
+                    if (description.includes('"')) {
+                      // Pegar tudo a partir das aspas
+                      const fromQuote = description.substring(description.indexOf('"'));
+                      return fromQuote;
+                    } else if (description.includes(' - ')) {
+                      // Pegar detalhes após o traço
+                      const afterDash = description.split(' - ')[1];
+                      return afterDash || null;
+                    } else if (description.includes(' para ')) {
+                      // Pegar detalhes após "para"
+                      const afterPara = description.substring(description.indexOf(' para ') + 6);
+                      return afterPara || null;
                     }
                     return null;
                   };
@@ -2188,7 +2268,14 @@ export default function Configuracoes() {
                             {activity.target_type === 'user' && 'Usuário'}
                             {activity.target_type === 'profile' && 'Perfil'}
                             {activity.target_type === 'auth' && 'Autenticação'}
-                            {!['auction', 'bidder', 'user', 'profile', 'auth'].includes(activity.target_type) && activity.target_type}
+                            {activity.target_type === 'payment' && 'Pagamento'}
+                            {activity.target_type === 'pagamento' && 'Pagamento'}
+                            {activity.target_type === 'document' && 'Documento'}
+                            {activity.target_type === 'lot' && 'Lote'}
+                            {activity.target_type === 'merchandise' && 'Mercadoria'}
+                            {activity.target_type === 'report' && 'Relatório'}
+                            {activity.target_type === 'config' && 'Configuração'}
+                            {!['auction', 'bidder', 'user', 'profile', 'auth', 'payment', 'pagamento', 'document', 'lot', 'merchandise', 'report', 'config'].includes(activity.target_type) && activity.target_type}
                           </Badge>
                         )}
                   </div>

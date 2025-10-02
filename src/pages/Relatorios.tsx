@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { useSupabaseAuctions } from "@/hooks/use-supabase-auctions";
 import { useToast } from "@/hooks/use-toast";
+import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { StringDatePicker } from "@/components/ui/date-picker";
 import { PdfReport } from "@/components/PdfReport";
 
@@ -128,6 +129,7 @@ interface RelatorioConfig {
 function Relatorios() {
   const { auctions, isLoading } = useSupabaseAuctions();
   const { toast } = useToast();
+  const { logReportAction } = useActivityLogger();
   const [config, setConfig] = useState<RelatorioConfig>({
     tipo: "",
     periodo: {
@@ -749,6 +751,15 @@ function Relatorios() {
         'faturas': 'faturas'
       };
       
+      // Log da geração do relatório
+      await logReportAction('generate', reportType, `Relatório de ${typeNames[reportType]}`, {
+        metadata: {
+          total_auctions: auctions.length,
+          report_format: 'pdf',
+          generation_date: new Date().toISOString()
+        }
+      });
+      
       toast({
         title: "✅ Relatório Gerado com Sucesso!",
         description: `Relatório de ${typeNames[reportType]} foi baixado.`,
@@ -1224,7 +1235,8 @@ function Relatorios() {
                                    // FATURAMENTO = Total já recebido (incluindo pagamentos parciais)
                                   const faturamentoPeriodo = auctions?.reduce((sum, auction) => {
                                     if (auction.arrematante && !auction.arquivado) {
-                                      const dataLeilao = new Date(auction.dataInicio);
+                                      // Corrigir problema de fuso horário - forçar interpretação como data local
+                                      const dataLeilao = new Date(auction.dataInicio + 'T00:00:00.000');
                                       if (dataLeilao >= dataInicio && dataLeilao <= dataFim) {
                                         const arrematante = auction.arrematante;
                                         const parcelasPagas = arrematante?.parcelasPagas || 0;
@@ -1272,10 +1284,11 @@ function Relatorios() {
                                     return sum;
                                   }, 0) || 0;
                                   
-                                  // DESPESAS = Custos totais dos leilões
+                                  // DESPESAS = Custos de todos os leilões com custos definidos (passados ou futuros)
                                   const despesasPeriodo = auctions?.reduce((sum, auction) => {
                                     if (!auction.arquivado) {
-                                      const dataLeilao = new Date(auction.dataInicio);
+                                      // Corrigir problema de fuso horário - forçar interpretação como data local
+                                      const dataLeilao = new Date(auction.dataInicio + 'T00:00:00.000');
                                       if (dataLeilao >= dataInicio && dataLeilao <= dataFim) {
                                         // Tentar múltiplas fontes de dados para custos
                                         let custos = 0;
@@ -1287,7 +1300,11 @@ function Relatorios() {
                                           const parsed = parseFloat(auction.custos.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
                                           custos = parsed;
                                         }
-                                        return sum + custos;
+                                        
+                                        // Incluir despesas se há custos definidos, independente de ser passado ou futuro
+                                        if (custos > 0) {
+                                          return sum + custos;
+                                        }
                                       }
                                     }
                                     return sum;
@@ -1319,22 +1336,46 @@ function Relatorios() {
                                     current.setMonth(current.getMonth() + 1);
                                   }
                                 } else if (tipoGrafico === 'trimestral') {
-                                  // Últimos 8 trimestres
-                                  const currentQuarter = Math.floor(now.getMonth() / 3);
-                                  for (let i = 7; i >= 0; i--) {
-                                    let quarter = currentQuarter - i;
-                                    let year = now.getFullYear();
+                                  // Trimestres dinâmicos baseados nos leilões
+                                  let dataMinima = new Date();
+                                  let dataMaxima = new Date();
+                                  
+                                  if (auctions && auctions.length > 0) {
+                                    // Corrigir problema de fuso horário na geração de períodos trimestrais
+                                    const datasLeiloes = auctions.map(a => new Date(a.dataInicio + 'T00:00:00.000'));
+                                    dataMinima = new Date(Math.min(...datasLeiloes.map(d => d.getTime())));
+                                    dataMaxima = new Date(Math.max(...datasLeiloes.map(d => d.getTime())));
                                     
-                                    while (quarter < 0) {
-                                      quarter += 4;
-                                      year -= 1;
+                                    // Garantir pelo menos 8 trimestres no passado
+                                    const oitoTrimestresAtras = new Date(now.getFullYear() - 2, now.getMonth(), 1);
+                                    if (dataMinima > oitoTrimestresAtras) dataMinima = oitoTrimestresAtras;
+                                    
+                                    // Garantir que inclua pelo menos o trimestre atual
+                                    const trimestreAtual = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+                                    if (dataMaxima < trimestreAtual) dataMaxima = trimestreAtual;
+                                  } else {
+                                    // Fallback: últimos 8 trimestres
+                                    dataMinima = new Date(now.getFullYear() - 2, now.getMonth(), 1);
+                                    dataMaxima = now;
+                                  }
+                                  
+                                  // Gerar trimestres do mínimo ao máximo
+                                  const startQuarter = Math.floor(dataMinima.getMonth() / 3);
+                                  const endQuarter = Math.floor(dataMaxima.getMonth() / 3);
+                                  const startYear = dataMinima.getFullYear();
+                                  const endYear = dataMaxima.getFullYear();
+                                  
+                                  for (let year = startYear; year <= endYear; year++) {
+                                    const firstQ = (year === startYear) ? startQuarter : 0;
+                                    const lastQ = (year === endYear) ? endQuarter : 3;
+                                    
+                                    for (let quarter = firstQ; quarter <= lastQ; quarter++) {
+                                      const quarterStart = new Date(year, quarter * 3, 1);
+                                      const quarterEnd = new Date(year, (quarter + 1) * 3, 0);
+                                      const label = `${quarter + 1}º trim./${year.toString().slice(2)}`;
+                                      
+                                      dadosGrafico.push(calcularDadosPeriodo(quarterStart, quarterEnd, label));
                                     }
-                                    
-                                    const quarterStart = new Date(year, quarter * 3, 1);
-                                    const quarterEnd = new Date(year, (quarter + 1) * 3, 0);
-                                    const label = `${quarter + 1}º trim./${year.toString().slice(2)}`;
-                                    
-                                    dadosGrafico.push(calcularDadosPeriodo(quarterStart, quarterEnd, label));
                                   }
                                 } else if (tipoGrafico === 'anual') {
                                   // Últimos 10 anos
@@ -1352,16 +1393,22 @@ function Relatorios() {
                                   let dataMaxima = new Date();
                                   
                                   if (auctions && auctions.length > 0) {
-                                    const datasLeiloes = auctions.map(a => new Date(a.dataInicio));
+                                    // Corrigir problema de fuso horário na geração de períodos
+                                    const datasLeiloes = auctions.map(a => new Date(a.dataInicio + 'T00:00:00.000'));
                                     dataMinima = new Date(Math.min(...datasLeiloes.map(d => d.getTime())));
                                     dataMaxima = new Date(Math.max(...datasLeiloes.map(d => d.getTime())));
                                     
                                     // Garantir pelo menos 12 meses de visualização
                                     const dozesMesesAtras = new Date(now.getFullYear(), now.getMonth() - 11, 1);
                                     if (dataMinima > dozesMesesAtras) dataMinima = dozesMesesAtras;
+                                    
+                                    // Garantir que inclua pelo menos o mês atual se há leilões futuros
+                                    const mesAtual = new Date(now.getFullYear(), now.getMonth(), 1);
+                                    if (dataMaxima < mesAtual) dataMaxima = mesAtual;
                                   } else {
                                     // Fallback: últimos 12 meses se não há leilões
                                     dataMinima = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+                                    dataMaxima = now;
                                   }
                                   
                                   // Gerar períodos mensais do mínimo ao máximo
@@ -1640,7 +1687,7 @@ function Relatorios() {
                                                   fontWeight="600"
                                                   textAnchor={textAnchor}
                                                 >
-                                                  Lucro: {formatCurrency(Math.abs(lucro))}
+                                                  {lucro >= 0 ? 'Lucro' : 'Prejuízo'}: {formatCurrency(Math.abs(lucro))}
                                                 </text>
                                               </g>
                                             </>
