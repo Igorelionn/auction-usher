@@ -847,7 +847,7 @@ function Faturas() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-6 zoom-in-subtle">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -1084,7 +1084,7 @@ function Faturas() {
                               setSelectedFatura(fatura);
                               setIsViewFaturaModalOpen(true);
                             }}
-                            className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                            className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 hover:text-gray-900 btn-action-click"
                             title="Ver detalhes"
                           >
                             <Eye className="h-4 w-4" />
@@ -1093,7 +1093,7 @@ function Faturas() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleDownloadFatura(fatura.id)}
-                            className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                            className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 hover:text-gray-900 btn-download-click"
                             title="Baixar fatura"
                           >
                             <Download className="h-4 w-4" />
@@ -1150,7 +1150,7 @@ function Faturas() {
                                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
                                 <AlertDialogAction
                                   onClick={() => handleDeleteFatura(fatura.id)}
-                                  className="bg-red-600 hover:bg-red-700"
+                                  className="bg-red-600 hover:bg-red-700 btn-save-click"
                                 >
                                   Excluir
                                 </AlertDialogAction>
@@ -1653,7 +1653,7 @@ function Faturas() {
                 onClick={() => {
                   handleSaveFatura();
                 }}
-                className="bg-green-600 hover:bg-green-700"
+                className="bg-green-600 hover:bg-green-700 btn-save-click"
               >
                 {isEditingFatura ? "Salvar Alterações" : "Criar Fatura"}
               </Button>
@@ -1820,7 +1820,7 @@ function Faturas() {
               </Button>
               <Button
                 onClick={handleDownloadFromPreview}
-                className="bg-black hover:bg-gray-800 text-white hover:text-white"
+                className="bg-black hover:bg-gray-800 text-white hover:text-white btn-download-click"
               >
                 <Download className="h-4 w-4 mr-2" />
                 Baixar PDF
@@ -1853,6 +1853,33 @@ function Faturas() {
 
 // Componente de Preview da Fatura (igual ao ReportPreview dos relatórios)
 const FaturaPreview = ({ fatura, auctions }: { fatura: FaturaExtendida, auctions: any[] }) => {
+  // Função para calcular juros progressivos
+  const calcularJurosProgressivos = (valorOriginal: number, dataVencimento: string, percentualJuros: number): number => {
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    
+    const vencimento = new Date(dataVencimento + 'T00:00:00.000');
+    vencimento.setHours(0, 0, 0, 0);
+    
+    if (hoje <= vencimento) {
+      return valorOriginal;
+    }
+    
+    const diffTime = hoje.getTime() - vencimento.getTime();
+    const mesesAtraso = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 30));
+    
+    if (mesesAtraso <= 0) {
+      return valorOriginal;
+    }
+    
+    let valorComJuros = valorOriginal;
+    for (let i = 0; i < mesesAtraso; i++) {
+      valorComJuros = valorComJuros * (1 + percentualJuros / 100);
+    }
+    
+    return valorComJuros;
+  };
+
   // Funções auxiliares (replicadas localmente)
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -1916,11 +1943,24 @@ const FaturaPreview = ({ fatura, auctions }: { fatura: FaturaExtendida, auctions
     }
   }
 
-  const valorEntrada = arrematante?.valorEntrada ? parseCurrencyToNumber(arrematante.valorEntrada) : fatura.valorLiquido * 0.3;
-  const valorPorParcela = (fatura.valorLiquido - valorEntrada) / quantidadeParcelasTotal;
-  const dataEntrada = (loteArrematado?.dataEntrada || auction?.dataEntrada) ? 
-    new Date((loteArrematado?.dataEntrada || auction?.dataEntrada) + 'T00:00:00').toLocaleDateString('pt-BR') : 
+  // Calcular valor total real do arrematante
+  const valorTotalArrematante = arrematante?.valorPagar ? 
+    (typeof arrematante.valorPagar === 'string' 
+      ? parseCurrencyToNumber(arrematante.valorPagar)
+      : Number(arrematante.valorPagar)) 
+    : fatura.valorLiquido;
+  
+  const valorEntradaBase = arrematante?.valorEntrada ? parseCurrencyToNumber(arrematante.valorEntrada) : valorTotalArrematante * 0.3;
+  const valorPorParcelaBase = (valorTotalArrematante - valorEntradaBase) / quantidadeParcelasTotal;
+  const dataEntradaStr = (loteArrematado?.dataEntrada || auction?.dataEntrada) || '';
+  const dataEntrada = dataEntradaStr ? 
+    new Date(dataEntradaStr + 'T00:00:00').toLocaleDateString('pt-BR') : 
     'Não definida';
+  
+  // Calcular valores com juros se atrasados
+  const percentualJuros = arrematante?.percentualJurosAtraso || 0;
+  const valorEntrada = dataEntradaStr ? calcularJurosProgressivos(valorEntradaBase, dataEntradaStr, percentualJuros) : valorEntradaBase;
+  const valorPorParcela = valorPorParcelaBase;
 
   return (
     <div className="bg-white space-y-4 font-sans" style={{ fontFamily: 'Arial, sans-serif', padding: '20px' }}>
@@ -1967,9 +2007,36 @@ const FaturaPreview = ({ fatura, auctions }: { fatura: FaturaExtendida, auctions
       <div className="bg-slate-50 border border-slate-300 rounded-lg p-6 text-center mb-4">
         <h2 className="text-xl font-semibold text-slate-800 mb-3">VALOR TOTAL DO ARREMATAÇÃO</h2>
         <div className="text-3xl font-bold text-slate-900 mb-2">
-          {formatCurrency(fatura.valorLiquido)}
+          {(() => {
+            // Calcular valor total com juros progressivos
+            if (!arrematante || !mesInicioParcelas) {
+              return formatCurrency(valorTotalArrematante);
+            }
+            
+            const [startYear, startMonth] = mesInicioParcelas.split('-').map(Number);
+            let valorTotalComJuros = valorEntrada; // Já calculado com juros se atrasada
+            
+            // Somar todas as parcelas com seus juros
+            for (let i = 0; i < quantidadeParcelasTotal; i++) {
+              const dataVencimento = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal || 15);
+              const dataVencimentoStr = dataVencimento.toISOString().split('T')[0];
+              valorTotalComJuros += calcularJurosProgressivos(valorPorParcela, dataVencimentoStr, percentualJuros);
+            }
+            
+            const temJuros = valorTotalComJuros > valorTotalArrematante;
+            return (
+              <div>
+                <div>{formatCurrency(valorTotalComJuros)}</div>
+                {temJuros && (
+                  <div className="text-sm text-red-600 mt-2">
+                    (Inclui {formatCurrency(valorTotalComJuros - valorTotalArrematante)} de juros acumulados)
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
-        <p className="text-sm text-slate-600">Valor total arrematado no leilão</p>
+        <p className="text-sm text-slate-600">Valor total arrematado no leilão {percentualJuros > 0 && '(com juros de atraso, se aplicável)'}</p>
       </div>
 
       {/* Especificações de Pagamento */}
@@ -1981,7 +2048,14 @@ const FaturaPreview = ({ fatura, auctions }: { fatura: FaturaExtendida, auctions
           <div className="space-y-2 text-sm">
             <div className="flex justify-between py-1 border-b border-slate-200">
               <strong>Valor da Entrada:</strong>
-              <span>{formatCurrency(valorEntrada)}</span>
+              <span>
+                {formatCurrency(valorEntrada)}
+                {valorEntrada > valorEntradaBase && (
+                  <span className="text-xs text-red-600 ml-2">
+                    (+ {formatCurrency(valorEntrada - valorEntradaBase)} juros)
+                  </span>
+                )}
+              </span>
             </div>
             <div className="flex justify-between py-1 border-b border-slate-200">
               <strong>Data da Entrada:</strong>
@@ -2008,6 +2082,43 @@ const FaturaPreview = ({ fatura, auctions }: { fatura: FaturaExtendida, auctions
               <span>{parcelasPagasCorretas} de {quantidadeParcelasTotal + 1} pagas (entrada + parcelas)</span>
             </div>
           </div>
+          
+          {/* Detalhamento de Parcelas */}
+          {mesInicioParcelas && (
+            <div className="mt-4 border-t border-slate-300 pt-4">
+              <h3 className="text-md font-semibold text-slate-800 mb-3">Detalhamento das Parcelas</h3>
+              <div className="space-y-2">
+                {Array.from({ length: quantidadeParcelasTotal }, (_, index) => {
+                  const [startYear, startMonth] = mesInicioParcelas.split('-').map(Number);
+                  const isPaga = (index + 1) < parcelasPagasCorretas; // +1 porque a entrada é a primeira paga
+                  const dataVencimento = new Date(startYear, startMonth - 1 + index, arrematante.diaVencimentoMensal || 15);
+                  const dataVencimentoStr = dataVencimento.toISOString().split('T')[0];
+                  const valorComJuros = calcularJurosProgressivos(valorPorParcela, dataVencimentoStr, percentualJuros);
+                  const temJuros = valorComJuros > valorPorParcela;
+                  
+                  return (
+                    <div key={index} className={`text-xs p-2 rounded ${isPaga ? 'bg-green-50' : temJuros ? 'bg-red-50' : 'bg-gray-50'}`}>
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">
+                          {index + 1}ª Parcela - Vence em {dataVencimento.toLocaleDateString('pt-BR')}
+                        </span>
+                        <div className="text-right">
+                          <span className="font-semibold">
+                            {formatCurrency(temJuros && !isPaga ? valorComJuros : valorPorParcela)}
+                          </span>
+                          {temJuros && !isPaga && (
+                            <span className="text-red-600 ml-1">
+                              (+ {formatCurrency(valorComJuros - valorPorParcela)} juros)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       ) : fatura.tipoPagamento === 'a_vista' ? (
         <div className="border border-slate-300 rounded-lg p-4 mb-4">

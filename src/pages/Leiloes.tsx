@@ -1510,7 +1510,7 @@ function Leiloes() {
                  </CardHeader>
          <CardContent className="h-[calc(100vh-550px)]">
                      {isLoadingResults ? (
-           <div className={`space-y-4 ${isTransitioning ? 'fade-in' : ''}`}>
+           <div className={`space-y-4 ${isTransitioning ? 'slide-in-left' : ''}`}>
              {/* Skeleton Cards */}
              {[...Array(3)].map((_, index) => (
                <div key={index} className="animate-pulse-slow transform-none">
@@ -1669,7 +1669,7 @@ function Leiloes() {
                                    setViewingAuction(auction);
                                    setViewingVersion(prev => prev + 1);
                                  }}
-                                 className="h-8 w-8 p-0 hover:bg-gray-100"
+                                 className="h-8 w-8 p-0 hover:bg-gray-100 btn-action-click"
                                  title="Ver detalhes"
                                >
                                  <Eye className="h-4 w-4 text-black" />
@@ -1679,7 +1679,7 @@ function Leiloes() {
                                  variant="ghost"
                                  size="sm"
                                  onClick={() => startEditingAuction(auction)}
-                                 className="h-8 w-8 p-0 hover:bg-gray-100"
+                                 className="h-8 w-8 p-0 hover:bg-gray-100 btn-action-click"
                                  title="Editar"
                                >
                                  <Edit className="h-4 w-4 text-gray-600" />
@@ -1750,7 +1750,7 @@ function Leiloes() {
                                     <AlertDialogCancel>Cancelar</AlertDialogCancel>
                                     <AlertDialogAction
                                       onClick={() => handleDeleteAuction(auction.id)}
-                                      className="bg-red-600 hover:bg-red-700"
+                                      className="bg-red-600 hover:bg-red-700 btn-save-click"
                                     >
                                       Confirmar Exclusão
                                     </AlertDialogAction>
@@ -2766,7 +2766,7 @@ function Leiloes() {
                            arrematanteForm.parcelasPagas === null ||
                            arrematanteForm.parcelasPagas === undefined ||
                            arrematanteForm.parcelasPagas < 0}
-                  className="h-11 px-6 text-white font-medium bg-black hover:bg-gray-800"
+                  className="h-11 px-6 text-white font-medium bg-black hover:bg-gray-800 btn-save-click"
                 >
                   {addingArrematanteFor?.arrematante ? "Salvar Alterações" : "Adicionar Arrematante"}
                 </Button>
@@ -2882,7 +2882,7 @@ function Leiloes() {
                 <Button
                   onClick={() => generatePDF(selectedAuctionForExport)}
                   disabled={!selectedAuctionForExport}
-                  className="flex-1 bg-black hover:bg-gray-800 text-white"
+                  className="flex-1 bg-black hover:bg-gray-800 text-white btn-download-click"
                 >
                   <Download className="h-4 w-4 mr-2" />
                   Gerar e Baixar PDF
@@ -2995,7 +2995,7 @@ function PaymentMonthsSelector({
         <Button
           type="button"
           onClick={() => onConfirm(selectedMonths.length)}
-          className="flex-1 bg-green-600 hover:bg-green-700"
+          className="flex-1 bg-green-600 hover:bg-green-700 btn-save-click"
         >
           Confirmar Pagamentos
         </Button>

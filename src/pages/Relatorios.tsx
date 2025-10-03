@@ -782,7 +782,7 @@ function Relatorios() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 slide-in-bottom">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -1840,7 +1840,7 @@ function Relatorios() {
               <Button
                 onClick={() => handleDownloadFromPreview()}
                 disabled={isGenerating}
-                className="flex-1 bg-black hover:bg-gray-800 text-white"
+                className="flex-1 bg-black hover:bg-gray-800 text-white btn-download-click"
               >
                 <Download className="h-4 w-4 mr-2" />
                 {isGenerating ? 'Gerando...' : 'Gerar e Baixar PDF'}
@@ -1883,6 +1883,33 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
       </div>
     );
   }
+
+  // Função para calcular juros progressivos
+  const calcularJurosProgressivos = (valorOriginal: number, dataVencimento: string, percentualJuros: number): number => {
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    
+    const vencimento = new Date(dataVencimento + 'T00:00:00.000');
+    vencimento.setHours(0, 0, 0, 0);
+    
+    if (hoje <= vencimento) {
+      return valorOriginal;
+    }
+    
+    const diffTime = hoje.getTime() - vencimento.getTime();
+    const mesesAtraso = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 30));
+    
+    if (mesesAtraso <= 0) {
+      return valorOriginal;
+    }
+    
+    let valorComJuros = valorOriginal;
+    for (let i = 0; i < mesesAtraso; i++) {
+      valorComJuros = valorComJuros * (1 + percentualJuros / 100);
+    }
+    
+    return valorComJuros;
+  };
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'Não informado';
@@ -2052,7 +2079,45 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                         </div>
                         <div className="space-y-2">
                           <div className="flex"><span className="text-slate-500 w-24">Email:</span> <span className="text-slate-900">{auction.arrematante.email || 'Não informado'}</span></div>
-                          <div className="flex"><span className="text-slate-500 w-24">Valor:</span> <span className="text-slate-900">{formatCurrency(auction.arrematante.valorPagarNumerico || auction.arrematante.valorPagar)}</span></div>
+                          <div className="flex"><span className="text-slate-500 w-24">Valor:</span> <span className="text-slate-900">
+                            {(() => {
+                              const arrematante = auction.arrematante;
+                              if (!arrematante) return formatCurrency(0);
+                              
+                              const valorBase = parseFloat(arrematante.valorPagar?.replace(/[^\d,]/g, '').replace(',', '.') || '0');
+                              const percentualJuros = arrematante.percentualJurosAtraso || 0;
+                              const quantidadeParcelas = arrematante.quantidadeParcelas || 1;
+                              const mesInicioPagamento = arrematante.mesInicioPagamento;
+                              
+                              // Se não tem parcelas ou não tem juros, retorna valor base
+                              if (!mesInicioPagamento || quantidadeParcelas === 0 || percentualJuros === 0) {
+                                return formatCurrency(valorBase);
+                              }
+                              
+                              const valorPorParcela = valorBase / quantidadeParcelas;
+                              const [startYear, startMonth] = mesInicioPagamento.split('-').map(Number);
+                              
+                              let valorTotalComJuros = 0;
+                              for (let i = 0; i < quantidadeParcelas; i++) {
+                                const dataVencimento = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal || 15);
+                                const dataVencimentoStr = dataVencimento.toISOString().split('T')[0];
+                                valorTotalComJuros += calcularJurosProgressivos(valorPorParcela, dataVencimentoStr, percentualJuros);
+                              }
+                              
+                              const temJuros = valorTotalComJuros > valorBase;
+                              if (temJuros) {
+                                return (
+                                  <>
+                                    {formatCurrency(valorTotalComJuros)}
+                                    <span className="text-xs text-red-600 ml-1">
+                                      (+ {formatCurrency(valorTotalComJuros - valorBase)} juros)
+                                    </span>
+                                  </>
+                                );
+                              }
+                              return formatCurrency(valorBase);
+                            })()}
+                          </span></div>
                           <div className="flex"><span className="text-slate-500 w-24">Situação:</span> 
                             <span className={`font-medium ${
                               auction.arrematante.pago 
@@ -3570,10 +3635,34 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
     const comFaturas = auctions.filter(a => a.arrematante && !a.arquivado);
     const faturasPagas = comFaturas.filter(a => a.arrematante?.pago);
     const faturasReceber = comFaturas.filter(a => !a.arrematante?.pago);
+    
+    // Calcular valor total a receber COM juros progressivos
     const valorTotalReceber = faturasReceber.reduce((sum, a) => {
-      const valor = parseFloat(a.arrematante?.valorPagar?.replace(/[^\d,]/g, '').replace(',', '.') || '0');
-      return sum + valor;
+      const arrematante = a.arrematante;
+      if (!arrematante) return sum;
+      
+      const valorBase = parseFloat(arrematante.valorPagar?.replace(/[^\d,]/g, '').replace(',', '.') || '0');
+      const percentualJuros = arrematante.percentualJurosAtraso || 0;
+      const quantidadeParcelas = arrematante.quantidadeParcelas || 1;
+      const mesInicioPagamento = arrematante.mesInicioPagamento;
+      
+      if (!mesInicioPagamento || quantidadeParcelas === 0) {
+        return sum + valorBase;
+      }
+      
+      const valorPorParcela = valorBase / quantidadeParcelas;
+      const [startYear, startMonth] = mesInicioPagamento.split('-').map(Number);
+      
+      let valorTotalComJuros = 0;
+      for (let i = 0; i < quantidadeParcelas; i++) {
+        const dataVencimento = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal || 15);
+        const dataVencimentoStr = dataVencimento.toISOString().split('T')[0];
+        valorTotalComJuros += calcularJurosProgressivos(valorPorParcela, dataVencimentoStr, percentualJuros);
+      }
+      
+      return sum + valorTotalComJuros;
     }, 0);
+    
     const valorTotalRecebido = faturasPagas.reduce((sum, a) => {
       const valor = parseFloat(a.arrematante?.valorPagar?.replace(/[^\d,]/g, '').replace(',', '.') || '0');
       return sum + valor;
@@ -3659,7 +3748,45 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                         })()}
                       </div>
                       <div className="space-y-3">
-                        <div className="flex"><span className="text-slate-500 w-24">Valor:</span> <span className="text-slate-900 font-medium">{formatCurrency(auction.arrematante?.valorPagarNumerico || auction.arrematante?.valorPagar)}</span></div>
+                        <div className="flex"><span className="text-slate-500 w-24">Valor:</span> <span className="text-slate-900 font-medium">
+                          {(() => {
+                            const arrematante = auction.arrematante;
+                            if (!arrematante) return formatCurrency(0);
+                            
+                            const valorBase = parseFloat(arrematante.valorPagar?.replace(/[^\d,]/g, '').replace(',', '.') || '0');
+                            const percentualJuros = arrematante.percentualJurosAtraso || 0;
+                            const quantidadeParcelas = arrematante.quantidadeParcelas || 1;
+                            const mesInicioPagamento = arrematante.mesInicioPagamento;
+                            
+                            // Se não tem parcelas ou não tem juros, retorna valor base
+                            if (!mesInicioPagamento || quantidadeParcelas === 0 || percentualJuros === 0) {
+                              return formatCurrency(valorBase);
+                            }
+                            
+                            const valorPorParcela = valorBase / quantidadeParcelas;
+                            const [startYear, startMonth] = mesInicioPagamento.split('-').map(Number);
+                            
+                            let valorTotalComJuros = 0;
+                            for (let i = 0; i < quantidadeParcelas; i++) {
+                              const dataVencimento = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal || 15);
+                              const dataVencimentoStr = dataVencimento.toISOString().split('T')[0];
+                              valorTotalComJuros += calcularJurosProgressivos(valorPorParcela, dataVencimentoStr, percentualJuros);
+                            }
+                            
+                            const temJuros = valorTotalComJuros > valorBase;
+                            if (temJuros) {
+                              return (
+                                <>
+                                  {formatCurrency(valorTotalComJuros)}
+                                  <span className="text-xs text-red-600 ml-1">
+                                    (+ {formatCurrency(valorTotalComJuros - valorBase)} juros)
+                                  </span>
+                                </>
+                              );
+                            }
+                            return formatCurrency(valorBase);
+                          })()}
+                        </span></div>
                         <div className="flex"><span className="text-slate-500 w-24">Modalidade:</span> <span className="text-slate-900">{(() => {
                           const loteArrematado = auction.arrematante?.loteId 
                             ? auction.lotes?.find(lote => lote.id === auction.arrematante.loteId)

@@ -1509,7 +1509,7 @@ export function AuctionForm({
             <Button 
               type="submit" 
               disabled={isSubmitting}
-              className="h-12 px-10 bg-black hover:bg-gray-800 text-white font-semibold shadow-sm"
+              className="h-12 px-10 bg-black hover:bg-gray-800 text-white font-semibold shadow-sm btn-save-click"
             >
               {isSubmitting ? (
                 <div className="flex items-center gap-2">
@@ -1560,7 +1560,7 @@ export function AuctionForm({
               </AlertDialogCancel>
               <AlertDialogAction 
                 onClick={handleConfirmSubmit}
-                className="flex-1 h-10 bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium border-0"
+                className="flex-1 h-10 bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium border-0 btn-save-click"
               >
                 Prosseguir
               </AlertDialogAction>

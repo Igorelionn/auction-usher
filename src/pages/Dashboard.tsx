@@ -626,7 +626,7 @@ export default function Dashboard() {
   const greeting = currentHour < 12 ? "Bom dia" : currentHour < 18 ? "Boa tarde" : "Boa noite";
 
   return (
-          <div className="space-y-8">
+          <div className="space-y-8 slide-in-top">
         <div className="pt-4 flex items-end justify-between">
           <div>
             <h1 className="text-4xl font-semibold tracking-tight text-foreground mb-2">

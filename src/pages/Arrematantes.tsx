@@ -1307,6 +1307,115 @@ function Arrematantes() {
     return { valorComJuros: valorParcela, mesesAtraso: 0 };
   };
 
+  // Função para calcular o valor total com juros das parcelas atrasadas
+  const calcularValorTotalComJuros = (arrematante: ArrematanteExtendido) => {
+    const auction = auctions.find(a => a.id === arrematante.leilaoId);
+    if (!auction || !auction.arrematante) {
+      return arrematante.valorPagarNumerico || 0;
+    }
+
+    const loteArrematado = auction?.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+    const tipoPagamento = loteArrematado?.tipoPagamento || auction?.tipoPagamento || "parcelamento";
+    const valorTotal = arrematante.valorPagarNumerico || 0;
+    const now = new Date();
+
+    // Se já está pago, retornar valor original
+    if (arrematante.pago) {
+      return valorTotal;
+    }
+
+    // À vista - verificar se está atrasado
+    if (tipoPagamento === "a_vista") {
+      const dataVencimento = loteArrematado?.dataVencimentoVista || auction?.dataVencimentoVista;
+      if (!dataVencimento) return valorTotal;
+      
+      const vencimentoDate = new Date(dataVencimento + 'T23:59:59');
+      if (now > vencimentoDate) {
+        const mesesAtraso = Math.max(0, Math.floor((now.getTime() - vencimentoDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+        if (mesesAtraso >= 1) {
+          return calcularJurosProgressivos(valorTotal, arrematante.percentualJurosAtraso || 0, mesesAtraso);
+        }
+      }
+      return valorTotal;
+    }
+
+    // Entrada + Parcelamento
+    if (tipoPagamento === "entrada_parcelamento") {
+      const valorEntrada = arrematante.valorEntrada ? 
+        (typeof arrematante.valorEntrada === 'string' ? 
+          parseFloat(arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) : 
+          arrematante.valorEntrada) : 
+        valorTotal * 0.3;
+      const valorRestante = valorTotal - valorEntrada;
+      const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
+      const valorPorParcela = Math.round((valorRestante / quantidadeParcelas) * 100) / 100;
+      const parcelasPagas = arrematante.parcelasPagas || 0;
+      
+      let valorTotalComJuros = valorTotal;
+      let jurosAcumulados = 0;
+      
+      // Verificar se entrada está atrasada
+      if (parcelasPagas === 0 && loteArrematado?.dataEntrada) {
+        const dataEntrada = new Date(loteArrematado.dataEntrada + 'T23:59:59');
+        if (now > dataEntrada) {
+          const mesesAtraso = Math.max(0, Math.floor((now.getTime() - dataEntrada.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+          if (mesesAtraso >= 1) {
+            const valorEntradaComJuros = calcularJurosProgressivos(valorEntrada, arrematante.percentualJurosAtraso || 0, mesesAtraso);
+            jurosAcumulados += (valorEntradaComJuros - valorEntrada);
+          }
+        }
+      }
+      
+      // Verificar parcelas mensais atrasadas
+      if (arrematante.mesInicioPagamento && arrematante.diaVencimentoMensal) {
+        const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+        const parcelasEfetivasPagas = Math.max(0, parcelasPagas - 1);
+        
+        for (let i = 0; i < quantidadeParcelas; i++) {
+          const parcelaDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal, 23, 59, 59);
+          if (now > parcelaDate && i >= parcelasEfetivasPagas) {
+            const mesesAtraso = Math.max(0, Math.floor((now.getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+            if (mesesAtraso >= 1) {
+              const valorParcelaComJuros = calcularJurosProgressivos(valorPorParcela, arrematante.percentualJurosAtraso || 0, mesesAtraso);
+              jurosAcumulados += (valorParcelaComJuros - valorPorParcela);
+            }
+          }
+        }
+      }
+      
+      return Math.round((valorTotalComJuros + jurosAcumulados) * 100) / 100;
+    }
+
+    // Parcelamento simples
+    if (tipoPagamento === "parcelamento") {
+      const quantidadeParcelas = arrematante.quantidadeParcelas || 1;
+      const valorPorParcela = valorTotal / quantidadeParcelas;
+      const parcelasPagas = arrematante.parcelasPagas || 0;
+      
+      let valorTotalComJuros = valorTotal;
+      let jurosAcumulados = 0;
+      
+      if (arrematante.mesInicioPagamento && arrematante.diaVencimentoMensal) {
+        const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+        
+        for (let i = parcelasPagas; i < quantidadeParcelas; i++) {
+          const parcelaDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal, 23, 59, 59);
+          if (now > parcelaDate) {
+            const mesesAtraso = Math.max(0, Math.floor((now.getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+            if (mesesAtraso >= 1) {
+              const valorParcelaComJuros = calcularJurosProgressivos(valorPorParcela, arrematante.percentualJurosAtraso || 0, mesesAtraso);
+              jurosAcumulados += (valorParcelaComJuros - valorPorParcela);
+            }
+          }
+        }
+      }
+      
+      return Math.round((valorTotalComJuros + jurosAcumulados) * 100) / 100;
+    }
+
+    return valorTotal;
+  };
+
   // Calcular estatísticas
   const stats = {
     total: processedArrematantes().length,
@@ -2222,7 +2331,7 @@ function Arrematantes() {
   };
 
   return (
-    <div className="space-y-8 p-6">
+    <div className="space-y-8 p-6 fade-simple">
       {/* Header */}
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
@@ -2231,7 +2340,7 @@ function Arrematantes() {
             <p className="text-gray-600 mt-1">Gerencie todos os arrematantes e seus pagamentos</p>
           </div>
           <Button 
-            className="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300"
+              className="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 btn-download-click"
             onClick={() => setIsExportModalOpen(true)}
           >
             <Download className="h-4 w-4 mr-2" />
@@ -2469,7 +2578,24 @@ function Arrematantes() {
                       </TableCell>
                       <TableCell>
                         <span className="font-semibold text-gray-900">
-                          {arrematante.valorPagar.startsWith('R$') ? arrematante.valorPagar : `R$ ${arrematante.valorPagar}`}
+                          {(() => {
+                            const valorComJuros = calcularValorTotalComJuros(arrematante);
+                            const valorOriginal = arrematante.valorPagarNumerico || 0;
+                            const temJuros = valorComJuros > valorOriginal;
+                            
+                            return (
+                              <div className="flex flex-col">
+                                <span>
+                                  R$ {valorComJuros.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                                {temJuros && (
+                                  <span className="text-xs text-red-600">
+                                    (R$ {(valorComJuros - valorOriginal).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} juros)
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </span>
                       </TableCell>
                       <TableCell>
@@ -2757,7 +2883,7 @@ function Arrematantes() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleConfirmPayment(arrematante)}
-                              className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+                              className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50 btn-action-click"
                               title="Confirmar pagamento"
                             >
                               <Check className="h-4 w-4" />
@@ -2780,7 +2906,7 @@ function Arrematantes() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleViewArrematante(arrematante)}
-                            className="h-8 w-8 p-0 text-gray-600 hover:text-black hover:bg-gray-100"
+                            className="h-8 w-8 p-0 text-gray-600 hover:text-black hover:bg-gray-100 btn-action-click"
                             title="Ver detalhes"
                           >
                             <Eye className="h-4 w-4" />
@@ -2791,7 +2917,7 @@ function Arrematantes() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleEditArrematante(arrematante)}
-                            className="h-8 w-8 p-0 text-gray-600 hover:text-black hover:bg-gray-100"
+                            className="h-8 w-8 p-0 text-gray-600 hover:text-black hover:bg-gray-100 btn-action-click"
                             title="Editar"
                           >
                             <Edit className="h-4 w-4" />
@@ -2800,7 +2926,7 @@ function Arrematantes() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleOpenFullEdit(arrematante)}
-                            className="h-8 w-8 p-0 text-gray-600 hover:text-black hover:bg-gray-100"
+                            className="h-8 w-8 p-0 text-gray-600 hover:text-black hover:bg-gray-100 btn-action-click"
                             title="Editar Informações Completas"
                           >
                             <FileText className="h-4 w-4" />
@@ -2849,7 +2975,7 @@ function Arrematantes() {
                                       <AlertDialogCancel>Cancelar</AlertDialogCancel>
                                       <AlertDialogAction 
                                         onClick={() => handleArchiveArrematante(arrematante)}
-                                        className="bg-black hover:bg-gray-800 text-white"
+                                        className="bg-black hover:bg-gray-800 text-white btn-save-click"
                                       >
                                         Arquivar
                                       </AlertDialogAction>
@@ -2879,7 +3005,7 @@ function Arrematantes() {
                                     <AlertDialogCancel>Cancelar</AlertDialogCancel>
                                     <AlertDialogAction 
                                       onClick={() => handleDeleteArrematante(arrematante)}
-                                      className="bg-red-600 hover:bg-red-700"
+                                      className="bg-red-600 hover:bg-red-700 btn-save-click"
                                     >
                                       Excluir
                                     </AlertDialogAction>
@@ -3408,7 +3534,7 @@ function Arrematantes() {
                 type="button"
                 onClick={handleSaveEdit}
                 disabled={isSavingEdit || !editForm.nome || !editForm.valorPagar}
-                className="h-11 px-6 bg-black hover:bg-gray-800 text-white font-medium disabled:opacity-70 disabled:cursor-not-allowed transition-all duration-200"
+                className="h-11 px-6 bg-black hover:bg-gray-800 text-white font-medium disabled:opacity-70 disabled:cursor-not-allowed transition-all duration-200 btn-save-click"
               >
                 {isSavingEdit ? (
                   <div className="flex items-center gap-2">
@@ -3707,7 +3833,7 @@ function Arrematantes() {
                     </Button>
                     <Button 
                       onClick={handleSavePayments}
-                      className="bg-black hover:bg-gray-800 text-white"
+                      className="bg-black hover:bg-gray-800 text-white btn-save-click"
                     >
                       Confirmar
                     </Button>
@@ -4342,7 +4468,7 @@ function Arrematantes() {
               <Button
                 onClick={() => generateArrematantePDF(selectedArrematanteForExport)}
                 disabled={!selectedArrematanteForExport}
-                className="flex-1 bg-black hover:bg-gray-800 text-white"
+                  className="flex-1 bg-black hover:bg-gray-800 text-white btn-download-click"
               >
                 <Download className="h-4 w-4 mr-2" />
                 Gerar e Baixar PDF
@@ -4357,6 +4483,33 @@ function Arrematantes() {
 
 // Componente para o relatório PDF do arrematante
 const ArrematantePdfReport = ({ arrematante }: { arrematante: ArrematanteExtendido }) => {
+  // Função para calcular juros progressivos
+  const calcularJurosProgressivos = (valorOriginal: number, dataVencimento: string, percentualJuros: number): number => {
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    
+    const vencimento = new Date(dataVencimento + 'T00:00:00.000');
+    vencimento.setHours(0, 0, 0, 0);
+    
+    if (hoje <= vencimento) {
+      return valorOriginal;
+    }
+    
+    const diffTime = hoje.getTime() - vencimento.getTime();
+    const mesesAtraso = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 30));
+    
+    if (mesesAtraso <= 0) {
+      return valorOriginal;
+    }
+    
+    let valorComJuros = valorOriginal;
+    for (let i = 0; i < mesesAtraso; i++) {
+      valorComJuros = valorComJuros * (1 + percentualJuros / 100);
+    }
+    
+    return valorComJuros;
+  };
+
   const formatCurrency = (value: string | number | undefined) => {
     if (!value && value !== 0) return 'R$ 0,00';
     
@@ -4482,7 +4635,35 @@ const ArrematantePdfReport = ({ arrematante }: { arrematante: ArrematanteExtendi
           <div className="bg-gray-50 p-4 rounded-lg">
             <strong className="block text-gray-700 mb-2">Valor Total a Pagar:</strong>
             <span className="text-xl font-semibold text-gray-900">
-              {formatCurrency(arrematante.valorPagar)}
+              {(() => {
+                const valorTotal = typeof arrematante.valorPagar === 'string' 
+                  ? parseFloat(arrematante.valorPagar.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.'))
+                  : parseFloat(arrematante.valorPagar);
+                const valorPorParcela = valorTotal / (arrematante.quantidadeParcelas || 1);
+                const [startYear, startMonth] = (arrematante.mesInicioPagamento || '').split('-').map(Number);
+                const percentualJuros = arrematante.percentualJurosAtraso || 0;
+                
+                if (!startYear || !startMonth) return formatCurrency(valorTotal);
+                
+                let valorTotalComJuros = 0;
+                for (let i = 0; i < (arrematante.quantidadeParcelas || 0); i++) {
+                  const dataVencimento = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal || 15);
+                  const dataVencimentoStr = dataVencimento.toISOString().split('T')[0];
+                  valorTotalComJuros += calcularJurosProgressivos(valorPorParcela, dataVencimentoStr, percentualJuros);
+                }
+                
+                const temJuros = valorTotalComJuros > valorTotal;
+                return (
+                  <div>
+                    <div>{formatCurrency(valorTotalComJuros)}</div>
+                    {temJuros && (
+                      <div className="text-xs text-red-600 mt-1">
+                        (+ {formatCurrency(valorTotalComJuros - valorTotal)} juros)
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </span>
           </div>
           <div className="bg-gray-50 p-4 rounded-lg">
@@ -4509,8 +4690,22 @@ const ArrematantePdfReport = ({ arrematante }: { arrematante: ArrematanteExtendi
                   ? parseFloat(arrematante.valorPagar.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.'))
                   : parseFloat(arrematante.valorPagar);
                 const valorPorParcela = valorTotal / (arrematante.quantidadeParcelas || 1);
-                const valorPago = (arrematante.parcelasPagas || 0) * valorPorParcela;
-                const valorRestante = valorTotal - valorPago;
+                const [startYear, startMonth] = (arrematante.mesInicioPagamento || '').split('-').map(Number);
+                const percentualJuros = arrematante.percentualJurosAtraso || 0;
+                const parcelasPagas = arrematante.parcelasPagas || 0;
+                
+                if (!startYear || !startMonth) {
+                  const valorRestante = valorTotal - (parcelasPagas * valorPorParcela);
+                  return formatCurrency(valorRestante);
+                }
+                
+                let valorRestante = 0;
+                for (let i = parcelasPagas; i < (arrematante.quantidadeParcelas || 0); i++) {
+                  const dataVencimento = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal || 15);
+                  const dataVencimentoStr = dataVencimento.toISOString().split('T')[0];
+                  valorRestante += calcularJurosProgressivos(valorPorParcela, dataVencimentoStr, percentualJuros);
+                }
+                
                 return formatCurrency(valorRestante);
               })()
             }
@@ -4555,6 +4750,64 @@ const ArrematantePdfReport = ({ arrematante }: { arrematante: ArrematanteExtendi
           </div>
         </div>
       </div>
+
+      {/* Detalhamento de Parcelas */}
+      {arrematante.quantidadeParcelas && arrematante.quantidadeParcelas > 0 && arrematante.mesInicioPagamento && (
+        <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+          <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-3 border-b border-gray-200 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
+            Detalhamento de Parcelas
+          </h2>
+          <div className="space-y-2">
+            {(() => {
+              const valorTotal = typeof arrematante.valorPagar === 'string' 
+                ? parseFloat(arrematante.valorPagar.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.'))
+                : parseFloat(arrematante.valorPagar);
+              const valorPorParcela = valorTotal / (arrematante.quantidadeParcelas || 1);
+              const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+              const percentualJuros = arrematante.percentualJurosAtraso || 0;
+              
+              return Array.from({ length: arrematante.quantidadeParcelas }, (_, index) => {
+                const isPaga = index < (arrematante.parcelasPagas || 0);
+                const dataVencimento = new Date(startYear, startMonth - 1 + index, arrematante.diaVencimentoMensal || 15);
+                const dataVencimentoStr = dataVencimento.toISOString().split('T')[0];
+                const valorComJuros = calcularJurosProgressivos(valorPorParcela, dataVencimentoStr, percentualJuros);
+                const temJuros = valorComJuros > valorPorParcela;
+                
+                return (
+                  <div key={index} className={`p-3 rounded border ${isPaga ? 'bg-green-50 border-green-200' : temJuros ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        {isPaga && <div className="w-2 h-2 bg-green-500 rounded-full"></div>}
+                        {!isPaga && temJuros && <div className="w-2 h-2 bg-red-500 rounded-full"></div>}
+                        {!isPaga && !temJuros && <div className="w-2 h-2 bg-gray-400 rounded-full"></div>}
+                        <span className="font-medium text-gray-800">
+                          {index + 1}ª Parcela
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-semibold text-gray-900">
+                          {formatCurrency(temJuros && !isPaga ? valorComJuros : valorPorParcela)}
+                        </div>
+                        {temJuros && !isPaga && (
+                          <div className="text-xs text-red-600">
+                            (+ {formatCurrency(valorComJuros - valorPorParcela)} juros)
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-1 text-sm text-gray-600 flex justify-between">
+                      <span>Vence em: {dataVencimento.toLocaleDateString('pt-BR')}</span>
+                      <span className={`font-medium ${isPaga ? 'text-green-600' : temJuros ? 'text-red-600' : 'text-yellow-600'}`}>
+                        {isPaga ? 'PAGA' : temJuros ? 'ATRASADA' : 'PENDENTE'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Histórico de Pagamentos (se disponível) */}
       {arrematante.parcelasPagas && arrematante.parcelasPagas > 0 && (

@@ -1670,7 +1670,7 @@ Arthur Lira Leilões`;
 
   return (
     <HoverContext.Provider value={{ isRowHovered, setIsRowHovered }}>
-    <div className="space-y-8">
+    <div className="space-y-8 scale-fade">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Gestão de Inadimplência</h1>
@@ -2357,7 +2357,7 @@ Arthur Lira Leilões`;
                   </Button>
                   <Button
                     onClick={handleDownloadReport}
-                    className="bg-black hover:bg-gray-800 text-white"
+                    className="bg-black hover:bg-gray-800 text-white btn-download-click"
                   >
                     <Download className="h-4 w-4 mr-2" />
                     Baixar Relatório

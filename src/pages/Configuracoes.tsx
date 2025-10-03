@@ -1606,7 +1606,7 @@ export default function Configuracoes() {
           transform: translateY(-2px);
         }
       `}</style>
-      <div className="space-y-8 pt-6">
+      <div className="space-y-8 pt-6 blur-fade">
       {/* Header com botão Salvar */}
       <div className="flex items-start justify-between">
         <div>
@@ -1625,7 +1625,7 @@ export default function Configuracoes() {
           <Button 
             onClick={handleSaveChanges}
             disabled={!hasChanges || isLoading}
-            className="bg-gray-800 hover:bg-gray-900 text-white disabled:bg-gray-300 disabled:text-gray-500"
+            className="bg-gray-800 hover:bg-gray-900 text-white disabled:bg-gray-300 disabled:text-gray-500 btn-save-click"
           >
             {isLoading ? (
               <>
@@ -2955,7 +2955,7 @@ export default function Configuracoes() {
             <Button
               onClick={handleAdminPasswordConfirmation}
               disabled={!adminPasswordForConfirm || isVerifyingAdminPassword}
-              className="bg-black hover:bg-gray-800 text-white min-w-[120px]"
+              className="bg-black hover:bg-gray-800 text-white min-w-[120px] btn-save-click"
             >
               {isVerifyingAdminPassword ? (
                 <>
@@ -3141,7 +3141,7 @@ export default function Configuracoes() {
                 !confirmNewUserPassword || 
                 newUserPassword !== confirmNewUserPassword
               }
-              className="bg-black hover:bg-gray-800 text-white min-w-[140px]"
+              className="bg-black hover:bg-gray-800 text-white min-w-[140px] btn-save-click"
             >
               {isChangingPassword ? (
                 <>

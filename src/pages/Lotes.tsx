@@ -1393,7 +1393,7 @@ function Lotes() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-6 slide-in-right">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -1533,7 +1533,7 @@ function Lotes() {
 
         <CardContent className="p-0 h-[calc(100%-120px)] overflow-y-auto">
           {isLoading || isLoadingResults ? (
-            <div className={`space-y-4 ${isTransitioningLotes ? 'fade-in' : ''}`}>
+            <div className={`space-y-4 ${isTransitioningLotes ? 'slide-in-right' : ''}`}>
               {[...Array(3)].map((_, index) => (
                 <div key={index} className="animate-pulse-slow transform-none">
                   <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm transition-none transform-none">
@@ -1662,7 +1662,7 @@ function Lotes() {
                               setSelectedLote(lote);
                               setIsViewLoteModalOpen(true);
                             }}
-                            className="h-8 w-8 p-0 text-black hover:bg-gray-100 hover:text-black"
+                            className="h-8 w-8 p-0 text-black hover:bg-gray-100 hover:text-black btn-action-click"
                             title="Ver detalhes"
                           >
                             <Eye className="h-4 w-4" />
@@ -1671,7 +1671,7 @@ function Lotes() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleViewPhotos(lote)}
-                            className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                            className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 hover:text-gray-900 btn-action-click"
                             title="Ver todas as fotos do lote e mercadoria"
                           >
                             <Image className="h-4 w-4" />
@@ -1681,7 +1681,7 @@ function Lotes() {
                             size="sm"
                             onClick={() => handleEditLote(lote)}
                             disabled={isLoadingLoteData}
-                            className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 hover:text-gray-900 disabled:opacity-50"
+                            className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 hover:text-gray-900 disabled:opacity-50 btn-action-click"
                             title="Editar"
                           >
                             {isLoadingLoteData ? (
@@ -1717,7 +1717,7 @@ function Lotes() {
                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
                                  <AlertDialogAction
                                    onClick={() => showArchivedLotes ? handleUnarchiveLote(lote.id) : handleArchiveLote(lote.id)}
-                                   className="bg-black hover:bg-gray-800"
+                                   className="bg-black hover:bg-gray-800 btn-save-click"
                                  >
                                    {showArchivedLotes ? "Desarquivar" : "Arquivar"}
                                  </AlertDialogAction>
@@ -2098,7 +2098,7 @@ function Lotes() {
               <Button
                 onClick={handleSaveLote}
                 disabled={isSavingLote}
-                className="bg-black hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-black hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed btn-save-click"
               >
                 {isSavingLote ? (
                   <>
