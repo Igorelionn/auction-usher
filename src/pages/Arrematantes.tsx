@@ -46,7 +46,8 @@ import {
   MoreVertical,
   CreditCard,
   X,
-  CircleX
+  CircleX,
+  Loader2
 } from "lucide-react";
 
 interface ArrematanteExtendido extends ArrematanteInfo {
@@ -161,8 +162,6 @@ function Arrematantes() {
     if (relevantFields.includes(field) && selectedArrematanteForFullEdit) {
       const auction = auctions.find(a => a.id === selectedArrematanteForFullEdit.leilaoId);
       if (auction) {
-        console.log(`🔄 Campo ${field} alterado em tempo real: ${fullEditForm[field]} → ${value}`);
-        
         // Disparar evento para notificar formulário do leilão sobre mudanças em tempo real
         window.dispatchEvent(new CustomEvent('arrematanteFormChanged', {
           detail: {
@@ -186,6 +185,7 @@ function Arrematantes() {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isSavingFullEdit, setIsSavingFullEdit] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [isSavingPayments, setIsSavingPayments] = useState(false);
   const [isStatusSelectOpen, setIsStatusSelectOpen] = useState(false);
   
   // Estados para o modal de exportação
@@ -253,7 +253,6 @@ function Arrematantes() {
       
       setIsExportModalOpen(false);
     } catch (error) {
-      console.error('Erro ao gerar PDF:', error);
       toast({
         title: "Erro ao Gerar PDF",
         description: "Ocorreu um erro ao gerar o relatório. Tente novamente.",
@@ -297,14 +296,8 @@ function Arrematantes() {
 
     // Prevenir múltiplas atualizações simultâneas
     if (isUpdatingRef.current) {
-      console.log('🔄 Sincronização já em andamento, reagendando...');
+      return;
     }
-
-    console.log(`🔄 Agendando sincronização (${operation}) em 10ms...`, {
-      documentCount: documentos.length,
-      operation,
-      docId: docId || 'N/A'
-    });
 
     // Agendar sincronização com pequeno debounce
     syncTimeoutRef.current = setTimeout(() => {
@@ -321,13 +314,6 @@ function Arrematantes() {
                   !(prev.documentos || []).some(existing => existing.id === doc.id)
                 )]
               : (prev.documentos || []).filter(doc => doc.id !== docId);
-                
-            console.log(`✨ Sincronização aplicada ao selectedArrematante (${operation}):`, {
-              antes: (prev.documentos || []).length,
-              depois: newDocs.length,
-              novosDocumentos: operation === 'add' ? documentos.map(d => d.nome) : [],
-              removidoId: operation === 'remove' ? docId : null
-            });
             
             return { ...prev, documentos: newDocs };
           });
@@ -343,18 +329,13 @@ function Arrematantes() {
                   !(prev.documentos || []).some(existing => existing.id === doc.id)
                 )]
               : (prev.documentos || []).filter(doc => doc.id !== docId);
-                
-            console.log(`✨ Sincronização aplicada ao selectedArrematanteForFullEdit (${operation}):`, {
-              antes: (prev.documentos || []).length,
-              depois: newDocs.length
-            });
             
             return { ...prev, documentos: newDocs };
           });
         }
         
       } catch (error) {
-        console.error('❌ Erro durante sincronização:', error);
+        // Erro silencioso durante sincronização
       } finally {
         isUpdatingRef.current = false;
         syncTimeoutRef.current = null;
@@ -374,8 +355,6 @@ function Arrematantes() {
   // Limpar blob URLs quando componente desmontar
   useEffect(() => {
     return () => {
-      console.log('🧹 Componente desmontando, limpando recursos...');
-      
       // Limpar timeouts pendentes
       if (syncTimeoutRef.current) {
         clearTimeout(syncTimeoutRef.current);
@@ -387,15 +366,13 @@ function Arrematantes() {
         try {
           URL.revokeObjectURL(url);
         } catch (error) {
-          console.warn('⚠️ Erro ao revogar URL blob durante cleanup:', error);
+          // Erro silencioso ao revogar URL
         }
       });
       tempBlobUrlsRef.current.clear();
       
       // Resetar flags de controle
       isUpdatingRef.current = false;
-      
-      console.log('🧹 Cleanup completo concluído no desmonte');
     };
   }, []); // Array vazio = executa apenas no desmonte do componente
 
@@ -421,13 +398,6 @@ function Arrematantes() {
     if (selectedArrematanteForFullEdit) {
       const auction = auctions.find(a => a.id === selectedArrematanteForFullEdit.leilaoId);
       if (auction && auction.arrematante) {
-        console.log('🔍 Carregando dados do arrematante no modal:', {
-          documento: auction.arrematante.documento,
-          endereco: auction.arrematante.endereco,
-          nome: auction.arrematante.nome,
-          email: auction.arrematante.email
-        });
-        
         setFullEditForm({
           nome: auction.arrematante.nome || "",
           documento: auction.arrematante.documento || "",
@@ -443,11 +413,6 @@ function Arrematantes() {
           mesInicioPagamento: auction.arrematante.mesInicioPagamento || new Date().toISOString().slice(0, 7),
           pago: auction.arrematante.pago || false,
           documentos: auction.arrematante.documentos || []
-        });
-        
-        console.log('🔄 FullEditForm preenchido com documentos:', {
-          documentos: auction.arrematante.documentos?.length || 0,
-          documentosList: auction.arrematante.documentos?.map(d => ({nome: d.nome, hasUrl: !!d.url})) || []
         });
       }
     }
@@ -468,16 +433,6 @@ function Arrematantes() {
           telefone: auction.arrematante.telefone || prevForm.telefone || "",
           documentos: auction.arrematante.documentos || prevForm.documentos || []
         }));
-        
-        console.log('🔧 SINCRONIZAÇÃO FORÇADA - Documentos atualizados:', {
-          documentos: auction.arrematante.documentos?.length || 0,
-          documentosList: auction.arrematante.documentos?.map(d => ({nome: d.nome, hasUrl: !!d.url})) || []
-        });
-        
-        console.log('🔧 SINCRONIZAÇÃO FORÇADA - Dados atualizados:', {
-          documento: auction.arrematante.documento,
-          endereco: auction.arrematante.endereco
-        });
       }
     }
   }, [auctions, selectedArrematanteForFullEdit?.leilaoId, isFullEditModalOpen]);
@@ -486,15 +441,6 @@ function Arrematantes() {
   useEffect(() => {
     const handleAuctionFormChanged = (event: CustomEvent) => {
       const { auctionId, changedField, newValue } = event.detail;
-      
-      console.log(`🔍 DEBUG - Evento auctionFormChanged recebido:`, {
-        auctionId,
-        changedField,
-        newValue,
-        selectedArrematanteId: selectedArrematanteForFullEdit?.leilaoId,
-        modalAberto: isFullEditModalOpen,
-        shouldSync: selectedArrematanteForFullEdit && selectedArrematanteForFullEdit.leilaoId === auctionId
-      });
       
       // 🔄 SINCRONIZAÇÃO GLOBAL: Atualizar dados do leilão nos auctions (sempre)
       const fieldMapping = {
@@ -505,8 +451,6 @@ function Arrematantes() {
       
       // Atualizar o leilão nos dados globais (isso será refletido quando o modal for aberto)
       if (fieldMapping[changedField as keyof typeof fieldMapping]) {
-        console.log(`🌐 Atualizando dados globais do leilão ${auctionId}: ${changedField} = `, newValue);
-        
         // Encontrar e atualizar o leilão nos dados globais
         const updatedAuctions = auctions.map(auction => {
           if (auction.id === auctionId && auction.arrematante) {
@@ -537,8 +481,6 @@ function Arrematantes() {
       
       // 🎯 SINCRONIZAÇÃO DO MODAL ATIVO: Se o modal estiver aberto, atualizar formulário
       if (selectedArrematanteForFullEdit && selectedArrematanteForFullEdit.leilaoId === auctionId && isFullEditModalOpen) {
-        console.log(`🔄 Sincronizando formulário ativo do arrematante: ${changedField} = `, newValue);
-        
         // Mapear campos do leilão para campos do arrematante
         const arrematanteFieldMapping = {
           diaVencimentoPadrao: 'diaVencimentoMensal',
@@ -549,16 +491,11 @@ function Arrematantes() {
         // Atualizar o formulário se o campo é relevante
         const arrematanteField = arrematanteFieldMapping[changedField as keyof typeof arrematanteFieldMapping];
         if (arrematanteField) {
-          console.log(`📝 Atualizando campo ${arrematanteField} de`, fullEditForm[arrematanteField], `para`, newValue);
-          
           setFullEditForm(prev => ({
             ...prev,
             [arrematanteField]: newValue
           }));
-          
         }
-      } else {
-        console.log(`ℹ️ Modal não está ativo ou não corresponde ao arrematante atual`);
       }
     };
 
@@ -577,13 +514,6 @@ function Arrematantes() {
       const auction = auctions.find(a => a.id === selectedArrematanteForFullEdit.leilaoId);
       
       if (auction) {
-        console.log(`🔄 SINCRONIZAÇÃO INICIAL - Dados do leilão:`, {
-          auctionId: auction.id,
-          diaVencimentoPadrao: auction.diaVencimentoPadrao,
-          parcelasPadrao: auction.parcelasPadrao,
-          mesInicioPagamento: auction.mesInicioPagamento
-        });
-
         // Usar setTimeout para garantir que o formulário foi inicializado
         setTimeout(() => {
           setFullEditForm(prev => {
@@ -592,12 +522,6 @@ function Arrematantes() {
             const shouldUpdateMes = auction.mesInicioPagamento && prev.mesInicioPagamento !== auction.mesInicioPagamento;
 
             if (shouldUpdateDia || shouldUpdateParcelas || shouldUpdateMes) {
-              console.log(`⚡ Sincronização inicial aplicada:`, {
-                diaVencimentoMensal: shouldUpdateDia ? `${prev.diaVencimentoMensal} → ${auction.diaVencimentoPadrao}` : 'não alterado',
-                quantidadeParcelas: shouldUpdateParcelas ? `${prev.quantidadeParcelas} → ${auction.parcelasPadrao}` : 'não alterado',
-                mesInicioPagamento: shouldUpdateMes ? `${prev.mesInicioPagamento} → ${auction.mesInicioPagamento}` : 'não alterado'
-              });
-
               return {
                 ...prev,
                 diaVencimentoMensal: auction.diaVencimentoPadrao || prev.diaVencimentoMensal,
@@ -605,7 +529,6 @@ function Arrematantes() {
                 mesInicioPagamento: auction.mesInicioPagamento || prev.mesInicioPagamento
               };
             } else {
-              console.log(`✅ Arrematante já está sincronizado com o leilão`);
               return prev;
             }
           });
@@ -771,8 +694,6 @@ function Arrematantes() {
 
   // Funções do modal
   const handleViewArrematante = (arrematante: ArrematanteExtendido) => {
-    console.log('👁️ Abrindo detalhes do arrematante, buscando dados mais recentes...');
-    
     // Buscar dados atualizados do arrematante no leilão
     const auction = auctions.find(a => a.id === arrematante.leilaoId);
     if (auction && auction.arrematante) {
@@ -783,27 +704,8 @@ function Arrematantes() {
         documentos: auction.arrematante.documentos || []
       };
       
-      console.log('🔄 Dados sincronizados encontrados:', {
-        arrematanteId: arrematante.id,
-        leilaoId: arrematante.leilaoId,
-        documentosOriginais: arrematante.documentos?.length || 0,
-        documentosAtualizados: arrematanteAtualizado.documentos?.length || 0,
-        documentosList: arrematanteAtualizado.documentos?.map(d => ({
-          nome: d.nome, 
-          hasUrl: !!d.url, 
-          isBase64: d.url?.startsWith('data:')
-        })) || [],
-        hasAuctionData: !!auction.arrematante
-      });
-      
       setSelectedArrematante(arrematanteAtualizado);
     } else {
-      console.warn('⚠️ Dados do leilão não encontrados:', {
-        hasAuction: !!auction,
-        hasArrematante: !!(auction && auction.arrematante),
-        leilaoId: arrematante.leilaoId,
-        totalAuctions: auctions.length
-      });
       setSelectedArrematante(arrematante);
     }
     setIsViewModalOpen(true);
@@ -821,17 +723,6 @@ function Arrematantes() {
         ...auction.arrematante,
         documentos: auction.arrematante.documentos || []
       };
-      console.log('🔄 Abrindo edição com dados atualizados:', {
-        documentos: arrematanteAtualizado.documentos?.length || 0,
-        arrematanteOriginal: arrematante.documentos?.length || 0,
-        auctionDocumentos: auction.arrematante.documentos?.length || 0
-      });
-    } else {
-      console.warn('⚠️ Leilão ou arrematante não encontrado para atualização:', {
-        leilaoId: arrematante.leilaoId,
-        hasAuction: !!auction,
-        hasArrematante: !!(auction && auction.arrematante)
-      });
     }
     
     setSelectedArrematante(arrematanteAtualizado);
@@ -854,37 +745,28 @@ function Arrematantes() {
 
     try {
       // 🔄 Converter documentos blob para base64 se necessário
-      console.log('🔄 Processando documentos antes do salvamento:', editForm.documentos.map(d => ({nome: d.nome, hasUrl: !!d.url, urlType: d.url?.substring(0, 10)})));
-      
       const documentosProcessados = await Promise.all(
         editForm.documentos.map(async (doc, index) => {
           if (doc.url && doc.url.startsWith('blob:')) {
-            console.log(`🔄 Convertendo documento ${doc.nome} para base64 (${index + 1}/${editForm.documentos.length})...`);
-            
             // Verificar se a URL blob ainda existe no conjunto de URLs gerenciadas
             if (!tempBlobUrlsRef.current.has(doc.url)) {
-              console.warn(`⚠️ URL blob para ${doc.nome} não encontrada no conjunto gerenciado.`);
-              console.log(`🔄 Adicionando URL ao conjunto para evitar cleanup prematuro...`);
               tempBlobUrlsRef.current.add(doc.url);
             }
             
             try {
               // Tentar fazer fetch da URL blob
-              console.log(`📥 Fazendo fetch da URL blob: ${doc.url.substring(0, 50)}...`);
               const response = await fetch(doc.url);
               
               if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
               }
               
-              console.log(`📄 Response OK para ${doc.nome}, convertendo para blob...`);
               const blob = await response.blob();
               
               if (!blob || blob.size === 0) {
                 throw new Error('Blob vazio ou inválido');
               }
               
-              console.log(`📋 Blob válido para ${doc.nome} (${blob.size} bytes), convertendo para base64...`);
               const base64 = await new Promise<string>((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onloadend = () => {
@@ -898,49 +780,36 @@ function Arrematantes() {
                 reader.readAsDataURL(blob);
               });
               
-              console.log(`✅ Documento ${doc.nome} convertido com sucesso (${base64.length} chars)`);
-              
               // Limpar a URL blob após conversão bem-sucedida
               if (tempBlobUrlsRef.current.has(doc.url)) {
                 URL.revokeObjectURL(doc.url);
                 tempBlobUrlsRef.current.delete(doc.url);
-                console.log(`🧹 URL blob para ${doc.nome} limpa após conversão`);
               }
               
               return { ...doc, url: base64 };
             } catch (error) {
-              console.error(`❌ Erro ao converter documento ${doc.nome}:`, {
-                error: error,
-                message: error instanceof Error ? error.message : 'Erro desconhecido',
-                docUrl: doc.url.substring(0, 50),
-                docSize: doc.tamanho,
-                docType: doc.tipo
-              });
-              
               // Tentar limpar a URL mesmo com erro
               if (tempBlobUrlsRef.current.has(doc.url)) {
                 try {
                   URL.revokeObjectURL(doc.url);
                   tempBlobUrlsRef.current.delete(doc.url);
-                  console.log(`🧹 URL blob para ${doc.nome} limpa após erro`);
                 } catch (cleanupError) {
-                  console.warn(`⚠️ Erro ao limpar URL blob para ${doc.nome}:`, cleanupError);
+                  // Erro silencioso ao limpar
                 }
               }
               
               return { ...doc, url: null }; // Definir URL como null se conversão falhou
             }
           } else if (doc.url && doc.url.startsWith('data:')) {
-            console.log(`✅ Documento ${doc.nome} já em base64, mantendo...`);
             return doc;
           } else {
-            console.log(`⚠️ Documento ${doc.nome} sem URL válida, mantendo como está...`);
             return doc;
           }
         })
       );
 
-      console.log('✅ Documentos processados:', documentosProcessados.map(d => ({nome: d.nome, hasUrl: !!d.url, isBase64: d.url?.startsWith('data:')})));
+      // Buscar o lote para copiar as datas de pagamento
+      const loteArrematado = auction?.lotes?.find(lote => lote.id === selectedArrematante.loteId);
 
       const updateData: any = {
         arrematante: {
@@ -952,11 +821,16 @@ function Arrematantes() {
           loteId: selectedArrematante.loteId,
           valorPagar: editForm.valorPagar,
           valorPagarNumerico: parseFloat(editForm.valorPagar.replace(/[R$\s.]/g, '').replace(',', '.')) || 0,
+          valorEntrada: selectedArrematante.valorEntrada, // 🔧 Preservar valor da entrada
           diaVencimentoMensal: selectedArrematante.diaVencimentoMensal,
           quantidadeParcelas: selectedArrematante.quantidadeParcelas,
           parcelasPagas: selectedArrematante.parcelasPagas,
           mesInicioPagamento: selectedArrematante.mesInicioPagamento,
+          dataEntrada: loteArrematado?.dataEntrada || selectedArrematante.dataEntrada, // 🔧 Preservar data de entrada
+          dataVencimentoVista: loteArrematado?.dataVencimentoVista || selectedArrematante.dataVencimentoVista, // 🔧 Preservar data à vista
           pago: selectedArrematante.pago,
+          percentualJurosAtraso: selectedArrematante.percentualJurosAtraso, // 🔧 Preservar percentual de juros
+          tipoJurosAtraso: selectedArrematante.tipoJurosAtraso, // 🔧 Preservar tipo de juros
           documentos: documentosProcessados
         }
       };
@@ -968,8 +842,6 @@ function Arrematantes() {
         selectedArrematante.mesInicioPagamento !== auction.mesInicioPagamento;
 
       if (shouldSyncToAuction) {
-        console.log('🔄 Sincronizando padrões do leilão com valores do arrematante...');
-        
         updateData.diaVencimentoPadrao = selectedArrematante.diaVencimentoMensal;
         updateData.parcelasPadrao = selectedArrematante.quantidadeParcelas;
         updateData.mesInicioPagamento = selectedArrematante.mesInicioPagamento;
@@ -988,38 +860,20 @@ function Arrematantes() {
 
       }
 
+      // Fechar modal imediatamente (atualização otimista)
+      setIsEditModalOpen(false);
+      
+      // Atualizar no banco de dados em background
       await updateAuction({
         id: auction.id,
         data: updateData
       });
-      
-      console.log('✅ Salvamento realizado com sucesso, aguardando atualização dos dados...');
-      
-      // Aguardar um momento para os dados serem recarregados pelo React Query
-      setTimeout(() => {
-        // Buscar dados atualizados após reload
-        const updatedAuction = auctions.find(a => a.id === selectedArrematante.leilaoId);
-        if (updatedAuction && updatedAuction.arrematante) {
-          console.log('🔄 Dados atualizados encontrados após salvamento:', {
-            documentos: updatedAuction.arrematante.documentos?.length || 0,
-            documentosList: updatedAuction.arrematante.documentos?.map(d => ({nome: d.nome, hasUrl: !!d.url})) || []
-          });
-          
-          // Atualizar selectedArrematante com dados mais recentes para sincronizar com possíveis "Ver Detalhes" subsequentes
-          setSelectedArrematante({
-            ...selectedArrematante,
-            ...updatedAuction.arrematante
-          });
-        } else {
-          console.warn('⚠️ Dados atualizados não encontrados após salvamento');
-        }
-      }, 1000); // Aguardar 1 segundo para garantir que React Query recarregou
-      
-      setIsEditModalOpen(false);
-      // Remover selectedArrematante para evitar abertura automática do modal de detalhes
-      // setSelectedArrematante(null);
     } catch (error) {
-      console.error('Erro ao salvar edição:', error);
+      toast({
+        title: "Erro ao salvar",
+        description: "Ocorreu um erro ao salvar as alterações. Tente novamente.",
+        variant: "destructive",
+      });
     } finally {
       setIsSavingEdit(false);
     }
@@ -1057,27 +911,20 @@ function Arrematantes() {
     // 🔄 SINCRONIZAÇÃO ROBUSTA com debounce
     syncDocumentsToDetails(novosDocumentos, 'add');
 
-    console.log('📁 Documentos processados para upload:', novosDocumentos.map(d => d.nome));
     event.target.value = '';
   }, [syncDocumentsToDetails]);
 
   const handleRemoveDocument = useCallback((id: string) => {
     // Encontrar e limpar a blob URL do documento que será removido
     const docToRemove = editForm.documentos.find(doc => doc.id === id);
-    console.log(`🗑️ Removendo documento: ${docToRemove?.nome || id}`, {
-      hasUrl: !!docToRemove?.url,
-      isBlob: docToRemove?.url?.startsWith('blob:'),
-      isInManagedSet: docToRemove?.url ? tempBlobUrlsRef.current.has(docToRemove.url) : false
-    });
     
     // Cleanup da URL blob
     if (docToRemove?.url && docToRemove.url.startsWith('blob:') && tempBlobUrlsRef.current.has(docToRemove.url)) {
       try {
         URL.revokeObjectURL(docToRemove.url);
         tempBlobUrlsRef.current.delete(docToRemove.url);
-        console.log(`🧹 URL blob para ${docToRemove.nome} revogada com sucesso`);
       } catch (error) {
-        console.warn(`⚠️ Erro ao revogar URL blob para ${docToRemove.nome}:`, error);
+        // Erro silencioso ao revogar
       }
     }
     
@@ -1089,8 +936,6 @@ function Arrematantes() {
 
     // 🔄 SINCRONIZAÇÃO ROBUSTA com debounce
     syncDocumentsToDetails([], 'remove', id);
-
-    console.log('🗑️ Documento marcado para remoção:', docToRemove?.nome || id);
   }, [editForm.documentos, syncDocumentsToDetails]);
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -1129,8 +974,6 @@ function Arrematantes() {
 
     // 🔄 SINCRONIZAÇÃO ROBUSTA com debounce
     syncDocumentsToDetails(novosDocumentos, 'add');
-
-    console.log('🎯 Documentos processados via drag-drop:', novosDocumentos.map(d => d.nome));
   }, [syncDocumentsToDetails]);
 
   // Funções para upload de documentos no modal completo
@@ -1165,27 +1008,20 @@ function Arrematantes() {
     // 🔄 SINCRONIZAÇÃO ROBUSTA com debounce
     syncDocumentsToDetails(novosDocumentos, 'add');
 
-    console.log('📁 Documentos processados para upload (modal completo):', novosDocumentos.map(d => d.nome));
     event.target.value = '';
   }, [syncDocumentsToDetails]);
 
   const handleRemoveFullEditDocument = useCallback((id: string) => {
     // Encontrar e limpar a blob URL do documento que será removido
     const docToRemove = fullEditForm.documentos.find(doc => doc.id === id);
-    console.log(`🗑️ Removendo documento (edição completa): ${docToRemove?.nome || id}`, {
-      hasUrl: !!docToRemove?.url,
-      isBlob: docToRemove?.url?.startsWith('blob:'),
-      isInManagedSet: docToRemove?.url ? tempBlobUrlsRef.current.has(docToRemove.url) : false
-    });
     
     // Cleanup da URL blob
     if (docToRemove?.url && docToRemove.url.startsWith('blob:') && tempBlobUrlsRef.current.has(docToRemove.url)) {
       try {
         URL.revokeObjectURL(docToRemove.url);
         tempBlobUrlsRef.current.delete(docToRemove.url);
-        console.log(`🧹 URL blob para ${docToRemove.nome} revogada com sucesso (edição completa)`);
       } catch (error) {
-        console.warn(`⚠️ Erro ao revogar URL blob para ${docToRemove.nome} (edição completa):`, error);
+        // Erro silencioso ao revogar
       }
     }
     
@@ -1197,8 +1033,6 @@ function Arrematantes() {
 
     // 🔄 SINCRONIZAÇÃO ROBUSTA com debounce
     syncDocumentsToDetails([], 'remove', id);
-
-    console.log('🗑️ Documento marcado para remoção (modal completo):', docToRemove?.nome || id);
   }, [fullEditForm.documentos, syncDocumentsToDetails]);
 
   const handleFullEditDrop = useCallback((e: React.DragEvent) => {
@@ -1232,8 +1066,6 @@ function Arrematantes() {
 
     // 🔄 SINCRONIZAÇÃO ROBUSTA com debounce
     syncDocumentsToDetails(novosDocumentos, 'add');
-
-    console.log('🎯 Documentos processados via drag-drop (modal completo):', novosDocumentos.map(d => d.nome));
   }, [syncDocumentsToDetails]);
 
   // Função para calcular juros progressivos mês a mês
@@ -1249,7 +1081,6 @@ function Arrematantes() {
     for (let mes = 1; mes <= mesesAtraso; mes++) {
       const jurosMes = valorAtual * taxaMensal;
       valorAtual = valorAtual + jurosMes;
-      console.log(`📈 Juros Progressivos - Mês ${mes}: Valor=${valorAtual.toFixed(2)}, Juros aplicados=${jurosMes.toFixed(2)}`);
     }
     
     return Math.round(valorAtual * 100) / 100;
@@ -1477,8 +1308,9 @@ function Arrematantes() {
         }
       }, 0),
     totalPendente: processedArrematantes()
+      .filter(a => a.statusPagamento === 'pendente') // Apenas arrematantes com status pendente
       .reduce((sum, a) => {
-        // Calcular valor das parcelas pendentes (dentro do prazo) para TODOS os arrematantes
+        // Calcular valor das parcelas pendentes (dentro do prazo)
         const auction = auctions.find(auction => auction.id === a.leilaoId);
         if (!auction || !auction.arrematante) return sum;
         
@@ -1488,15 +1320,8 @@ function Arrematantes() {
         const now = new Date();
         
         if (tipoPagamento === "a_vista") {
-          // Para à vista, verificar se ainda está no prazo
-          const dataVencimento = loteArrematado?.dataVencimentoVista || auction?.dataVencimentoVista;
-          if (dataVencimento && !arrematante.pago) {
-            const vencimento = new Date(dataVencimento + 'T23:59:59');
-            if (now <= vencimento) {
-              return sum + (a.valorPagarNumerico || 0);
-            }
-          }
-          return sum;
+          // Para à vista, retornar valor completo (sem juros pois ainda não venceu)
+          return sum + (a.valorPagarNumerico || 0);
         } else if (tipoPagamento === "entrada_parcelamento") {
           // Para entrada + parcelamento, calcular parcelas pendentes (não vencidas)
           const valorTotal = a.valorPagarNumerico || 0;
@@ -1560,8 +1385,9 @@ function Arrematantes() {
         }
       }, 0),
     totalParcelasPendentes: processedArrematantes()
+      .filter(a => a.statusPagamento === 'pendente') // Apenas arrematantes com status pendente
       .reduce((sum, a) => {
-        // Calcular quantidade de parcelas pendentes (dentro do prazo) para TODOS os arrematantes
+        // Calcular quantidade de parcelas pendentes (dentro do prazo)
         const auction = auctions.find(auction => auction.id === a.leilaoId);
         if (!auction || !auction.arrematante) return sum;
         
@@ -1571,15 +1397,8 @@ function Arrematantes() {
         const now = new Date();
         
         if (tipoPagamento === "a_vista") {
-          // Para à vista, verificar se ainda está no prazo
-          const dataVencimento = loteArrematado?.dataVencimentoVista || auction?.dataVencimentoVista;
-          if (dataVencimento && !arrematante.pago) {
-            const vencimento = new Date(dataVencimento + 'T23:59:59');
-            if (now <= vencimento) {
-              return sum + 1;
-            }
-          }
-          return sum;
+          // Para à vista, contar como 1 pagamento pendente
+          return sum + 1;
         } else if (tipoPagamento === "entrada_parcelamento") {
           // Para entrada + parcelamento, contar parcelas pendentes (não vencidas)
           const parcelasPagas = arrematante.parcelasPagas || 0;
@@ -1644,8 +1463,22 @@ function Arrematantes() {
         if (tipoPagamento === "a_vista") {
           // Para à vista, aplicar juros se estiver atrasado há pelo menos 1 mês
           const valorTotal = a.valorPagarNumerico || 0;
-          const { valorComJuros } = calcularJurosAtraso(arrematante, auction, valorTotal);
-          return sum + valorComJuros;
+          const dataVencimento = loteArrematado?.dataVencimentoVista || auction?.dataVencimentoVista;
+          
+          if (dataVencimento && arrematante.percentualJurosAtraso) {
+            const now = new Date();
+            const vencimento = new Date(dataVencimento + 'T23:59:59');
+            
+            if (now > vencimento) {
+              const mesesAtraso = Math.max(0, Math.floor((now.getTime() - vencimento.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+              if (mesesAtraso >= 1) {
+                const valorComJuros = calcularJurosProgressivos(valorTotal, arrematante.percentualJurosAtraso, mesesAtraso);
+                return sum + valorComJuros;
+              }
+            }
+          }
+          
+          return sum + valorTotal;
         } else if (tipoPagamento === "entrada_parcelamento") {
           // Para entrada + parcelamento, calcular valor das parcelas atrasadas
           const valorTotal = a.valorPagarNumerico || 0;
@@ -1705,11 +1538,9 @@ function Arrematantes() {
                 const mesesAtraso = Math.max(0, Math.floor((now.getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
                 if (mesesAtraso >= 1) {
                   const valorComJuros = calcularJurosProgressivos(valorPorParcela, arrematante.percentualJurosAtraso || 0, mesesAtraso);
-                  console.log(`🔍 JUROS DEBUG - Parcela ${i + 1}: valorOriginal=${valorPorParcela}, meses=${mesesAtraso}, percentual=${arrematante.percentualJurosAtraso}%, valorComJuros=${valorComJuros}`);
                   valorAtrasado = Math.round((valorAtrasado + valorComJuros) * 100) / 100;
                 } else {
                   // Se não tem 1 mês de atraso, soma valor original
-                  console.log(`🔍 SEM JUROS DEBUG - Parcela ${i + 1}: valorOriginal=${valorPorParcela}, meses=${mesesAtraso}`);
                   valorAtrasado = Math.round((valorAtrasado + valorPorParcela) * 100) / 100;
                 }
               }
@@ -1717,7 +1548,6 @@ function Arrematantes() {
           }
           
           const novoSum = Math.round((sum + valorAtrasado) * 100) / 100;
-          console.log(`🔍 TOTAL DEBUG - ${arrematante.nome}: valorAtrasado=${valorAtrasado}, sum anterior=${sum}, novo sum=${novoSum}`);
           return novoSum;
         } else {
           // Para parcelamento simples
@@ -1740,11 +1570,9 @@ function Arrematantes() {
                 const mesesAtraso = Math.max(0, Math.floor((now.getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
                 if (mesesAtraso >= 1) {
                   const valorComJuros = calcularJurosProgressivos(valorPorParcela, arrematante.percentualJurosAtraso || 0, mesesAtraso);
-                  console.log(`🔍 JUROS DEBUG - Parcela ${i + 1}: valorOriginal=${valorPorParcela}, meses=${mesesAtraso}, percentual=${arrematante.percentualJurosAtraso}%, valorComJuros=${valorComJuros}`);
                   valorAtrasado = Math.round((valorAtrasado + valorComJuros) * 100) / 100;
                 } else {
                   // Se não tem 1 mês de atraso, soma valor original
-                  console.log(`🔍 SEM JUROS DEBUG - Parcela ${i + 1}: valorOriginal=${valorPorParcela}, meses=${mesesAtraso}`);
                   valorAtrasado = Math.round((valorAtrasado + valorPorParcela) * 100) / 100;
                 }
               } else {
@@ -1754,7 +1582,6 @@ function Arrematantes() {
           }
           
           const novoSum = Math.round((sum + valorAtrasado) * 100) / 100;
-          console.log(`🔍 TOTAL DEBUG - ${arrematante.nome}: valorAtrasado=${valorAtrasado}, sum anterior=${sum}, novo sum=${novoSum}`);
           return novoSum;
         }
       }, 0)
@@ -1762,23 +1589,9 @@ function Arrematantes() {
 
   // Função para abrir modal de edição completa
   const handleOpenFullEdit = (arrematante: ArrematanteExtendido) => {
-    console.log(`🔧 Abrindo modal de edição completa para arrematante:`, {
-      arrematanteId: arrematante.id,
-      leilaoId: arrematante.leilaoId,
-      nome: arrematante.nome,
-      diaVencimentoMensal: arrematante.diaVencimentoMensal,
-      quantidadeParcelas: arrematante.quantidadeParcelas,
-      mesInicioPagamento: arrematante.mesInicioPagamento
-    });
-
     // 🔧 SINCRONIZAÇÃO: Buscar dados mais recentes do arrematante no leilão
     const auction = auctions.find(a => a.id === arrematante.leilaoId);
     if (auction && auction.arrematante) {
-      console.log('🔧 Carregando dados mais recentes:', {
-        documento: auction.arrematante.documento,
-        endereco: auction.arrematante.endereco
-      });
-      
       // Criar objeto arrematante com dados mais recentes
       const updatedArrematante = {
         ...arrematante,
@@ -1789,11 +1602,6 @@ function Arrematantes() {
         telefone: auction.arrematante.telefone || arrematante.telefone || "",
         documentos: auction.arrematante.documentos || arrematante.documentos || []
       };
-      
-      console.log('🔄 Abrindo edição completa com documentos sincronizados:', {
-        documentos: updatedArrematante.documentos?.length || 0,
-        documentosList: updatedArrematante.documentos?.map(d => ({nome: d.nome, hasUrl: !!d.url})) || []
-      });
       
       setSelectedArrematanteForFullEdit(updatedArrematante);
     } else {
@@ -1835,13 +1643,6 @@ function Arrematantes() {
     setIsSavingFullEdit(true);
     
     try {
-      console.log('🔍 Dados do formulário antes de salvar:', {
-        documento: fullEditForm.documento,
-        endereco: fullEditForm.endereco,
-        nome: fullEditForm.nome,
-        email: fullEditForm.email
-      });
-      
       // Verificar se campos relevantes do arrematante diferem dos padrões do leilão
       const shouldSyncAuctionDefaults = (
         fullEditForm.diaVencimentoMensal !== auction.diaVencimentoPadrao ||
@@ -1850,37 +1651,28 @@ function Arrematantes() {
       );
 
       // 🔄 Converter documentos blob para base64 se necessário (edição completa)
-      console.log('🔄 Processando documentos (edição completa) antes do salvamento:', fullEditForm.documentos.map(d => ({nome: d.nome, hasUrl: !!d.url, urlType: d.url?.substring(0, 10)})));
-      
       const documentosProcessados = await Promise.all(
         fullEditForm.documentos.map(async (doc, index) => {
           if (doc.url && doc.url.startsWith('blob:')) {
-            console.log(`🔄 Convertendo documento ${doc.nome} para base64 (edição completa ${index + 1}/${fullEditForm.documentos.length})...`);
-            
             // Verificar se a URL blob ainda existe no conjunto de URLs gerenciadas
             if (!tempBlobUrlsRef.current.has(doc.url)) {
-              console.warn(`⚠️ URL blob para ${doc.nome} não encontrada no conjunto gerenciado (edição completa).`);
-              console.log(`🔄 Adicionando URL ao conjunto para evitar cleanup prematuro (edição completa)...`);
               tempBlobUrlsRef.current.add(doc.url);
             }
             
             try {
               // Tentar fazer fetch da URL blob
-              console.log(`📥 Fazendo fetch da URL blob (edição completa): ${doc.url.substring(0, 50)}...`);
               const response = await fetch(doc.url);
               
               if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
               }
               
-              console.log(`📄 Response OK para ${doc.nome} (edição completa), convertendo para blob...`);
               const blob = await response.blob();
               
               if (!blob || blob.size === 0) {
                 throw new Error('Blob vazio ou inválido');
               }
               
-              console.log(`📋 Blob válido para ${doc.nome} (edição completa - ${blob.size} bytes), convertendo para base64...`);
               const base64 = await new Promise<string>((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onloadend = () => {
@@ -1894,49 +1686,36 @@ function Arrematantes() {
                 reader.readAsDataURL(blob);
               });
               
-              console.log(`✅ Documento ${doc.nome} convertido com sucesso (edição completa - ${base64.length} chars)`);
-              
               // Limpar a URL blob após conversão bem-sucedida
               if (tempBlobUrlsRef.current.has(doc.url)) {
                 URL.revokeObjectURL(doc.url);
                 tempBlobUrlsRef.current.delete(doc.url);
-                console.log(`🧹 URL blob para ${doc.nome} limpa após conversão (edição completa)`);
               }
               
               return { ...doc, url: base64 };
             } catch (error) {
-              console.error(`❌ Erro ao converter documento ${doc.nome} (edição completa):`, {
-                error: error,
-                message: error instanceof Error ? error.message : 'Erro desconhecido',
-                docUrl: doc.url.substring(0, 50),
-                docSize: doc.tamanho,
-                docType: doc.tipo
-              });
-              
               // Tentar limpar a URL mesmo com erro
               if (tempBlobUrlsRef.current.has(doc.url)) {
                 try {
                   URL.revokeObjectURL(doc.url);
                   tempBlobUrlsRef.current.delete(doc.url);
-                  console.log(`🧹 URL blob para ${doc.nome} limpa após erro (edição completa)`);
                 } catch (cleanupError) {
-                  console.warn(`⚠️ Erro ao limpar URL blob para ${doc.nome} (edição completa):`, cleanupError);
+                  // Erro silencioso
                 }
               }
               
               return { ...doc, url: null }; // Definir URL como null se conversão falhou
             }
           } else if (doc.url && doc.url.startsWith('data:')) {
-            console.log(`✅ Documento ${doc.nome} já em base64 (edição completa), mantendo...`);
             return doc;
           } else {
-            console.log(`⚠️ Documento ${doc.nome} sem URL válida (edição completa), mantendo como está...`);
             return doc;
           }
         })
       );
 
-      console.log('✅ Documentos processados (edição completa):', documentosProcessados.map(d => ({nome: d.nome, hasUrl: !!d.url, isBase64: d.url?.startsWith('data:')})));
+      // Buscar o lote para copiar as datas de pagamento
+      const loteArrematado = auction.lotes?.find(lote => lote.id === fullEditForm.loteId);
 
       // Preparar dados para atualização
       const updateData: any = {
@@ -1955,6 +1734,8 @@ function Arrematantes() {
           quantidadeParcelas: fullEditForm.quantidadeParcelas,
           parcelasPagas: fullEditForm.parcelasPagas,
           mesInicioPagamento: fullEditForm.mesInicioPagamento,
+          dataEntrada: loteArrematado?.dataEntrada, // 🔧 Copiar data de entrada do lote
+          dataVencimentoVista: loteArrematado?.dataVencimentoVista, // 🔧 Copiar data à vista do lote
           pago: fullEditForm.pago,
           documentos: documentosProcessados
         }
@@ -2192,23 +1973,34 @@ function Arrematantes() {
       isFullyPaid 
     });
 
+    setIsSavingPayments(true);
+    
     try {
-      await updateAuction({
+      // Buscar o lote para copiar as datas de pagamento
+      const loteArrematado = auction?.lotes?.find(lote => lote.id === selectedArrematanteForPayment.loteId);
+      
+      // Atualizar no banco de dados
+      const updatePromise = updateAuction({
         id: auction.id,
         data: {
           arrematante: {
             ...auction.arrematante,
             parcelasPagas: parcelasPagasValue,
-            pago: isFullyPaid
+            pago: isFullyPaid,
+            // Preservar datas de pagamento do lote
+            dataEntrada: loteArrematado?.dataEntrada || auction.arrematante.dataEntrada,
+            dataVencimentoVista: loteArrematado?.dataVencimentoVista || auction.arrematante.dataVencimentoVista,
+            mesInicioPagamento: auction.arrematante.mesInicioPagamento || loteArrematado?.mesInicioPagamento,
+            diaVencimentoMensal: auction.arrematante.diaVencimentoMensal || loteArrematado?.diaVencimentoPadrao
           }
         }
       });
       
-      // Log da atualização de pagamentos
+      // Log em paralelo (não bloquear UI)
       const oldParcelasPagas = auction.arrematante.parcelasPagas || 0;
       const paymentDetails = `${oldParcelasPagas} → ${parcelasPagasValue} parcelas pagas${isFullyPaid ? ' (totalmente quitado)' : ''}`;
       
-      await logPaymentAction(
+      const logPromise = logPaymentAction(
         parcelasPagasValue > oldParcelasPagas ? 'mark_paid' : 'mark_unpaid',
         selectedArrematanteForPayment.nome,
         auction.nome,
@@ -2225,24 +2017,28 @@ function Arrematantes() {
         }
       );
       
-      console.log('✅ Pagamento atualizado com sucesso, aguardando sincronização...');
+      // Aguardar apenas a atualização (log é em paralelo)
+      await updatePromise;
+      logPromise.catch(err => console.error('Erro ao registrar log:', err));
       
-      // Aguardar um momento para os dados serem recarregados pelo React Query
-      setTimeout(() => {
-        const updatedAuction = auctions.find(a => a.id === selectedArrematanteForPayment?.leilaoId);
-        if (updatedAuction && updatedAuction.arrematante) {
-          console.log('🔄 Status de pagamento sincronizado:', {
-            pago: updatedAuction.arrematante.pago,
-            parcelasPagas: updatedAuction.arrematante.parcelasPagas
-          });
-        }
-      }, 1000);
-      
+      // Fechar modal após atualização
       setIsPaymentModalOpen(false);
       setSelectedArrematanteForPayment(null);
       setPaymentMonths([]);
+      
+      toast({
+        title: "Pagamento atualizado",
+        description: "Status de pagamento atualizado com sucesso.",
+      });
     } catch (error) {
       console.error('Erro ao salvar pagamentos:', error);
+      toast({
+        title: "Erro",
+        description: "Não foi possível atualizar o pagamento.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingPayments(false);
     }
   };
 
@@ -2268,14 +2064,23 @@ function Arrematantes() {
       const auction = auctions.find(a => a.id === arrematante.leilaoId);
       if (!auction || !auction.arrematante) return;
 
+      // Buscar o lote para preservar as datas de pagamento
+      const loteArrematado = auction?.lotes?.find(lote => lote.id === arrematante.loteId);
+
       // Desconfirmar o pagamento
       const updatedArrematante = {
         ...auction.arrematante,
         pago: false,
-        parcelasPagas: 0 // Reset parcelas pagas também
+        parcelasPagas: 0, // Reset parcelas pagas também
+        // Preservar datas de pagamento do lote
+        dataEntrada: loteArrematado?.dataEntrada || auction.arrematante.dataEntrada,
+        dataVencimentoVista: loteArrematado?.dataVencimentoVista || auction.arrematante.dataVencimentoVista,
+        mesInicioPagamento: auction.arrematante.mesInicioPagamento || loteArrematado?.mesInicioPagamento,
+        diaVencimentoMensal: auction.arrematante.diaVencimentoMensal || loteArrematado?.diaVencimentoPadrao
       };
 
-      await updateAuction({
+      // Atualização otimista: não aguardar resposta
+      const updatePromise = updateAuction({
         id: arrematante.leilaoId,
         data: { arrematante: updatedArrematante }
       });
@@ -2284,6 +2089,9 @@ function Arrematantes() {
         title: "Pagamento desconfirmado",
         description: `Pagamento de ${arrematante.nome} foi desconfirmado com sucesso.`,
       });
+      
+      // Aguardar em background
+      await updatePromise;
 
     } catch (error) {
       console.error('Erro ao desconfirmar pagamento:', error);
@@ -2588,11 +2396,6 @@ function Arrematantes() {
                                 <span>
                                   R$ {valorComJuros.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </span>
-                                {temJuros && (
-                                  <span className="text-xs text-red-600">
-                                    (R$ {(valorComJuros - valorOriginal).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} juros)
-                                  </span>
-                                )}
                               </div>
                             );
                           })()}
@@ -3027,7 +2830,7 @@ function Arrematantes() {
 
       {/* Modal de Visualização */}
       <Dialog open={isViewModalOpen} onOpenChange={setIsViewModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold text-gray-900">
               Detalhes do Arrematante
@@ -3213,7 +3016,7 @@ function Arrematantes() {
                                         newWindow.document.write(`
                                           <html>
                                             <head><title>${doc.nome}</title></head>
-                                            <body style="margin:0; background:#000;">
+                                            <body style="margin:0; display:flex; justify-content:center; align-items:center; min-height:100vh; background:#f0f0f0;">
                                               <embed src="${doc.url}" width="100%" height="100%" type="application/pdf" />
                                             </body>
                                           </html>
@@ -3222,14 +3025,27 @@ function Arrematantes() {
                                         newWindow.document.write(`
                                           <html>
                                             <head><title>${doc.nome}</title></head>
-                                            <body style="margin:0; background:#000; display:flex; justify-content:center; align-items:center; height:100vh;">
-                                              <img src="${doc.url}" style="max-width:100%; max-height:100%; object-fit:contain;" />
+                                            <body style="margin:0; display:flex; justify-content:center; align-items:center; min-height:100vh; background:#f0f0f0;">
+                                              <img src="${doc.url}" style="max-width:100%; max-height:100%; object-fit:contain;" alt="${doc.nome}" />
                                             </body>
                                           </html>
                                         `);
                                       } else {
-                                        // Para outros tipos de documento, tentar abrir diretamente
-                                        newWindow.location.href = doc.url;
+                                        // Para outros tipos de documento (DOC, DOCX, etc), criar link de download
+                                        newWindow.document.write(`
+                                          <html>
+                                            <head><title>${doc.nome}</title></head>
+                                            <body style="margin:0; display:flex; justify-content:center; align-items:center; min-height:100vh; background:#f0f0f0; font-family: Arial, sans-serif;">
+                                              <div style="text-align:center; padding:40px;">
+                                                <h2 style="color:#333; margin-bottom:20px;">Visualização de Documento</h2>
+                                                <p style="color:#666; margin-bottom:30px;">${doc.nome}</p>
+                                                <a href="${doc.url}" download="${doc.nome}" style="background:#0066cc; color:white; padding:12px 24px; text-decoration:none; border-radius:4px; display:inline-block;">
+                                                  Baixar Documento
+                                                </a>
+                                              </div>
+                                            </body>
+                                          </html>
+                                        `);
                                       }
                                     }
                                   } else {
@@ -3271,7 +3087,7 @@ function Arrematantes() {
           setSelectedArrematante(null);
         }
       }}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto custom-scrollbar">
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold text-gray-900">
               Editar Arrematante
@@ -3434,7 +3250,7 @@ function Arrematantes() {
                                       newWindow.document.write(`
                                         <html>
                                           <head><title>${doc.nome}</title></head>
-                                          <body style="margin:0; background:#000;">
+                                          <body style="margin:0; display:flex; justify-content:center; align-items:center; min-height:100vh; background:#f0f0f0;">
                                             <embed src="${doc.url}" width="100%" height="100%" type="application/pdf" />
                                           </body>
                                         </html>
@@ -3443,14 +3259,27 @@ function Arrematantes() {
                                       newWindow.document.write(`
                                         <html>
                                           <head><title>${doc.nome}</title></head>
-                                          <body style="margin:0; background:#000; display:flex; justify-content:center; align-items:center; height:100vh;">
-                                            <img src="${doc.url}" style="max-width:100%; max-height:100%; object-fit:contain;" />
+                                          <body style="margin:0; display:flex; justify-content:center; align-items:center; min-height:100vh; background:#f0f0f0;">
+                                            <img src="${doc.url}" style="max-width:100%; max-height:100%; object-fit:contain;" alt="${doc.nome}" />
                                           </body>
                                         </html>
                                       `);
                                     } else {
-                                      // Para outros tipos de documento, tentar abrir diretamente
-                                      newWindow.location.href = doc.url;
+                                      // Para outros tipos de documento (DOC, DOCX, etc), criar link de download
+                                      newWindow.document.write(`
+                                        <html>
+                                          <head><title>${doc.nome}</title></head>
+                                          <body style="margin:0; display:flex; justify-content:center; align-items:center; min-height:100vh; background:#f0f0f0; font-family: Arial, sans-serif;">
+                                            <div style="text-align:center; padding:40px;">
+                                              <h2 style="color:#333; margin-bottom:20px;">Visualização de Documento</h2>
+                                              <p style="color:#666; margin-bottom:30px;">${doc.nome}</p>
+                                              <a href="${doc.url}" download="${doc.nome}" style="background:#0066cc; color:white; padding:12px 24px; text-decoration:none; border-radius:4px; display:inline-block;">
+                                                Baixar Documento
+                                              </a>
+                                            </div>
+                                          </body>
+                                        </html>
+                                      `);
                                     }
                                   }
                                 } else {
@@ -3534,13 +3363,13 @@ function Arrematantes() {
                 type="button"
                 onClick={handleSaveEdit}
                 disabled={isSavingEdit || !editForm.nome || !editForm.valorPagar}
-                className="h-11 px-6 bg-black hover:bg-gray-800 text-white font-medium disabled:opacity-70 disabled:cursor-not-allowed transition-all duration-200 btn-save-click"
+                className="h-11 px-6 bg-black hover:bg-gray-800 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 btn-save-click"
               >
                 {isSavingEdit ? (
-                  <div className="flex items-center gap-2">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     Salvando...
-                  </div>
+                  </>
                 ) : (
                   "Salvar Alterações"
                 )}
@@ -3827,15 +3656,24 @@ function Arrematantes() {
                         setSelectedArrematanteForPayment(null);
                         setPaymentMonths([]);
                       }}
+                      disabled={isSavingPayments}
                       className="hover:bg-gray-100 hover:text-gray-800"
                     >
                       Cancelar
                     </Button>
                     <Button 
                       onClick={handleSavePayments}
-                      className="bg-black hover:bg-gray-800 text-white btn-save-click"
+                      disabled={isSavingPayments}
+                      className="bg-black hover:bg-gray-800 text-white disabled:opacity-50 disabled:cursor-not-allowed btn-save-click"
                     >
-                      Confirmar
+                      {isSavingPayments ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Confirmando...
+                        </>
+                      ) : (
+                        "Confirmar"
+                      )}
                     </Button>
                   </div>
                 </div>
@@ -4313,17 +4151,33 @@ function Arrematantes() {
                                         newWindow.document.write(`
                                           <html>
                                             <head><title>${doc.nome}</title></head>
-                                            <body style="margin:0; background:#000;">
+                                            <body style="margin:0; display:flex; justify-content:center; align-items:center; min-height:100vh; background:#f0f0f0;">
                                               <embed src="${doc.url}" width="100%" height="100%" type="application/pdf" />
                                             </body>
                                           </html>
                                         `);
-                                      } else {
+                                      } else if (doc.tipo.includes('image')) {
                                         newWindow.document.write(`
                                           <html>
                                             <head><title>${doc.nome}</title></head>
-                                            <body style="margin:0; background:#000; display:flex; justify-content:center; align-items:center; height:100vh;">
-                                              <img src="${doc.url}" style="max-width:100%; max-height:100%; object-fit:contain;" />
+                                            <body style="margin:0; display:flex; justify-content:center; align-items:center; min-height:100vh; background:#f0f0f0;">
+                                              <img src="${doc.url}" style="max-width:100%; max-height:100%; object-fit:contain;" alt="${doc.nome}" />
+                                            </body>
+                                          </html>
+                                        `);
+                                      } else {
+                                        // Para outros tipos de documento (DOC, DOCX, etc), criar link de download
+                                        newWindow.document.write(`
+                                          <html>
+                                            <head><title>${doc.nome}</title></head>
+                                            <body style="margin:0; display:flex; justify-content:center; align-items:center; min-height:100vh; background:#f0f0f0; font-family: Arial, sans-serif;">
+                                              <div style="text-align:center; padding:40px;">
+                                                <h2 style="color:#333; margin-bottom:20px;">Visualização de Documento</h2>
+                                                <p style="color:#666; margin-bottom:30px;">${doc.nome}</p>
+                                                <a href="${doc.url}" download="${doc.nome}" style="background:#0066cc; color:white; padding:12px 24px; text-decoration:none; border-radius:4px; display:inline-block;">
+                                                  Baixar Documento
+                                                </a>
+                                              </div>
                                             </body>
                                           </html>
                                         `);
@@ -4656,11 +4510,6 @@ const ArrematantePdfReport = ({ arrematante }: { arrematante: ArrematanteExtendi
                 return (
                   <div>
                     <div>{formatCurrency(valorTotalComJuros)}</div>
-                    {temJuros && (
-                      <div className="text-xs text-red-600 mt-1">
-                        (+ {formatCurrency(valorTotalComJuros - valorTotal)} juros)
-                      </div>
-                    )}
                   </div>
                 );
               })()}
@@ -4788,11 +4637,6 @@ const ArrematantePdfReport = ({ arrematante }: { arrematante: ArrematanteExtendi
                         <div className="font-semibold text-gray-900">
                           {formatCurrency(temJuros && !isPaga ? valorComJuros : valorPorParcela)}
                         </div>
-                        {temJuros && !isPaga && (
-                          <div className="text-xs text-red-600">
-                            (+ {formatCurrency(valorComJuros - valorPorParcela)} juros)
-                          </div>
-                        )}
                       </div>
                     </div>
                     <div className="mt-1 text-sm text-gray-600 flex justify-between">

@@ -48,7 +48,8 @@ import {
   FileText,
   Image,
   FileSpreadsheet,
-  ArrowLeft
+  ArrowLeft,
+  Loader2
 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Calendar as CalendarIcon, CreditCard } from "lucide-react";
@@ -76,6 +77,7 @@ function Leiloes() {
   const [addingArrematanteFor, setAddingArrematanteFor] = useState<Auction | null>(null);
   const [arrematanteMode, setArrematanteMode] = useState<'view' | 'edit'>('view');
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [isSavingArrematante, setIsSavingArrematante] = useState(false);
   const [selectedAuctionForPayment, setSelectedAuctionForPayment] = useState<Auction | null>(null);
   const [isFormBeingEdited, setIsFormBeingEdited] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -676,66 +678,80 @@ function Leiloes() {
       return;
     }
 
-    const arrematanteData: ArrematanteInfo = {
-      nome: arrematanteForm.nome,
-      documento: arrematanteForm.documento || undefined,
-      endereco: arrematanteForm.endereco || undefined,
-      email: arrematanteForm.email || undefined,
-      telefone: arrematanteForm.telefone || undefined,
-      loteId: arrematanteForm.loteId || undefined,
-      valorPagar: arrematanteForm.valorPagar,
-      valorPagarNumerico: parseCurrencyToNumber(arrematanteForm.valorPagar),
-      valorEntrada: arrematanteForm.valorEntrada || undefined,
-      diaVencimentoMensal: arrematanteForm.diaVencimentoMensal,
-      quantidadeParcelas: arrematanteForm.quantidadeParcelas,
-      parcelasPagas: typeof arrematanteForm.parcelasPagas === 'number' ? arrematanteForm.parcelasPagas : 0,
-      mesInicioPagamento: arrematanteForm.mesInicioPagamento,
-      pago: arrematanteForm.pago,
-      documentos: arrematanteForm.documentos,
-      percentualJurosAtraso: arrematanteForm.percentualJurosAtraso,
-      tipoJurosAtraso: arrematanteForm.tipoJurosAtraso
-    };
+    try {
+      setIsSavingArrematante(true);
 
-    // Preparar os lotes atualizados se um lote foi arrematado
-    let lotesAtualizados = addingArrematanteFor.lotes || [];
-    
-    // Se um lote específico foi selecionado, marcar como arrematado
-    if (arrematanteForm.loteId) {
-      lotesAtualizados = lotesAtualizados.map(lote => 
-        lote.id === arrematanteForm.loteId 
-          ? { ...lote, status: 'arrematado' as const }
-          : lote
-      );
-    }
+      const arrematanteData: ArrematanteInfo = {
+        nome: arrematanteForm.nome,
+        documento: arrematanteForm.documento || undefined,
+        endereco: arrematanteForm.endereco || undefined,
+        email: arrematanteForm.email || undefined,
+        telefone: arrematanteForm.telefone || undefined,
+        loteId: arrematanteForm.loteId || undefined,
+        valorPagar: arrematanteForm.valorPagar,
+        valorPagarNumerico: parseCurrencyToNumber(arrematanteForm.valorPagar),
+        valorEntrada: arrematanteForm.valorEntrada || undefined,
+        diaVencimentoMensal: arrematanteForm.diaVencimentoMensal,
+        quantidadeParcelas: arrematanteForm.quantidadeParcelas,
+        parcelasPagas: typeof arrematanteForm.parcelasPagas === 'number' ? arrematanteForm.parcelasPagas : 0,
+        mesInicioPagamento: arrematanteForm.mesInicioPagamento,
+        pago: arrematanteForm.pago,
+        documentos: arrematanteForm.documentos,
+        percentualJurosAtraso: arrematanteForm.percentualJurosAtraso,
+        tipoJurosAtraso: arrematanteForm.tipoJurosAtraso
+      };
 
-    // Atualizar o leilão com os dados do arrematante e lotes atualizados
-    await updateAuction({
-      id: addingArrematanteFor.id,
-      data: { 
-        arrematante: arrematanteData,
-        lotes: lotesAtualizados
+      // Preparar os lotes atualizados se um lote foi arrematado
+      let lotesAtualizados = addingArrematanteFor.lotes || [];
+      
+      // Se um lote específico foi selecionado, marcar como arrematado
+      if (arrematanteForm.loteId) {
+        lotesAtualizados = lotesAtualizados.map(lote => 
+          lote.id === arrematanteForm.loteId 
+            ? { ...lote, status: 'arrematado' as const }
+            : lote
+        );
       }
-    });
 
-    // Log da criação/edição do arrematante
-    const isEditing = !!addingArrematanteFor.arrematante;
-    await logBidderAction(
-      isEditing ? 'update' : 'create', 
-      arrematanteData.nome, 
-      addingArrematanteFor.nome, 
-      addingArrematanteFor.id,
-      {
-        metadata: {
-          valor_total: arrematanteData.valorPagarNumerico,
-          quantidade_parcelas: arrematanteData.quantidadeParcelas,
-          parcelas_pagas: arrematanteData.parcelasPagas,
-          percentual_juros_atraso: arrematanteData.percentualJurosAtraso,
-          tipo_juros: arrematanteData.tipoJurosAtraso,
-          lote_id: arrematanteData.loteId,
-          has_documents: (arrematanteData.documentos?.length || 0) > 0
+      // Atualizar o leilão com os dados do arrematante e lotes atualizados
+      await updateAuction({
+        id: addingArrematanteFor.id,
+        data: { 
+          arrematante: arrematanteData,
+          lotes: lotesAtualizados
         }
-      }
-    );
+      });
+
+      // Log da criação/edição do arrematante
+      const isEditing = !!addingArrematanteFor.arrematante;
+      await logBidderAction(
+        isEditing ? 'update' : 'create', 
+        arrematanteData.nome, 
+        addingArrematanteFor.nome, 
+        addingArrematanteFor.id,
+        {
+          metadata: {
+            valor_total: arrematanteData.valorPagarNumerico,
+            quantidade_parcelas: arrematanteData.quantidadeParcelas,
+            parcelas_pagas: arrematanteData.parcelasPagas,
+            percentual_juros_atraso: arrematanteData.percentualJurosAtraso,
+            tipo_juros: arrematanteData.tipoJurosAtraso,
+            lote_id: arrematanteData.loteId,
+            has_documents: (arrematanteData.documentos?.length || 0) > 0
+          }
+        }
+      );
+    } catch (error) {
+      console.error('Erro ao salvar arrematante:', error);
+      toast({
+        title: "Erro ao salvar",
+        description: "Ocorreu um erro ao salvar as alterações. Tente novamente.",
+        variant: "destructive",
+      });
+      return;
+    } finally {
+      setIsSavingArrematante(false);
+    }
     
     setArrematanteForm({
       nome: "",
@@ -1468,9 +1484,9 @@ function Leiloes() {
                    }}
                    onOpenChange={setIsLocalFilterOpen}
                  >
-                   <SelectTrigger className="h-10 w-44 border-gray-300 bg-white text-sm focus:!ring-0 focus:!ring-offset-0 focus:!border-gray-300 focus:!outline-none focus:!shadow-none">
-                     <SelectValue placeholder="Local" />
-                   </SelectTrigger>
+                  <SelectTrigger className="h-10 w-44 border-gray-300 bg-white text-sm focus:!ring-0 focus:!ring-offset-0 focus:!border-gray-300 focus:!outline-none focus:!shadow-none">
+                    <SelectValue placeholder="Modalidade" />
+                  </SelectTrigger>
                    <SelectContent>
                      <SelectItem value="todos">Todos ({getLocalCount("todos")})</SelectItem>
                      <SelectItem value="presencial">Presencial ({getLocalCount("presencial")})</SelectItem>
@@ -1583,7 +1599,7 @@ function Leiloes() {
                    <TableHead className="font-semibold text-gray-700">Nome do Evento</TableHead>
                    <TableHead className="font-semibold text-gray-700">Identificação</TableHead>
                    <TableHead className="font-semibold text-gray-700">Status</TableHead>
-                   <TableHead className="font-semibold text-gray-700">Local</TableHead>
+                   <TableHead className="font-semibold text-gray-700">Modalidade</TableHead>
                    <TableHead className="font-semibold text-gray-700">Data de Início</TableHead>
                    <TableHead className="font-semibold text-gray-700">Custos</TableHead>
                    <TableHead className="font-semibold text-gray-700 text-center">Ações</TableHead>
@@ -1951,6 +1967,7 @@ function Leiloes() {
                               new Date(loteSelecionado.dataVencimentoVista + 'T00:00:00').toLocaleDateString('pt-BR')
                               : 'Não definida'}
                           </p>
+                          <p><strong>Percentual de Juros por Atraso:</strong> {arrematanteForm.percentualJurosAtraso || 0}% ao mês</p>
                           <p><strong>Status:</strong> {arrematanteForm.pago ? 'Pago' : 'Pendente'}</p>
                 </div>
                       </div>
@@ -1993,6 +2010,7 @@ function Leiloes() {
                               const valorPorParcela = valorParcelas / (arrematanteForm.quantidadeParcelas || 1);
                               return valorPorParcela.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                             })()}</p>
+                            <p><strong>Percentual de Juros por Atraso:</strong> {arrematanteForm.percentualJurosAtraso || 0}% ao mês</p>
                       </div>
                   </div>
                 </div>
@@ -2009,6 +2027,7 @@ function Leiloes() {
                     <p><strong>Valor por parcela:</strong> R$ {arrematanteForm.valorPagar && arrematanteForm.quantidadeParcelas ? 
                       (parseCurrencyToNumber(arrematanteForm.valorPagar) / arrematanteForm.quantidadeParcelas).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                       : '0,00'}</p>
+                    <p><strong>Percentual de Juros por Atraso:</strong> {arrematanteForm.percentualJurosAtraso || 0}% ao mês</p>
                   </div>
                 </div>
                     );
@@ -2037,7 +2056,30 @@ function Leiloes() {
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => window.open(doc.url, '_blank')}
+                                onClick={() => {
+                                  if (doc.url) {
+                                    // Se é documento com base64, abrir em nova aba com viewer
+                                    if (doc.url.startsWith('data:')) {
+                                      const newWindow = window.open();
+                                      if (newWindow) {
+                                        newWindow.document.write(`
+                                          <html>
+                                            <head><title>${doc.nome}</title></head>
+                                            <body style="margin:0; display:flex; justify-content:center; align-items:center; min-height:100vh; background:#f0f0f0;">
+                                              ${doc.url.includes('pdf') ? 
+                                                `<embed src="${doc.url}" width="100%" height="100%" type="application/pdf" />` :
+                                                `<img src="${doc.url}" style="max-width:100%; max-height:100%; object-fit:contain;" alt="${doc.nome}" />`
+                                              }
+                                            </body>
+                                          </html>
+                                        `);
+                                      }
+                                    } else {
+                                      // Para outros tipos, tentar abrir ou baixar
+                                      window.open(doc.url, '_blank');
+                                    }
+                                  }
+                                }}
                                 className="h-8 w-8 p-0 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
                                 title="Visualizar arquivo"
                               >
@@ -2653,8 +2695,34 @@ function Leiloes() {
                           className="h-10"
                         />
                       </div>
-                      {/* Coluna vazia para manter o campo ocupando apenas 1 coluna */}
-                      <div></div>
+                      
+                      {/* Campo de Juros por Atraso */}
+                      <div className="space-y-2">
+                        <Label htmlFor="percentualJurosAtrasoVista" className="text-sm font-medium text-gray-700">
+                          Percentual de Juros por Atraso (% ao mês) - Juros Compostos
+                        </Label>
+                        <Input
+                          id="percentualJurosAtrasoVista"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.1"
+                          value={arrematanteForm.percentualJurosAtraso || ""}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === "") {
+                              handleArrematanteFormChange("percentualJurosAtraso", 0);
+                            } else {
+                              const numValue = parseFloat(value);
+                              if (!isNaN(numValue) && numValue >= 0 && numValue <= 100) {
+                                handleArrematanteFormChange("percentualJurosAtraso", numValue);
+                              }
+                            }
+                          }}
+                          placeholder="0.0"
+                          className="h-10 border-gray-300 focus:!border-gray-900 focus:!ring-0 focus:!outline-none bg-white text-sm"
+                        />
+                      </div>
                     </div>
                   );
                 }
@@ -2684,7 +2752,30 @@ function Leiloes() {
                               type="button"
                               variant="ghost"
                               size="sm"
-                              onClick={() => window.open(doc.url, '_blank')}
+                              onClick={() => {
+                                if (doc.url) {
+                                  // Se é documento com base64, abrir em nova aba com viewer
+                                  if (doc.url.startsWith('data:')) {
+                                    const newWindow = window.open();
+                                    if (newWindow) {
+                                      newWindow.document.write(`
+                                        <html>
+                                          <head><title>${doc.nome}</title></head>
+                                          <body style="margin:0; display:flex; justify-content:center; align-items:center; min-height:100vh; background:#f0f0f0;">
+                                            ${doc.url.includes('pdf') ? 
+                                              `<embed src="${doc.url}" width="100%" height="100%" type="application/pdf" />` :
+                                              `<img src="${doc.url}" style="max-width:100%; max-height:100%; object-fit:contain;" alt="${doc.nome}" />`
+                                            }
+                                          </body>
+                                        </html>
+                                      `);
+                                    }
+                                  } else {
+                                    // Para outros tipos, tentar abrir ou baixar
+                                    window.open(doc.url, '_blank');
+                                  }
+                                }
+                              }}
                               className="h-7 w-7 p-0 text-black hover:bg-gray-100 hover:text-black"
                               title="Visualizar arquivo"
                             >
@@ -2759,16 +2850,24 @@ function Leiloes() {
                 <Button
                   type="button"
                   onClick={handleAddArrematante}
-                  disabled={!arrematanteForm.nome || 
+                  disabled={isSavingArrematante || 
+                           !arrematanteForm.nome || 
                            !arrematanteForm.valorPagar || 
                            !arrematanteForm.quantidadeParcelas ||
                            arrematanteForm.quantidadeParcelas < 1 ||
                            arrematanteForm.parcelasPagas === null ||
                            arrematanteForm.parcelasPagas === undefined ||
                            arrematanteForm.parcelasPagas < 0}
-                  className="h-11 px-6 text-white font-medium bg-black hover:bg-gray-800 btn-save-click"
+                  className="h-11 px-6 text-white font-medium bg-black hover:bg-gray-800 btn-save-click disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {addingArrematanteFor?.arrematante ? "Salvar Alterações" : "Adicionar Arrematante"}
+                  {isSavingArrematante ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Salvando...
+                    </>
+                  ) : (
+                    addingArrematanteFor?.arrematante ? "Salvar Alterações" : "Adicionar Arrematante"
+                  )}
                 </Button>
               </div>
             </div>

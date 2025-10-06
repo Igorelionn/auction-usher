@@ -165,7 +165,7 @@ export function AuctionForm({
     if (!values.dataInicio) missing.push("Data de Início");
     if (!values.dataEncerramento) missing.push("Data de Encerramento");
     
-    // Nota: Validações de tipo de pagamento agora são feitas no nível dos lotes individuais
+    // Nota: Validações de condições de pagamento agora são feitas no nível dos lotes individuais
 
     // Validar se há pelo menos um lote
     if (!values.lotes || values.lotes.length === 0) {
@@ -180,7 +180,7 @@ export function AuctionForm({
         
         // Validar configurações de pagamento do lote
         if (!lote.tipoPagamento) {
-          missing.push(`${lotePrefix} - Tipo de Pagamento`);
+          missing.push(`${lotePrefix} - Condições de Pagamento`);
         } else {
           // Validar campos específicos baseados no tipo de pagamento do lote
           if (lote.tipoPagamento === "a_vista") {
@@ -279,8 +279,13 @@ export function AuctionForm({
   // Função para lidar com upload de arquivo
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, tipo: 'documentos' | 'fotosMercadoria' = 'documentos') => {
     const files = event.target.files;
-    if (!files) return;
+    if (!files || files.length === 0) return;
 
+    console.log(`📤 Upload de ${files.length} arquivo(s) do tipo: ${tipo}`);
+    
+    // Processar todos os arquivos e coletar em um array
+    const novosDocumentos: DocumentoInfo[] = [];
+    
     for (const file of Array.from(files)) {
       try {
         const blobUrl = URL.createObjectURL(file);
@@ -296,14 +301,24 @@ export function AuctionForm({
         
         // Adicionar blob URL ao set de URLs temporárias
         tempBlobUrlsRef.current.add(blobUrl);
-
-        if (tipo === 'fotosMercadoria') {
-          update("fotosMercadoria", [...(values.fotosMercadoria || []), novoDocumento]);
-        } else {
-          update("documentos", [...(values.documentos || []), novoDocumento]);
-        }
+        novosDocumentos.push(novoDocumento);
+        
+        console.log(`✅ Arquivo processado: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
       } catch (error) {
-        console.error("Erro ao processar arquivo:", error);
+        console.error("❌ Erro ao processar arquivo:", file.name, error);
+      }
+    }
+
+    // Atualizar state com todos os documentos de uma só vez
+    if (novosDocumentos.length > 0) {
+      if (tipo === 'fotosMercadoria') {
+        const atualizados = [...(values.fotosMercadoria || []), ...novosDocumentos];
+        update("fotosMercadoria", atualizados);
+        console.log(`📸 ${novosDocumentos.length} foto(s) adicionada(s). Total: ${atualizados.length}`);
+      } else {
+        const atualizados = [...(values.documentos || []), ...novosDocumentos];
+        update("documentos", atualizados);
+        console.log(`📄 ${novosDocumentos.length} documento(s) adicionado(s). Total: ${atualizados.length}`);
       }
     }
 
@@ -499,11 +514,11 @@ export function AuctionForm({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label htmlFor="local" className="text-sm font-medium text-gray-700">
-                    Tipo de Local
+                    Modalidade do Evento
                 </Label>
                 <Select value={String(values.local)} onValueChange={(v) => update("local", v)}>
                     <SelectTrigger className="h-11 border-gray-300 focus:border-black focus:ring-0 focus-visible:ring-0 bg-white">
-                    <SelectValue placeholder="Selecione o tipo" />
+                    <SelectValue placeholder="Selecione a modalidade" />
                   </SelectTrigger>
                   <SelectContent side="bottom">
                       <SelectItem value="presencial">
@@ -1038,9 +1053,9 @@ export function AuctionForm({
                         <Label className="text-sm font-medium text-gray-700">Configurações de Pagamento</Label>
                       </div>
 
-                      {/* Tipo de Pagamento */}
+                      {/* Condições de Pagamento */}
                       <div className="space-y-2">
-                        <Label className="text-sm font-medium text-gray-700">Tipo de Pagamento</Label>
+                        <Label className="text-sm font-medium text-gray-700">Condições de Pagamento</Label>
                         <Select 
                           value={lote.tipoPagamento || undefined} 
                           onValueChange={(v) => {
@@ -1051,7 +1066,7 @@ export function AuctionForm({
                           }}
                         >
                           <SelectTrigger className="h-9 border-gray-300 focus:border-black focus:ring-0 focus-visible:ring-0 bg-white">
-                            <SelectValue placeholder="Selecione o tipo de pagamento" />
+                            <SelectValue placeholder="Selecione as condições" />
                           </SelectTrigger>
                           <SelectContent side="bottom">
                             <SelectItem value="a_vista">À vista</SelectItem>
@@ -1432,7 +1447,7 @@ export function AuctionForm({
                                   }
                                 }
                               }}
-                              className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50 hover:text-blue-800"
+                              className="h-8 w-8 p-0 text-slate-600 hover:bg-slate-100 hover:text-slate-800"
                               title="Visualizar arquivo"
                             >
                               <Eye className="h-4 w-4" />

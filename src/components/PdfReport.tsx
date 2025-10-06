@@ -259,31 +259,55 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
         )}
       </div>
 
-      <div id="pdf-content" className="bg-white p-8 max-w-4xl mx-auto text-black" style={{ pageBreakInside: 'avoid' }}>
-        {/* Header */}
-        <div className="text-center mb-8 border-b-2 border-gray-300 pb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid', pageBreakAfter: 'avoid' }}>
-          <h1 className="text-2xl font-semibold text-gray-900 mb-2">
-            RELATÓRIO DE LEILÃO
+      <div id="pdf-content" className="bg-white text-black" style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif", padding: '48px 40px', maxWidth: '800px', margin: '0 auto', pageBreakInside: 'avoid' }}>
+        {/* Header Minimalista */}
+        <div className="mb-8 pb-6 break-inside-avoid" style={{ borderBottom: '1px solid #e2e8f0', pageBreakInside: 'avoid', pageBreakAfter: 'avoid' }}>
+          <div className="flex justify-between items-start mb-5">
+            <div>
+              <h1 className="text-2xl font-light text-slate-800 tracking-tight mb-1" style={{ letterSpacing: '-0.01em' }}>
+                Relatório de Leilão
+              </h1>
+              <p className="text-xs text-slate-500 uppercase tracking-wide" style={{ fontSize: '10px' }}>Sistema de Gestão de Leilões</p>
+            </div>
             {(editableData.identificacao || editableData.nome) && (
-              <span className="block text-lg font-medium text-gray-600 mt-2">
-                {editableData.identificacao ? `#${editableData.identificacao}` : `${editableData.nome}`}
-              </span>
+              <div className="text-right">
+                <div className="text-xs text-slate-400 uppercase tracking-wide mb-1" style={{ fontSize: '9px' }}>Documento</div>
+                <div className="text-xl font-medium text-slate-800">
+                  {editableData.identificacao ? `#${editableData.identificacao}` : editableData.nome}
+                </div>
+              </div>
             )}
-          </h1>
-          <p className="text-sm text-gray-500 mt-4">
-            Gerado em: {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')}
-          </p>
+          </div>
+          <div className="flex gap-6 text-xs text-slate-500" style={{ fontSize: '11px' }}>
+            <div>
+              <span className="text-slate-400">Emissão:</span>{' '}
+              <span className="text-slate-600">{new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+            </div>
+            <div>
+              <span className="text-slate-400">Horário:</span>{' '}
+              <span className="text-slate-600">{new Date().toLocaleTimeString('pt-BR')}</span>
+            </div>
+            <div>
+              <span className="text-slate-400">Status:</span>{' '}
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                auction.status === 'finalizado' ? 'bg-slate-100 text-slate-700' :
+                auction.status === 'em_andamento' ? 'bg-blue-50 text-blue-700' :
+                'bg-slate-100 text-slate-600'
+              }`} style={{ fontSize: '10px' }}>
+                {getStatusLabel(auction.status)}
+              </span>
+            </div>
+          </div>
         </div>
 
        {/* Identificação do Leilão */}
-       <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2 border-b border-gray-200 pb-2 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-           <FileText className="h-5 w-5" />
-           IDENTIFICAÇÃO DO LEILÃO
+       <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+         <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4 break-after-avoid" style={{ fontSize: '10px', pageBreakAfter: 'avoid' }}>
+           Identificação do Leilão
          </h2>
-         <div className="grid grid-cols-2 gap-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-           <div>
-             <strong>Código de Identificação:</strong>{' '}
+         <div className="space-y-3 text-sm break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+           <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+             <span className="text-slate-500">Código de Identificação</span>
              {isEditMode ? (
                <Input
                  value={editableData.identificacao}
@@ -292,11 +316,11 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
                  placeholder="Código do leilão"
                />
              ) : (
-               editableData.identificacao || auction.identificacao || 'Não informado'
+               <span className="font-medium text-slate-900">{editableData.identificacao || auction.identificacao || 'Não informado'}</span>
              )}
            </div>
-           <div>
-             <strong>Nome do Evento:</strong>{' '}
+           <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+             <span className="text-slate-500">Nome do Evento</span>
              {isEditMode ? (
                <Input
                  value={editableData.nome}
@@ -305,79 +329,84 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
                  placeholder="Nome do evento"
                />
              ) : (
-               editableData.nome || auction.nome || 'Não informado'
+               <span className="font-medium text-slate-900">{editableData.nome || auction.nome || 'Não informado'}</span>
              )}
            </div>
-           <div>
-             <strong>Status:</strong> {getStatusLabel(auction.status)}
+           <div className="flex justify-between py-2">
+             <span className="text-slate-500">Status do Leilão</span>
+             <span className="font-medium text-slate-900">{getStatusLabel(auction.status)}</span>
            </div>
          </div>
        </div>
 
       {/* Cronograma */}
-      <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2 border-b border-gray-200 pb-2 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-          <Building className="h-5 w-5" />
-          CRONOGRAMA DO EVENTO
+      <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+        <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4 break-after-avoid" style={{ fontSize: '10px', pageBreakAfter: 'avoid' }}>
+          Cronograma do Evento
         </h2>
-        <div className="grid grid-cols-2 gap-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-          <div>
-            <strong>Data de Início:</strong> {formatDate(auction.dataInicio)}
+        <div className="space-y-3 text-sm break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+          <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+            <span className="text-slate-500">Data de Início</span>
+            <span className="font-medium text-slate-900">{formatDate(auction.dataInicio)}</span>
           </div>
-          <div>
-            <strong>Data de Encerramento:</strong> {formatDate(auction.dataEncerramento || '')}
+          <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+            <span className="text-slate-500">Data de Encerramento</span>
+            <span className="font-medium text-slate-900">{formatDate(auction.dataEncerramento || '')}</span>
           </div>
-          <div className="col-span-2">
-            <strong>Observações:</strong>{' '}
-            {isEditMode ? (
-              <Textarea
-                value={editableData.observacoes}
-                onChange={(e) => setEditableData({ ...editableData, observacoes: e.target.value })}
-                className="w-full text-sm border-gray-300 mt-1 min-h-[60px]"
-                placeholder="Observações e notas do leilão"
-              />
-            ) : (
-              editableData.observacoes || auction.historicoNotas?.join('; ') || 'Não informado'
-            )}
-          </div>
+          {(editableData.observacoes || auction.historicoNotas?.join('; ')) && (
+            <div className="py-2">
+              <div className="text-slate-500 mb-2">Observações</div>
+              {isEditMode ? (
+                <Textarea
+                  value={editableData.observacoes}
+                  onChange={(e) => setEditableData({ ...editableData, observacoes: e.target.value })}
+                  className="w-full text-sm border-gray-300 min-h-[60px]"
+                  placeholder="Observações e notas do leilão"
+                />
+              ) : (
+                <div className="text-sm text-slate-900 p-3 rounded" style={{ backgroundColor: '#fafafa', border: '1px solid #e2e8f0' }}>
+                  {editableData.observacoes || auction.historicoNotas?.join('; ') || 'Não informado'}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
       {/* Local */}
-      <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2 border-b border-gray-200 pb-2 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-          <MapPin className="h-5 w-5" />
-          LOCAL DO EVENTO
+      <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+        <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4 break-after-avoid" style={{ fontSize: '10px', pageBreakAfter: 'avoid' }}>
+          Local do Evento
         </h2>
-        <div className="grid grid-cols-1 gap-3 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-          <div>
-            <strong>Modalidade:</strong> {getLocalLabel(auction.local)}
+        <div className="space-y-3 text-sm break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+          <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+            <span className="text-slate-500">Modalidade</span>
+            <span className="font-medium text-slate-900">{getLocalLabel(auction.local)}</span>
           </div>
-          <div>
-            <strong>Endereço do Evento:</strong>{' '}
+          <div className="flex justify-between py-2">
+            <span className="text-slate-500">Endereço do Evento</span>
             {isEditMode ? (
               <Input
                 value={editableData.endereco}
                 onChange={(e) => setEditableData({ ...editableData, endereco: e.target.value })}
-                className="inline-block w-full max-w-lg h-8 text-sm border-gray-300 mt-1"
+                className="inline-block w-full max-w-lg h-8 text-sm border-gray-300"
                 placeholder="Endereço do evento"
               />
             ) : (
-              editableData.endereco || auction.endereco || 'Não informado'
+              <span className="font-medium text-slate-900">{editableData.endereco || auction.endereco || 'Não informado'}</span>
             )}
           </div>
         </div>
       </div>
 
       {/* Informações Financeiras */}
-      <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2 border-b border-gray-200 pb-2 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-          <DollarSign className="h-5 w-5" />
-          INFORMAÇÕES FINANCEIRAS
+      <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+        <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4 break-after-avoid" style={{ fontSize: '10px', pageBreakAfter: 'avoid' }}>
+          Informações Financeiras
         </h2>
-        <div className="grid grid-cols-1 gap-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-          <div>
-            <strong>Custos:</strong>{' '}
+        <div className="space-y-3 text-sm break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+          <div className="flex justify-between py-2">
+            <span className="text-slate-500">Custos</span>
             {isEditMode ? (
               <Input
                 value={editableData.custos}
@@ -386,24 +415,24 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
                 placeholder="R$ 0,00"
               />
             ) : (
-              (() => {
-                // Priorizar custosNumerico se disponível
-                if (auction.custosNumerico && auction.custosNumerico > 0) {
-                  return formatCurrency(auction.custosNumerico);
-                }
-                
-                // Fallback para custos como string (editableData ou auction.custos)
-                const custosValue = editableData.custos || auction.custos;
-                if (custosValue && custosValue.toString().trim() !== "") {
-                  if (typeof custosValue === 'string') {
-                    return custosValue.startsWith('R$') ? custosValue : `R$ ${custosValue}`;
-                  } else {
-                    return `R$ ${(custosValue as number).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+              <span className="font-medium text-slate-900">
+                {(() => {
+                  if (auction.custosNumerico && auction.custosNumerico > 0) {
+                    return formatCurrency(auction.custosNumerico);
                   }
-                }
-                
-                return "R$ 0,00";
-              })()
+                  
+                  const custosValue = editableData.custos || auction.custos;
+                  if (custosValue && custosValue.toString().trim() !== "") {
+                    if (typeof custosValue === 'string') {
+                      return custosValue.startsWith('R$') ? custosValue : `R$ ${custosValue}`;
+                    } else {
+                      return `R$ ${(custosValue as number).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                    }
+                  }
+                  
+                  return "R$ 0,00";
+                })()}
+              </span>
             )}
           </div>
         </div>
@@ -1056,17 +1085,26 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
         </div>
       )}
 
-      {/* Footer */}
-      <div className="mt-10 pt-6 border-t-2 border-gray-300 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-        <div className="text-center">
-          <div className="flex justify-between items-center text-xs text-gray-500">
-            <span className="font-medium">Página 1 de 1</span>
-            <span>Data: {new Date().toLocaleDateString('pt-BR')} - {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+      {/* Footer Minimalista */}
+      <div className="pt-6 mt-8 break-inside-avoid" style={{ borderTop: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
+        <div className="text-center mb-6">
+          <div className="text-xs text-slate-500" style={{ fontSize: '11px' }}>
+            Documento gerado automaticamente em {new Date().toLocaleDateString('pt-BR', { 
+              day: '2-digit', 
+              month: '2-digit', 
+              year: 'numeric' 
+            })} às {new Date().toLocaleTimeString('pt-BR')}
           </div>
+          <div className="text-xs text-slate-400 mt-1" style={{ fontSize: '10px' }}>
+            Sistema de Gestão de Leilões • Página 1 de 1
+          </div>
+        </div>
+        <div className="text-center text-xs text-slate-400 mb-8" style={{ fontSize: '10px' }}>
+          Este documento é válido sem assinatura conforme artigo 10º da MP 2.200-2/2001
         </div>
       </div>
 
-      {/* Logos Elionx e Arthur Lira */}
+      {/* Logos no Rodapé */}
       <div className="mt-8 flex justify-center items-center -ml-20 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
         <img 
           src="/logo-elionx-softwares.png" 

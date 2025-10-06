@@ -477,6 +477,7 @@ Atenciosamente,
     let totalDelayDays = 0;
     let totalCurrentOverdue = 0;
     let totalValueAllContracts = 0;
+    let totalBaseValueAllContracts = 0;
     let totalPaidInstallments = 0;
     let totalScheduledInstallments = 0;
 
@@ -506,18 +507,92 @@ Atenciosamente,
         valorPorParcela = valorTotal / quantidadeParcelas;
       }
       
-      totalValueAllContracts += valorTotal;
+      // Armazenar valor base (sem juros)
+      totalBaseValueAllContracts += valorTotal;
+      
+      // Calcular valor total COM juros progressivos
+      const percentualJuros = arrematante.percentualJurosAtraso || 0;
+      const mesInicioPagamento = arrematante.mesInicioPagamento;
+      let valorTotalComJuros = 0;
+      
+      if (tipoPagamento === 'a_vista' && percentualJuros > 0) {
+        // Para pagamento à vista: calcular juros com base na data de vencimento
+        const dataVencimento = loteArrematado?.dataVencimentoVista || auction.dataVencimentoVista;
+        if (dataVencimento) {
+          const hoje = new Date();
+          const vencimento = new Date(dataVencimento + 'T23:59:59');
+          if (hoje > vencimento) {
+            const mesesAtraso = Math.max(0, Math.floor((hoje.getTime() - vencimento.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+            if (mesesAtraso >= 1) {
+              valorTotalComJuros = calcularJurosProgressivos(valorTotal, percentualJuros, mesesAtraso);
+            } else {
+              valorTotalComJuros = valorTotal;
+            }
+          } else {
+            valorTotalComJuros = valorTotal;
+          }
+        } else {
+          valorTotalComJuros = valorTotal;
+        }
+        totalValueAllContracts += valorTotalComJuros;
+      } else if (mesInicioPagamento && percentualJuros > 0) {
+        if (tipoPagamento === 'entrada_parcelamento') {
+          // Para entrada + parcelamento
+          const valorEntradaBase = arrematante.valorEntrada ? 
+            (typeof arrematante.valorEntrada === 'string' ? 
+              parseFloat(arrematante.valorEntrada.replace(/[^\d,]/g, '').replace(',', '.')) : 
+              arrematante.valorEntrada) : 
+            valorTotal * 0.3;
+          const valorRestante = valorTotal - valorEntradaBase;
+          const valorPorParcelaBase = valorRestante / quantidadeParcelas;
+          
+          // Calcular juros da entrada
+          const dataEntrada = loteArrematado?.dataEntrada || auction.dataEntrada;
+          if (dataEntrada) {
+            const hoje = new Date();
+            const vencimentoEntrada = new Date(dataEntrada);
+            const mesesAtraso = Math.max(0, Math.floor((hoje.getTime() - vencimentoEntrada.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+            valorTotalComJuros += calcularJurosProgressivos(valorEntradaBase, percentualJuros, mesesAtraso);
+          } else {
+            valorTotalComJuros += valorEntradaBase;
+          }
+          
+          // Calcular juros de cada parcela
+          const [startYear, startMonth] = mesInicioPagamento.split('-').map(Number);
+          const diaVencimento = arrematante.diaVencimentoMensal || 15;
+          for (let i = 0; i < quantidadeParcelas; i++) {
+            const dataVencimento = new Date(startYear, startMonth - 1 + i, diaVencimento);
+            const hoje = new Date();
+            const mesesAtraso = Math.max(0, Math.floor((hoje.getTime() - dataVencimento.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+            valorTotalComJuros += calcularJurosProgressivos(valorPorParcelaBase, percentualJuros, mesesAtraso);
+          }
+        } else {
+          // Para parcelamento simples
+          const [startYear, startMonth] = mesInicioPagamento.split('-').map(Number);
+          const diaVencimento = arrematante.diaVencimentoMensal || 15;
+          for (let i = 0; i < quantidadeParcelas; i++) {
+            const dataVencimento = new Date(startYear, startMonth - 1 + i, diaVencimento);
+            const hoje = new Date();
+            const mesesAtraso = Math.max(0, Math.floor((hoje.getTime() - dataVencimento.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+            valorTotalComJuros += calcularJurosProgressivos(valorPorParcela, percentualJuros, mesesAtraso);
+          }
+        }
+        totalValueAllContracts += valorTotalComJuros;
+      } else {
+        totalValueAllContracts += valorTotal;
+      }
       totalPaidInstallments += parcelasPagas;
       totalScheduledInstallments += quantidadeParcelas;
 
       const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
       const diaVencimento = arrematante.diaVencimentoMensal;
       
-      // Registrar contrato
+      // Registrar contrato (usar valor com juros se aplicável)
+      const valorTotalContrato = (valorTotalComJuros > 0 && percentualJuros > 0) ? valorTotalComJuros : valorTotal;
       allContracts.push({
         leilaoNome: auction.nome,
         leilaoId: auction.identificacao,
-        valorTotal: valorTotal,
+        valorTotal: valorTotalContrato,
         parcelasPagas: parcelasPagas,
         quantidadeParcelas: quantidadeParcelas,
         valorPorParcela: valorPorParcela,
@@ -582,6 +657,9 @@ Atenciosamente,
         // Pagamento à vista atualmente em atraso
         if (isCurrentlyOverdue) {
           const diasAtraso = calculateDaysOverdue(arrematante, auction);
+          const mesesAtraso = Math.max(0, Math.floor(diasAtraso / 30));
+          const valorComJuros = calcularJurosProgressivos(valorPorParcela, percentualJuros, mesesAtraso);
+          
           overduePayments.push({
             leilao: auction.nome,
             leilaoId: auction.identificacao,
@@ -589,7 +667,7 @@ Atenciosamente,
             dataVencimento: vencimento,
             dataPagamento: null,
             diasAtraso,
-            valor: valorPorParcela,
+            valor: valorComJuros,
             isPending: true,
             status: 'atrasado'
           });
@@ -646,6 +724,9 @@ Atenciosamente,
         // Parcela atualmente em atraso
         if (isCurrentlyOverdue) {
           const diasAtraso = calculateDaysOverdue(arrematante, auction);
+          const mesesAtraso = Math.max(0, Math.floor(diasAtraso / 30));
+          const valorComJuros = calcularJurosProgressivos(valorPorParcela, percentualJuros, mesesAtraso);
+          
           overduePayments.push({
             leilao: auction.nome,
             leilaoId: auction.identificacao,
@@ -653,7 +734,7 @@ Atenciosamente,
             dataVencimento: vencimento,
             dataPagamento: null,
             diasAtraso,
-            valor: valorPorParcela,
+            valor: valorComJuros,
             isPending: true,
             status: 'atrasado'
           });
@@ -732,6 +813,7 @@ Atenciosamente,
         riskLevel,
         riskColor,
         totalValue: totalValueAllContracts,
+        totalBaseValue: totalBaseValueAllContracts,
         totalOverdueValue: overduePayments.reduce((sum, p) => sum + p.valor, 0),
         averageContractValue: allArrematanteAuctions.length > 0 ? totalValueAllContracts / allArrematanteAuctions.length : 0
       }
@@ -1459,11 +1541,30 @@ Atenciosamente,
           }
           
         } else if (loteArrematado && loteArrematado.tipoPagamento === 'a_vista') {
-          // Para à vista, se está inadimplente, é o valor total
+          // Para à vista, aplicar juros se estiver atrasado há pelo menos 1 mês
           const valorTotal = arrematante?.valorPagarNumerico !== undefined 
             ? arrematante.valorPagarNumerico 
             : (typeof arrematante?.valorPagar === 'number' ? arrematante.valorPagar : 0);
-          valorTotalEmAtraso = valorTotal;
+          
+          const dataVencimento = loteArrematado?.dataVencimentoVista || auction?.dataVencimentoVista;
+          
+          if (dataVencimento && arrematante.percentualJurosAtraso) {
+            const now = new Date();
+            const vencimento = new Date(dataVencimento + 'T23:59:59');
+            
+            if (now > vencimento) {
+              const mesesAtraso = Math.max(0, Math.floor((now.getTime() - vencimento.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+              if (mesesAtraso >= 1) {
+                valorTotalEmAtraso = calcularJurosProgressivos(valorTotal, arrematante.percentualJurosAtraso, mesesAtraso);
+              } else {
+                valorTotalEmAtraso = valorTotal;
+              }
+            } else {
+              valorTotalEmAtraso = valorTotal;
+            }
+          } else {
+            valorTotalEmAtraso = valorTotal;
+          }
         }
         
         return {
@@ -1876,10 +1977,10 @@ Arthur Lira Leilões`;
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => handleOpenHistory(auction)}
-                                className="h-6 w-6 p-0 hover:bg-blue-50"
+                                className="h-6 w-6 p-0 hover:bg-blue-100"
                                 title="Ver relatório do arrematante"
                               >
-                                <History className="h-4 w-4 text-blue-600" />
+                                <History className="h-4 w-4 text-blue-900" />
                               </Button>
                         </div>
                             <p className="text-sm text-gray-500">
@@ -2118,7 +2219,10 @@ Arthur Lira Leilões`;
                  <div>Relatório informativo sobre arrematantes e contratos vinculados</div>
                  <div>Data de emissão: {new Date().toLocaleDateString('pt-BR')}</div>
                  <div>Horário: {new Date().toLocaleTimeString('pt-BR')}</div>
-                 <div>Total de registros: 1 transação(ões)</div>
+                 <div>Total de registros: {selectedArrematante && (() => {
+                  const analysis = generateArrematanteAnalysis(selectedArrematante);
+                  return analysis ? analysis.statistics.totalContracts : 1;
+                })()} transação(ões)</div>
                </div>
             </div>
           </DialogHeader>
@@ -2178,64 +2282,120 @@ Arthur Lira Leilões`;
                     </div>
                     <div>
                              <span className="font-medium text-gray-600">Valor Total:</span>
-                             <div className="text-gray-900 font-medium">{currency.format(analysis.statistics.totalValue)}</div>
+                             <div className="text-gray-900 font-medium">
+                               {currency.format(analysis.statistics.totalValue)}
+                               {(() => {
+                                 const arrematante = selectedArrematante.arrematante;
+                                 if (!arrematante) return null;
+                                 
+                                 const valorBase = analysis.statistics.totalBaseValue;
+                                 const percentualJuros = arrematante.percentualJurosAtraso || 0;
+                                 
+                                 if (percentualJuros > 0 && analysis.statistics.totalValue > valorBase) {
+                                   const juros = analysis.statistics.totalValue - valorBase;
+                                   return (
+                                     <span className="text-xs text-red-600 ml-1">
+                                       ({currency.format(juros)} juros)
+                                     </span>
+                                   );
+                                 }
+                                 return null;
+                               })()}
+                             </div>
                     </div>
                     </div>
                   </div>
                   
-                       {/* Contrato Vinculado */}
-                       <div className="bg-white border border-gray-200 rounded-lg p-6">
-                         <h4 className="text-lg font-semibold text-gray-900 mb-4">Contrato Vinculado</h4>
-                         <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <span className="font-medium text-gray-600">Leilão:</span>
-                             <div className="text-gray-900 font-medium">{selectedArrematante.nome}</div>
-                          </div>
-                            <div>
-                              <span className="font-medium text-gray-600">Código:</span>
-                             <div className="text-gray-900 font-medium">{selectedArrematante.identificacao}</div>
-                           </div>
-                           <div>
-                             <span className="font-medium text-gray-600">Data do Leilão:</span>
-                             <div className="text-gray-900 font-medium">{selectedArrematante.dataInicio ? new Date(selectedArrematante.dataInicio).toLocaleDateString('pt-BR') : 'Não informado'}</div>
-                            </div>
-                            <div>
-                              <span className="font-medium text-gray-600">Valor Total:</span>
-                             <div className="text-gray-900 font-medium">{currency.format(selectedArrematante.arrematante?.valorPagarNumerico || 0)}</div>
-                            </div>
-                            <div>
-                              <span className="font-medium text-gray-600">Status:</span>
-                             <div className="text-red-600 font-medium">Inadimplente</div>
-                            </div>
-                            <div>
-                              <span className="font-medium text-gray-600">Modalidade:</span>
-                             <div className="text-gray-900 font-medium">
-                               {(() => {
-                                 const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === selectedArrematante.arrematante?.loteId);
-                                 const tipoPagamento = loteArrematado?.tipoPagamento || 'parcelamento';
-                                 switch (tipoPagamento) {
-                                  case 'a_vista':
-                                    return 'Pagamento à Vista';
-                                  case 'entrada_parcelamento':
-                                    return 'Entrada + Parcelamento';
-                                  case 'parcelamento':
-                                  default:
-                                    return 'Parcelamento';
-                                }
-                               })()}
-                            </div>
+                      {/* Contratos Vinculados */}
+                      <div className="bg-white border border-gray-200 rounded-lg p-6">
+                        <h4 className="text-lg font-semibold text-gray-900 mb-4">Contratos Vinculados</h4>
+                        <p className="text-sm text-gray-600 mb-4">Histórico completo de todos os leilões e lotes arrematados por este cliente</p>
+                        
+                        <div className="space-y-4">
+                          {analysis.allContracts.map((contrato: any, idx: number) => {
+                            // Buscar o leilão completo para pegar os lotes
+                            const leilaoCompleto = auctions.find(a => a.identificacao === contrato.leilaoId);
+                            const arrematante = leilaoCompleto?.arrematante;
+                            const loteArrematado = leilaoCompleto?.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
+                            
+                            return (
+                              <div key={idx} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-200">
+                                  <h5 className="font-semibold text-gray-900">{contrato.leilaoNome}</h5>
+                                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                    contrato.status === 'Quitado' ? 'bg-green-100 text-green-800' :
+                                    contrato.status === 'Inadimplente' ? 'bg-red-100 text-red-800' :
+                                    'bg-blue-100 text-blue-800'
+                                  }`}>
+                                    {contrato.status}
+                                  </span>
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                  <div>
+                                    <span className="font-medium text-gray-600">Código:</span>
+                                    <div className="text-gray-900">{contrato.leilaoId}</div>
                                   </div>
-                           <div className="col-span-2">
-                             <span className="font-medium text-gray-600">Lote Arrematado:</span>
-                             <div className="text-gray-900 font-medium">
-                               {(() => {
-                                 const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === selectedArrematante.arrematante?.loteId);
-                                 return loteArrematado ? `${loteArrematado.numero} - ${loteArrematado.descricao}` : 'Não informado';
-                            })()}
-                            </div>
-                            </div>
-                          </div>
+                                  <div>
+                                    <span className="font-medium text-gray-600">Data:</span>
+                                    <div className="text-gray-900">{contrato.dataInicio.toLocaleDateString('pt-BR')}</div>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium text-gray-600">Valor Total:</span>
+                                    <div className="text-gray-900 font-semibold">
+                                      {currency.format(contrato.valorTotal)}
+                                      {(() => {
+                                        if (!arrematante) return null;
+                                        const valorBase = arrematante.valorPagarNumerico !== undefined 
+                                          ? arrematante.valorPagarNumerico 
+                                          : (typeof arrematante.valorPagar === 'number' ? arrematante.valorPagar : 0);
+                                        const percentualJuros = arrematante.percentualJurosAtraso || 0;
+                                        
+                                        if (percentualJuros > 0 && contrato.valorTotal > valorBase) {
+                                          const juros = contrato.valorTotal - valorBase;
+                                          return (
+                                            <span className="text-xs text-red-600 ml-1">
+                                              ({currency.format(juros)} juros)
+                                            </span>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium text-gray-600">Modalidade:</span>
+                                    <div className="text-gray-900">
+                                      {contrato.tipoPagamento === 'a_vista' ? 'À Vista' :
+                                       contrato.tipoPagamento === 'parcelamento' ? 'Parcelamento' :
+                                       'Entrada + Parcelamento'}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium text-gray-600">Parcelas:</span>
+                                    <div className="text-gray-900">{contrato.parcelasPagas} de {contrato.quantidadeParcelas} pagas</div>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium text-gray-600">Valor/Parcela:</span>
+                                    <div className="text-gray-900">{currency.format(contrato.valorPorParcela)}</div>
+                                  </div>
+                                </div>
+                                
+                                {loteArrematado && (
+                                  <div className="mt-3 pt-3 border-t border-gray-200">
+                                    <span className="font-medium text-gray-600 text-sm">Lote Arrematado:</span>
+                                    <div className="text-gray-900 mt-1 bg-white rounded p-2 border border-gray-200">
+                                      <span className="font-mono text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{loteArrematado.numero}</span>
+                                      <span className="text-gray-400 mx-2">•</span>
+                                      <span className="text-gray-700">{loteArrematado.descricao}</span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
+                       </div>
 
                 {/* Perfil de Risco */}
                        <div className="bg-white border border-gray-200 rounded-lg p-6">
@@ -2247,12 +2407,29 @@ Arthur Lira Leilões`;
                   </div>
                   
                          <div className="space-y-4 text-sm leading-relaxed text-gray-700">
-                           <p>
-                             <strong>Dados Consolidados:</strong> O arrematante {selectedArrematante.arrematante?.nome} possui risco classificado como alto baseado nos dados históricos de pagamentos. 
-                             Este relatório consolida {analysis.statistics.totalContracts} contrato com valor total de {currency.format(analysis.statistics.totalValue)}. 
-                             Foram registrados {selectedArrematante.arrematante?.parcelasPagas || 0} pagamentos (entrada + {Math.max(0, (selectedArrematante.arrematante?.parcelasPagas || 0) - 1)} parcelas) 
-                             de um total de {(selectedArrematante.arrematante?.quantidadeParcelas || 12) + 1} pagamentos programados (entrada + {selectedArrematante.arrematante?.quantidadeParcelas || 12} parcelas).
-                           </p>
+                          <p>
+                            <strong>Dados Consolidados:</strong> O arrematante {selectedArrematante.arrematante?.nome} possui risco classificado como alto baseado nos dados históricos de pagamentos. 
+                            Este relatório consolida {analysis.statistics.totalContracts} contrato com valor total de {currency.format(analysis.statistics.totalValue)}
+                            {(() => {
+                              const arrematante = selectedArrematante.arrematante;
+                              if (!arrematante) return null;
+                              
+                              const valorBase = analysis.statistics.totalBaseValue;
+                              const percentualJuros = arrematante.percentualJurosAtraso || 0;
+                              
+                              if (percentualJuros > 0 && analysis.statistics.totalValue > valorBase) {
+                                const juros = analysis.statistics.totalValue - valorBase;
+                                return (
+                                  <span className="text-red-600 ml-1">
+                                    ({currency.format(juros)} juros)
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}. 
+                            Foram registrados {selectedArrematante.arrematante?.parcelasPagas || 0} pagamentos (entrada + {Math.max(0, (selectedArrematante.arrematante?.parcelasPagas || 0) - 1)} parcelas) 
+                            de um total de {(selectedArrematante.arrematante?.quantidadeParcelas || 12) + 1} pagamentos programados (entrada + {selectedArrematante.arrematante?.quantidadeParcelas || 12} parcelas).
+                          </p>
                            
                            <p>
                              <strong>Análise de Risco:</strong> O cálculo de risco considera {selectedArrematante.parcelasAtrasadas || 0} parcelas atualmente em atraso, 
@@ -2317,10 +2494,27 @@ Arthur Lira Leilões`;
                          <h4 className="text-lg font-semibold text-gray-900 mb-4">Informações do Relatório</h4>
                          
                          <div className="space-y-4 text-sm leading-relaxed text-gray-700">
-                           <p>
-                             <strong>Escopo do Relatório:</strong> Este documento consolida dados de {analysis.statistics.totalContracts} contrato no valor total de {currency.format(analysis.statistics.totalValue)} vinculado ao arrematante {selectedArrematante.arrematante?.nome}. 
-                             O período do relatório compreende informações do leilão realizado em {selectedArrematante.dataInicio ? new Date(selectedArrematante.dataInicio).toLocaleDateString('pt-BR') : 'data não informada'}.
-                           </p>
+                          <p>
+                            <strong>Escopo do Relatório:</strong> Este documento consolida dados de {analysis.statistics.totalContracts} contrato no valor total de {currency.format(analysis.statistics.totalValue)}
+                            {(() => {
+                              const arrematante = selectedArrematante.arrematante;
+                              if (!arrematante) return null;
+                              
+                              const valorBase = analysis.statistics.totalBaseValue;
+                              const percentualJuros = arrematante.percentualJurosAtraso || 0;
+                              
+                              if (percentualJuros > 0 && analysis.statistics.totalValue > valorBase) {
+                                const juros = analysis.statistics.totalValue - valorBase;
+                                return (
+                                  <span className="text-red-600 ml-1">
+                                    ({currency.format(juros)} juros)
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()} vinculado ao arrematante {selectedArrematante.arrematante?.nome}. 
+                            O período do relatório compreende informações do leilão realizado em {selectedArrematante.dataInicio ? new Date(selectedArrematante.dataInicio).toLocaleDateString('pt-BR') : 'data não informada'}.
+                          </p>
                            
                            <p>
                              <strong>Critérios de Classificação:</strong> O perfil de risco foi determinado com base nos seguintes parâmetros: status de pagamento atual, histórico de transações e informações consolidadas do contrato vinculado.
@@ -2343,6 +2537,23 @@ Arthur Lira Leilões`;
                     </p>
                   </div>
                 </div>
+
+                {/* Logos Elionx e Arthur Lira */}
+                <div className="mt-8 flex justify-center items-center -ml-20">
+                  <img 
+                    src="/logo-elionx-softwares.png" 
+                    alt="Elionx Softwares" 
+                    className="max-h-80 object-contain opacity-90"
+                    style={{ maxHeight: '320px', maxWidth: '620px' }}
+                  />
+                  <img 
+                    src="/arthur-lira-logo.png" 
+                    alt="Arthur Lira Leilões" 
+                    className="max-h-14 object-contain opacity-90 -mt-2 -ml-16"
+                    style={{ maxHeight: '55px', maxWidth: '110px' }}
+                  />
+                </div>
+
                      </div>
                    </div>
               </div>

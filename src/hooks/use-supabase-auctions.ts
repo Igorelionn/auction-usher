@@ -110,6 +110,10 @@ export function useSupabaseAuctions() {
   // Query para listar leilões com arrematantes
   const listQuery = useQuery({
     queryKey: AUCTIONS_KEY,
+    staleTime: 1000 * 10, // Considerar dados "frescos" por 10 segundos
+    gcTime: 1000 * 60 * 5, // Manter em cache por 5 minutos (antes era cacheTime)
+    refetchOnWindowFocus: false, // Não refazer query ao focar na janela
+    refetchOnMount: false, // Não refazer query ao montar componente se já tem cache
     queryFn: async () => {
       console.log('🔍 Buscando leilões do banco de dados...');
       const { data, error } = await supabaseClient
@@ -216,6 +220,14 @@ export function useSupabaseAuctions() {
       // Separar campos de documentos dos demais dados
       const { fotosMercadoria, documentos, ...sanitizedData } = data;
       
+      console.log('🚀 Criando leilão com:', {
+        nome: sanitizedData.nome,
+        totalFotos: fotosMercadoria?.length || 0,
+        totalDocumentos: documentos?.length || 0,
+        fotos: fotosMercadoria?.map(f => ({ nome: f.nome, hasUrl: !!f.url, urlType: f.url?.substring(0, 15) })),
+        docs: documentos?.map(d => ({ nome: d.nome, hasUrl: !!d.url, urlType: d.url?.substring(0, 15) }))
+      });
+      
       const { data: created, error } = await supabaseClient
         .from('auctions')
         .insert(mapAppAuctionToSupabase(sanitizedData as Omit<Auction, "id">))
@@ -240,32 +252,41 @@ export function useSupabaseAuctions() {
               urlStart: foto.url?.substring(0, 20)
             });
             
-            // Se a foto tem uma URL blob, converter para base64
-            if (foto.url && foto.url.startsWith('blob:')) {
-              try {
-                console.log(`🔄 Convertendo ${foto.nome} para base64...`);
-                const response = await fetch(foto.url);
-                const blob = await response.blob();
-                const base64 = await new Promise<string>((resolve) => {
-                  const reader = new FileReader();
-                  reader.onloadend = () => resolve(reader.result as string);
-                  reader.readAsDataURL(blob);
-                });
-                base64Data = base64;
-                console.log(`✅ Conversão concluída para ${foto.nome}:`, {
-                  base64Length: base64Data?.length || 0,
-                  base64Start: base64Data?.substring(0, 50)
-                });
-                
-                // Verificar se o base64 não é muito grande (limite de ~5MB em base64)
-                if (base64Data && base64Data.length > 7000000) {
-                  console.warn(`⚠️ Foto ${foto.nome} muito grande (${base64Data.length} chars), reduzindo qualidade...`);
+            // Se a foto tem uma URL, processar
+            if (foto.url) {
+              if (foto.url.startsWith('blob:')) {
+                // URL blob: converter para base64
+                try {
+                  console.log(`🔄 Convertendo ${foto.nome} (blob) para base64...`);
+                  const response = await fetch(foto.url);
+                  const blob = await response.blob();
+                  const base64 = await new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.readAsDataURL(blob);
+                  });
+                  base64Data = base64;
+                  console.log(`✅ Conversão concluída para ${foto.nome}:`, {
+                    base64Length: base64Data?.length || 0,
+                    base64Start: base64Data?.substring(0, 50)
+                  });
+                  
+                  // Verificar se o base64 não é muito grande (limite de ~5MB em base64)
+                  if (base64Data && base64Data.length > 7000000) {
+                    console.warn(`⚠️ Foto ${foto.nome} muito grande (${base64Data.length} chars)`);
+                  }
+                } catch (error) {
+                  console.error(`❌ Erro ao converter ${foto.nome} para base64:`, error);
                 }
-              } catch (error) {
-                console.error(`❌ Erro ao converter ${foto.nome} para base64:`, error);
+              } else if (foto.url.startsWith('data:')) {
+                // Já está em base64: manter
+                base64Data = foto.url;
+                console.log(`✅ Foto ${foto.nome} já em base64, mantendo (${base64Data.length} chars)`);
+              } else {
+                console.warn(`⚠️ Foto ${foto.nome} tem URL não reconhecida: ${foto.url.substring(0, 30)}`);
               }
             } else {
-              console.log(`⚠️ Foto ${foto.nome} não tem URL blob válida`);
+              console.log(`⚠️ Foto ${foto.nome} não tem URL`);
             }
 
             return {
@@ -285,32 +306,42 @@ export function useSupabaseAuctions() {
           })
         );
 
-        console.log('📤 Enviando fotos para Supabase:', documentosParaInserir.map(doc => ({
-          auction_id: doc.auction_id,
-          nome: doc.nome,
-          categoria: doc.categoria,
-          tipo: doc.tipo,
-          tamanho: doc.tamanho,
-          hasUrl: !!doc.url,
-          urlLength: doc.url?.length || 0,
-          descricao: doc.descricao
-        })));
+        // Filtrar apenas documentos com URL válida
+        const documentosValidos = documentosParaInserir.filter(doc => doc.url !== null);
         
-        const { error: docsError } = await supabaseClient
-          .from('documents')
-          .insert(documentosParaInserir);
-          
-        if (docsError) {
-          console.error('❌ Erro ao salvar fotos:', {
-            error: docsError,
-            message: docsError.message,
-            details: docsError.details,
-            hint: docsError.hint,
-            code: docsError.code
-          });
-          throw docsError;
+        console.log('📤 Enviando fotos para Supabase:', {
+          total: documentosParaInserir.length,
+          validos: documentosValidos.length,
+          detalhes: documentosValidos.map(doc => ({
+            auction_id: doc.auction_id,
+            nome: doc.nome,
+            categoria: doc.categoria,
+            tipo: doc.tipo,
+            tamanho: doc.tamanho,
+            urlLength: doc.url?.length || 0,
+            descricao: doc.descricao
+          }))
+        });
+        
+        if (documentosValidos.length > 0) {
+          const { error: docsError } = await supabaseClient
+            .from('documents')
+            .insert(documentosValidos);
+            
+          if (docsError) {
+            console.error('❌ Erro ao salvar fotos:', {
+              error: docsError,
+              message: docsError.message,
+              details: docsError.details,
+              hint: docsError.hint,
+              code: docsError.code
+            });
+            throw docsError;
+          } else {
+            console.log(`✅ ${documentosValidos.length} de ${fotosMercadoria.length} fotos salvas com sucesso`);
+          }
         } else {
-          console.log(`✅ ${fotosMercadoria.length} fotos salvas com sucesso`);
+          console.warn(`⚠️ Nenhuma foto com URL válida para salvar (total: ${fotosMercadoria.length})`);
         }
       }
 
@@ -330,32 +361,41 @@ export function useSupabaseAuctions() {
               urlStart: doc.url?.substring(0, 20)
             });
             
-            // Se o documento tem uma URL blob, converter para base64
-            if (doc.url && doc.url.startsWith('blob:')) {
-              try {
-                console.log(`🔄 Convertendo ${doc.nome} para base64...`);
-                const response = await fetch(doc.url);
-                const blob = await response.blob();
-                const base64 = await new Promise<string>((resolve) => {
-                  const reader = new FileReader();
-                  reader.onloadend = () => resolve(reader.result as string);
-                  reader.readAsDataURL(blob);
-                });
-                base64Data = base64;
-                console.log(`✅ Conversão concluída para ${doc.nome}:`, {
-                  base64Length: base64Data?.length || 0,
-                  base64Start: base64Data?.substring(0, 50)
-                });
-                
-                // Verificar se o base64 não é muito grande (limite de ~10MB em base64 para documentos)
-                if (base64Data && base64Data.length > 10000000) {
-                  console.warn(`⚠️ Documento ${doc.nome} muito grande (${base64Data.length} chars), mas será salvo assim mesmo`);
+            // Se o documento tem uma URL, processar
+            if (doc.url) {
+              if (doc.url.startsWith('blob:')) {
+                // URL blob: converter para base64
+                try {
+                  console.log(`🔄 Convertendo ${doc.nome} (blob) para base64...`);
+                  const response = await fetch(doc.url);
+                  const blob = await response.blob();
+                  const base64 = await new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.readAsDataURL(blob);
+                  });
+                  base64Data = base64;
+                  console.log(`✅ Conversão concluída para ${doc.nome}:`, {
+                    base64Length: base64Data?.length || 0,
+                    base64Start: base64Data?.substring(0, 50)
+                  });
+                  
+                  // Verificar se o base64 não é muito grande (limite de ~10MB em base64 para documentos)
+                  if (base64Data && base64Data.length > 10000000) {
+                    console.warn(`⚠️ Documento ${doc.nome} muito grande (${base64Data.length} chars), mas será salvo assim mesmo`);
+                  }
+                } catch (error) {
+                  console.error(`❌ Erro ao converter ${doc.nome} para base64:`, error);
                 }
-              } catch (error) {
-                console.error(`❌ Erro ao converter ${doc.nome} para base64:`, error);
+              } else if (doc.url.startsWith('data:')) {
+                // Já está em base64: manter
+                base64Data = doc.url;
+                console.log(`✅ Documento ${doc.nome} já em base64, mantendo (${base64Data.length} chars)`);
+              } else {
+                console.warn(`⚠️ Documento ${doc.nome} tem URL não reconhecida: ${doc.url.substring(0, 30)}`);
               }
             } else {
-              console.log(`⚠️ Documento ${doc.nome} não tem URL blob válida`);
+              console.log(`⚠️ Documento ${doc.nome} não tem URL`);
             }
 
             return {
@@ -375,32 +415,42 @@ export function useSupabaseAuctions() {
           })
         );
 
-        console.log('📤 Enviando documentos para Supabase:', documentosParaInserir.map(doc => ({
-          auction_id: doc.auction_id,
-          nome: doc.nome,
-          categoria: doc.categoria,
-          tipo: doc.tipo,
-          tamanho: doc.tamanho,
-          hasUrl: !!doc.url,
-          urlLength: doc.url?.length || 0,
-          descricao: doc.descricao
-        })));
+        // Filtrar apenas documentos com URL válida
+        const documentosValidos = documentosParaInserir.filter(doc => doc.url !== null);
         
-        const { error: docsError } = await supabaseClient
-          .from('documents')
-          .insert(documentosParaInserir);
-          
-        if (docsError) {
-          console.error('❌ Erro ao salvar documentos:', {
-            error: docsError,
-            message: docsError.message,
-            details: docsError.details,
-            hint: docsError.hint,
-            code: docsError.code
-          });
-          throw docsError;
+        console.log('📤 Enviando documentos para Supabase:', {
+          total: documentosParaInserir.length,
+          validos: documentosValidos.length,
+          detalhes: documentosValidos.map(doc => ({
+            auction_id: doc.auction_id,
+            nome: doc.nome,
+            categoria: doc.categoria,
+            tipo: doc.tipo,
+            tamanho: doc.tamanho,
+            urlLength: doc.url?.length || 0,
+            descricao: doc.descricao
+          }))
+        });
+        
+        if (documentosValidos.length > 0) {
+          const { error: docsError } = await supabaseClient
+            .from('documents')
+            .insert(documentosValidos);
+            
+          if (docsError) {
+            console.error('❌ Erro ao salvar documentos:', {
+              error: docsError,
+              message: docsError.message,
+              details: docsError.details,
+              hint: docsError.hint,
+              code: docsError.code
+            });
+            throw docsError;
+          } else {
+            console.log(`✅ ${documentosValidos.length} de ${documentos.length} documentos salvos com sucesso`);
+          }
         } else {
-          console.log(`✅ ${documentos.length} documentos salvos com sucesso`);
+          console.warn(`⚠️ Nenhum documento com URL válida para salvar (total: ${documentos.length})`);
         }
       }
 
@@ -411,6 +461,33 @@ export function useSupabaseAuctions() {
 
   // Mutation para atualizar leilão
   const updateMutation = useMutation({
+    // Atualização otimista: atualizar cache antes de confirmar no servidor
+    onMutate: async ({ id, data }: { id: string; data: Partial<Auction> }) => {
+      // Cancelar refetch em andamento
+      await queryClient.cancelQueries({ queryKey: AUCTIONS_KEY });
+      
+      // Snapshot do estado anterior
+      const previousAuctions = queryClient.getQueryData(AUCTIONS_KEY);
+      
+      // Atualizar cache otimisticamente
+      queryClient.setQueryData(AUCTIONS_KEY, (old: any) => {
+        if (!old) return old;
+        return old.map((auction: Auction) => 
+          auction.id === id 
+            ? { ...auction, ...data }
+            : auction
+        );
+      });
+      
+      // Retornar contexto com snapshot para rollback se necessário
+      return { previousAuctions };
+    },
+    // Se mutation falhar, fazer rollback
+    onError: (_err, _variables, context) => {
+      if (context?.previousAuctions) {
+        queryClient.setQueryData(AUCTIONS_KEY, context.previousAuctions);
+      }
+    },
     mutationFn: async ({ id, data }: { id: string; data: Partial<Auction> }) => {
       // Separar campos de documentos dos demais dados
       const { fotosMercadoria, documentos, ...sanitizedData } = data;
@@ -825,7 +902,14 @@ export function useSupabaseAuctions() {
         return mappedAuction;
       }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: AUCTIONS_KEY }),
+    // Invalidar queries sem aguardar (background)
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AUCTIONS_KEY });
+    },
+    // Sempre invalidar ao finalizar (mesmo com erro)
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: AUCTIONS_KEY });
+    }
   });
 
   // Mutation para deletar leilão

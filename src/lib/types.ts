@@ -54,6 +54,8 @@ export interface ArrematanteInfo {
   quantidadeParcelas: number; // número total de parcelas
   parcelasPagas?: number; // número de parcelas já pagas (padrão 0)
   mesInicioPagamento: string; // mês de início do pagamento (formato YYYY-MM)
+  dataEntrada?: string; // data completa para pagamento da entrada (apenas para entrada_parcelamento)
+  dataVencimentoVista?: string; // data completa para pagamento à vista (apenas para a_vista)
   pago?: boolean; // se está completamente quitado
   documentos?: DocumentoInfo[]; // informações completas dos documentos
   percentualJurosAtraso?: number; // percentual de juros por mês de atraso (0-100)

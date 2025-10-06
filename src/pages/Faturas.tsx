@@ -50,6 +50,20 @@ const parseCurrencyToNumber = (currencyString: string): number => {
   return parseFloat(cleanString) || 0;
 };
 
+// Função para normalizar mesInicioPagamento para formato YYYY-MM
+const normalizarMesInicioPagamento = (mesInicioPagamento: string): string => {
+  if (!mesInicioPagamento) return '';
+  
+  // Se já está no formato correto (YYYY-MM), retornar como está
+  if (mesInicioPagamento.includes('-') && mesInicioPagamento.split('-').length === 2) {
+    return mesInicioPagamento;
+  }
+  
+  // Se veio apenas o mês (ex: "11"), adicionar o ano atual
+  const anoAtual = new Date().getFullYear();
+  return `${anoAtual}-${mesInicioPagamento.padStart(2, '0')}`;
+};
+
 function Faturas() {
   const navigate = useNavigate();
   const { auctions, isLoading } = useSupabaseAuctions();
@@ -134,12 +148,33 @@ function Faturas() {
         switch (tipoPagamento) {
           case 'a_vista': {
             // À vista: apenas uma fatura com a data específica
-            if (arrematante.pago) return;
-            
             // CORREÇÃO: Evitar problema de fuso horário do JavaScript
             const dateStr = loteArrematado.dataVencimentoVista || new Date().toISOString().split('T')[0];
             const [year, month, day] = dateStr.split('-').map(Number);
+            
+            // Validar se os valores de data são válidos
+            if (isNaN(year) || isNaN(month) || isNaN(day)) {
+              console.error('Data de vencimento à vista inválida:', {
+                dateStr,
+                year,
+                month,
+                day,
+                loteId: loteArrematado.id
+              });
+              break; // Sair do case
+            }
+            
             const dueDateObj = new Date(year, month - 1, day); // month é zero-indexed
+            
+            // Validar se a data criada é válida
+            if (isNaN(dueDateObj.getTime())) {
+              console.error('Data objeto inválida criada para à vista:', {
+                year,
+                month,
+                day
+              });
+              break; // Sair do case
+            }
             
             faturas.push({
               id: `${auction.id}-avista`,
@@ -170,7 +205,7 @@ function Faturas() {
           }
           
           case 'entrada_parcelamento': {
-            // Entrada + Parcelamento: primeira a entrada, depois as parcelas
+            // Entrada + Parcelamento: gerar todas as parcelas (entrada + parcelas mensais)
             const quantidadeParcelasTotal = arrematante.quantidadeParcelas || loteArrematado.parcelasPadrao || 12;
             const quantidadeParcelas = quantidadeParcelasTotal + 1; // Total incluindo entrada
             const valorEntrada = arrematante.valorEntrada ? parseCurrencyToNumber(arrematante.valorEntrada) : valorTotal * 0.3;
@@ -178,120 +213,182 @@ function Faturas() {
             const valorParcela = valorRestante / quantidadeParcelasTotal;
             const parcelasPagas = arrematante.parcelasPagas || 0;
             
-            if (arrematante.pago || parcelasPagas >= quantidadeParcelas) return;
+            // Gerar fatura da entrada
+            const dataEntrada = loteArrematado.dataEntrada || new Date().toISOString().split('T')[0];
+            const dueDateObjEntrada = new Date(dataEntrada);
             
-            // Se ainda não pagou a entrada (parcela 0)
-            if (parcelasPagas === 0) {
-              const dataEntrada = loteArrematado.dataEntrada || new Date().toISOString().split('T')[0];
-              const dueDateObj = new Date(dataEntrada);
-              
-              faturas.push({
-                id: `${auction.id}-entrada`,
-                auctionId: auction.id,
-                lotId: loteArrematado.id || '',
-                arrematanteId: arrematante.documento || `${auction.id}-${arrematante.nome}`,
-                valorArremate: valorTotal,
-                valorLiquido: valorTotal, // Mostrar valor total, não apenas entrada
-                vencimento: dataEntrada,
-                parcela: 1,
-                totalParcelas: quantidadeParcelas,
-                valorTotal: valorTotal, // Valor total do arrematação
-                dataVencimento: dataEntrada,
-                dataPagamento: undefined,
-                status: getInvoiceStatus(arrematante, 0, dueDateObj),
-                observacoes: `Entrada - ${auction.identificacao || auction.nome}`,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                leilaoNome: auction.nome || auction.identificacao || 'Leilão sem nome',
-                loteNumero: loteArrematado.numero || 'Sem número',
-                arrematanteNome: arrematante.nome,
-                diasVencimento: Math.ceil((dueDateObj.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
-                statusFatura: getInvoiceStatus(arrematante, 0, dueDateObj),
-                arquivado: archivedFaturas.has(`${auction.id}-entrada`),
-                tipoPagamento: 'entrada_parcelamento'
+            // Validar se a data de entrada é válida
+            if (isNaN(dueDateObjEntrada.getTime())) {
+              console.error('Data de entrada inválida:', {
+                dataEntrada,
+                loteId: loteArrematado.id
               });
-            } else {
-              // Gerar próxima parcela (após a entrada)
-              const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
-              const diaVencimento = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
+              break; // Sair do case
+            }
+            
+            faturas.push({
+              id: `${auction.id}-entrada`,
+              auctionId: auction.id,
+              lotId: loteArrematado.id || '',
+              arrematanteId: arrematante.documento || `${auction.id}-${arrematante.nome}`,
+              valorArremate: valorTotal,
+              valorLiquido: valorTotal,
+              vencimento: dataEntrada,
+              parcela: 1,
+              totalParcelas: quantidadeParcelas,
+              valorTotal: valorTotal,
+              dataVencimento: dataEntrada,
+              dataPagamento: parcelasPagas > 0 ? dataEntrada : undefined,
+              status: parcelasPagas > 0 ? 'pago' : getInvoiceStatus(arrematante, 0, dueDateObjEntrada),
+              observacoes: `Entrada - ${auction.identificacao || auction.nome}`,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              leilaoNome: auction.nome || auction.identificacao || 'Leilão sem nome',
+              loteNumero: loteArrematado.numero || 'Sem número',
+              arrematanteNome: arrematante.nome,
+              diasVencimento: Math.ceil((dueDateObjEntrada.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
+              statusFatura: parcelasPagas > 0 ? 'pago' : getInvoiceStatus(arrematante, 0, dueDateObjEntrada),
+              arquivado: archivedFaturas.has(`${auction.id}-entrada`),
+              tipoPagamento: 'entrada_parcelamento'
+            });
+            
+            // Gerar todas as parcelas mensais
+            const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
+            const diaVencimento = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
+            
+            if (mesInicioPagamento && diaVencimento) {
+              const mesInicioPagamentoNormalizado = normalizarMesInicioPagamento(mesInicioPagamento);
+              const [startYear, startMonth] = mesInicioPagamentoNormalizado.split('-').map(Number);
               
-              if (!mesInicioPagamento || !diaVencimento) return;
+              // Validar se os valores de data são válidos
+              if (isNaN(startYear) || isNaN(startMonth) || isNaN(diaVencimento)) {
+                console.error('Valores de data inválidos para entrada+parcelamento:', {
+                  startYear,
+                  startMonth,
+                  diaVencimento,
+                  mesInicioPagamento,
+                  mesInicioPagamentoNormalizado
+                });
+                break; // Sair do case
+              }
               
-              const proximaParcela = parcelasPagas;
-              const [startYear, startMonth] = mesInicioPagamento.split('-').map(Number);
-              const dueDate = new Date(startYear, startMonth - 1 + (proximaParcela - 1), diaVencimento);
-              
-              faturas.push({
-                id: `${auction.id}-parcela-${proximaParcela}`,
-                auctionId: auction.id,
-                lotId: loteArrematado.id || '',
-                arrematanteId: arrematante.documento || `${auction.id}-${arrematante.nome}`,
-                valorArremate: valorTotal,
-                valorLiquido: valorTotal, // Mostrar valor total, não apenas da parcela
-                vencimento: dueDate.toISOString().split('T')[0],
-                parcela: proximaParcela + 1,
-                totalParcelas: quantidadeParcelas,
-                valorTotal: valorTotal, // Valor total do arrematação
-                dataVencimento: dueDate.toISOString().split('T')[0],
-                dataPagamento: undefined,
-                status: getInvoiceStatus(arrematante, proximaParcela, dueDate),
-                observacoes: `Parcela ${proximaParcela + 1} de ${quantidadeParcelas} - ${auction.identificacao || auction.nome}`,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                leilaoNome: auction.nome || auction.identificacao || 'Leilão sem nome',
-                loteNumero: loteArrematado.numero || 'Sem número',
-                arrematanteNome: arrematante.nome,
-                diasVencimento: Math.ceil((dueDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
-                statusFatura: getInvoiceStatus(arrematante, proximaParcela, dueDate),
-                arquivado: archivedFaturas.has(`${auction.id}-parcela-${proximaParcela}`),
-                tipoPagamento: 'entrada_parcelamento'
-              });
+              for (let i = 0; i < quantidadeParcelasTotal; i++) {
+                const parcelaNumero = i + 1; // Número da parcela (1, 2, 3...)
+                const dueDate = new Date(startYear, startMonth - 1 + i, diaVencimento);
+                
+                // Validar se a data criada é válida
+                if (isNaN(dueDate.getTime())) {
+                  console.error('Data de vencimento inválida criada para entrada+parcelamento:', {
+                    startYear,
+                    startMonth,
+                    i,
+                    diaVencimento
+                  });
+                  continue; // Pular esta parcela
+                }
+                
+                const jaPaga = parcelasPagas > parcelaNumero; // Se já pagou essa parcela
+                
+                faturas.push({
+                  id: `${auction.id}-parcela-${parcelaNumero}`,
+                  auctionId: auction.id,
+                  lotId: loteArrematado.id || '',
+                  arrematanteId: arrematante.documento || `${auction.id}-${arrematante.nome}`,
+                  valorArremate: valorTotal,
+                  valorLiquido: valorTotal,
+                  vencimento: dueDate.toISOString().split('T')[0],
+                  parcela: parcelaNumero + 1, // +1 porque a entrada é a parcela 1
+                  totalParcelas: quantidadeParcelas,
+                  valorTotal: valorTotal,
+                  dataVencimento: dueDate.toISOString().split('T')[0],
+                  dataPagamento: jaPaga ? dueDate.toISOString().split('T')[0] : undefined,
+                  status: jaPaga ? 'pago' : getInvoiceStatus(arrematante, parcelaNumero, dueDate),
+                  observacoes: `Parcela ${parcelaNumero + 1} de ${quantidadeParcelas} - ${auction.identificacao || auction.nome}`,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                  leilaoNome: auction.nome || auction.identificacao || 'Leilão sem nome',
+                  loteNumero: loteArrematado.numero || 'Sem número',
+                  arrematanteNome: arrematante.nome,
+                  diasVencimento: Math.ceil((dueDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
+                  statusFatura: jaPaga ? 'pago' : getInvoiceStatus(arrematante, parcelaNumero, dueDate),
+                  arquivado: archivedFaturas.has(`${auction.id}-parcela-${parcelaNumero}`),
+                  tipoPagamento: 'entrada_parcelamento'
+                });
+              }
             }
             break;
           }
           
           case 'parcelamento':
           default: {
-            // Parcelamento tradicional usando dados específicos do lote
+            // Parcelamento tradicional: gerar APENAS a próxima parcela pendente (uma por vez)
             if (!loteArrematado.parcelasPadrao || !loteArrematado.mesInicioPagamento || !loteArrematado.diaVencimentoPadrao) return;
             
             const quantidadeParcelas = loteArrematado.parcelasPadrao;
             const valorParcela = valorTotal / quantidadeParcelas;
             const parcelasPagas = arrematante.parcelasPagas || 0;
             
-            // Se já pagou todas as parcelas, não gera fatura
-            if (parcelasPagas >= quantidadeParcelas || arrematante.pago) return;
+            // Se já pagou todas as parcelas, não gerar nenhuma fatura
+            if (parcelasPagas >= quantidadeParcelas) return;
             
-            // Calcular próxima parcela (baseado em parcelas pagas)
-            const proximaParcela = parcelasPagas;
-            const [startYear, startMonth] = loteArrematado.mesInicioPagamento.split('-').map(Number);
-            const dueDate = new Date(startYear, startMonth - 1 + proximaParcela, loteArrematado.diaVencimentoPadrao);
+            const mesInicioPagamentoNormalizado = normalizarMesInicioPagamento(loteArrematado.mesInicioPagamento);
+            const [startYear, startMonth] = mesInicioPagamentoNormalizado.split('-').map(Number);
             
+            // Validar se os valores de data são válidos
+            if (isNaN(startYear) || isNaN(startMonth) || isNaN(loteArrematado.diaVencimentoPadrao)) {
+              console.error('Valores de data inválidos no lote:', {
+                startYear,
+                startMonth,
+                diaVencimentoPadrao: loteArrematado.diaVencimentoPadrao,
+                mesInicioPagamento: loteArrematado.mesInicioPagamento,
+                mesInicioPagamentoNormalizado
+              });
+              return;
+            }
+            
+            // Gerar apenas a próxima parcela não paga
+            const i = parcelasPagas; // Índice da próxima parcela (0-based)
+            const parcelaNumero = parcelasPagas + 1; // Número da próxima parcela (1-based)
+            const dueDate = new Date(startYear, startMonth - 1 + i, loteArrematado.diaVencimentoPadrao);
+            
+            // Validar se a data criada é válida
+            if (isNaN(dueDate.getTime())) {
+              console.error('Data de vencimento inválida criada:', {
+                startYear,
+                startMonth,
+                i,
+                diaVencimentoPadrao: loteArrematado.diaVencimentoPadrao
+              });
+              return;
+            }
+            
+            // Gerar apenas esta parcela
             faturas.push({
-              id: `${auction.id}-parcela-${proximaParcela + 1}`,
+              id: `${auction.id}-parcela-${parcelaNumero}`,
               auctionId: auction.id,
               lotId: loteArrematado.id || '',
               arrematanteId: arrematante.documento || `${auction.id}-${arrematante.nome}`,
               valorArremate: valorTotal,
               valorLiquido: valorParcela,
               vencimento: dueDate.toISOString().split('T')[0],
-              parcela: proximaParcela + 1,
+              parcela: parcelaNumero,
               totalParcelas: quantidadeParcelas,
               valorTotal: valorParcela,
               dataVencimento: dueDate.toISOString().split('T')[0],
               dataPagamento: undefined,
-              status: getInvoiceStatus(arrematante, proximaParcela, dueDate),
-              observacoes: `Parcela ${proximaParcela + 1} de ${quantidadeParcelas} - ${auction.identificacao || auction.nome}`,
+              status: getInvoiceStatus(arrematante, i, dueDate),
+              observacoes: `Parcela ${parcelaNumero} de ${quantidadeParcelas} - ${auction.identificacao || auction.nome}`,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
               leilaoNome: auction.nome || auction.identificacao || 'Leilão sem nome',
               loteNumero: loteArrematado.numero || 'Sem número',
               arrematanteNome: arrematante.nome,
               diasVencimento: Math.ceil((dueDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
-              statusFatura: getInvoiceStatus(arrematante, proximaParcela, dueDate),
-              arquivado: archivedFaturas.has(`${auction.id}-parcela-${proximaParcela + 1}`),
+              statusFatura: getInvoiceStatus(arrematante, i, dueDate),
+              arquivado: archivedFaturas.has(`${auction.id}-parcela-${parcelaNumero}`),
               tipoPagamento: 'parcelamento'
             });
+            
             break;
           }
         }
@@ -321,17 +418,30 @@ function Faturas() {
   }, [searchInputValueFaturas]);
 
   // Filtros de faturas
-  const filteredFaturas = faturasList.filter(fatura => {
-    const matchesSearch = !searchTermFaturas || 
-      fatura.loteNumero.toLowerCase().includes(searchTermFaturas.toLowerCase()) ||
-      fatura.arrematanteNome.toLowerCase().includes(searchTermFaturas.toLowerCase()) ||
-      fatura.leilaoNome.toLowerCase().includes(searchTermFaturas.toLowerCase());
-    
-    const matchesStatus = statusFilterFaturas === "todos" || fatura.status === statusFilterFaturas;
-    const matchesArchived = showArchived ? fatura.arquivado === true : fatura.arquivado !== true;
-    
-    return matchesSearch && matchesStatus && matchesArchived;
-  });
+  const filteredFaturas = faturasList
+    .filter(fatura => {
+      const matchesSearch = !searchTermFaturas || 
+        fatura.loteNumero.toLowerCase().includes(searchTermFaturas.toLowerCase()) ||
+        fatura.arrematanteNome.toLowerCase().includes(searchTermFaturas.toLowerCase()) ||
+        fatura.leilaoNome.toLowerCase().includes(searchTermFaturas.toLowerCase());
+      
+      const matchesStatus = statusFilterFaturas === "todos" || fatura.status === statusFilterFaturas;
+      const matchesArchived = showArchived ? fatura.arquivado === true : fatura.arquivado !== true;
+      
+      return matchesSearch && matchesStatus && matchesArchived;
+    })
+    .sort((a, b) => {
+      // Ordenar por status: não quitadas primeiro, depois quitadas
+      const aQuitada = a.status === "pago" ? 1 : 0;
+      const bQuitada = b.status === "pago" ? 1 : 0;
+      
+      if (aQuitada !== bQuitada) {
+        return aQuitada - bQuitada; // Não quitadas (0) vêm antes de quitadas (1)
+      }
+      
+      // Se ambas têm o mesmo status, ordenar por data de vencimento
+      return new Date(a.dataVencimento).getTime() - new Date(b.dataVencimento).getTime();
+    });
 
   // Função para calcular juros progressivos mês a mês
   const calcularJurosProgressivos = (valorOriginal: number, percentualJuros: number, mesesAtraso: number) => {
@@ -419,7 +529,8 @@ function Faturas() {
       const parcelasEfetivasPagas = parcelasPagas > 0 ? Math.max(0, parcelasPagas - 1) : 0;
       
       if (arrematante.mesInicioPagamento && arrematante.diaVencimentoMensal) {
-        const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+        const mesNormalizado = normalizarMesInicioPagamento(arrematante.mesInicioPagamento);
+        const [startYear, startMonth] = mesNormalizado.split('-').map(Number);
         
         for (let i = parcelasEfetivasPagas; i < quantidadeParcelas; i++) {
           const parcelaDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal, 23, 59, 59);
@@ -445,7 +556,8 @@ function Faturas() {
       const parcelasPagas = arrematante.parcelasPagas || 0;
       
       if (arrematante.mesInicioPagamento && arrematante.diaVencimentoMensal) {
-        const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+        const mesNormalizado = normalizarMesInicioPagamento(arrematante.mesInicioPagamento);
+        const [startYear, startMonth] = mesNormalizado.split('-').map(Number);
         
         for (let i = parcelasPagas; i < quantidadeParcelas; i++) {
           const parcelaDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal, 23, 59, 59);
@@ -527,8 +639,28 @@ function Faturas() {
             } else {
               valorAReceber += valorEntrada;
             }
-            // Adicionar todas as parcelas (sem juros pois ainda não venceram)
+            
+            // Calcular cada parcela mensal com juros se atrasada
+            if (arrematante.mesInicioPagamento && arrematante.diaVencimentoMensal) {
+              const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+              
+              for (let i = 0; i < quantidadeParcelas; i++) {
+                const parcelaDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal, 23, 59, 59);
+                if (now > parcelaDate && arrematante?.percentualJurosAtraso) {
+                  const mesesAtraso = Math.max(0, Math.floor((now.getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                  if (mesesAtraso >= 1) {
+                    valorAReceber += calcularJurosProgressivos(valorPorParcela, arrematante.percentualJurosAtraso, mesesAtraso);
+                  } else {
+                    valorAReceber += valorPorParcela;
+                  }
+                } else {
+                  valorAReceber += valorPorParcela;
+                }
+              }
+            } else {
+              // Se não tem dados de vencimento, somar valor total das parcelas sem juros
             valorAReceber += valorParcelas;
+            }
           } else {
             // Entrada já paga, calcular parcelas restantes
             const parcelasEfetivasPagas = Math.max(0, parcelasPagas - 1);
@@ -1674,66 +1806,210 @@ function Faturas() {
         
         {selectedFaturaForPreview && (
           <div className="space-y-6">
-            {/* Preview da Fatura */}
-            <div className="border rounded-lg p-6 bg-white" style={{ fontFamily: 'Arial, sans-serif' }}>
-              <div className="text-center border-b-2 border-gray-800 pb-4 mb-6">
-                <h1 className="text-2xl font-bold text-gray-900 mb-2">FATURA DE ARREMATAÇÃO</h1>
-                <p className="text-gray-600 text-sm">Sistema de Gestão de Leilões</p>
-                <p className="text-gray-600 text-sm">
-                  Gerado em: {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')}
-                </p>
+            {/* Preview da Fatura - Design Minimalista Corporativo */}
+            <div className="border rounded-lg bg-white" style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif", padding: '48px 40px' }}>
+              {/* Cabeçalho Minimalista */}
+              <div className="mb-8 pb-6" style={{ borderBottom: '1px solid #e2e8f0' }}>
+                <div className="flex justify-between items-start mb-5">
+                  <div>
+                    <h1 className="text-2xl font-light text-slate-800 tracking-tight mb-1" style={{ letterSpacing: '-0.01em' }}>
+                      Fatura de Arrematação
+                    </h1>
+                    <p className="text-xs text-slate-500 uppercase tracking-wide" style={{ fontSize: '10px' }}>Sistema de Gestão de Leilões</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-slate-400 uppercase tracking-wide mb-1" style={{ fontSize: '9px' }}>Documento</div>
+                    <div className="text-xl font-medium text-slate-800">#{selectedFaturaForPreview.loteNumero}</div>
+                  </div>
+                </div>
+                <div className="flex gap-6 text-xs text-slate-500" style={{ fontSize: '11px' }}>
+                  <div>
+                    <span className="text-slate-400">Emissão:</span>{' '}
+                    <span className="text-slate-600">{new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Horário:</span>{' '}
+                    <span className="text-slate-600">{new Date().toLocaleTimeString('pt-BR')}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Status:</span>{' '}
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                      selectedFaturaForPreview.status === 'pago' ? 'bg-slate-100 text-slate-700' :
+                      selectedFaturaForPreview.status === 'atrasado' ? 'bg-red-50 text-red-700 font-semibold' :
+                      'bg-slate-100 text-slate-600'
+                    }`} style={{ fontSize: '10px' }}>
+                      {getStatusText(selectedFaturaForPreview.status)}
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div className="border border-gray-300 rounded-lg p-4">
-                  <h2 className="font-bold text-gray-900 border-b border-gray-300 pb-2 mb-3">
-                    IDENTIFICAÇÃO DA FATURA
+              {/* Grid de Informações */}
+              <div className="grid grid-cols-2 gap-10 mb-8">
+                {/* Dados do Arrematante */}
+                <div>
+                  <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4" style={{ fontSize: '10px' }}>
+                    Arrematante
                   </h2>
-                  <div className="space-y-2 text-sm">
-                    <div><strong>Lote:</strong> #{selectedFaturaForPreview.loteNumero}</div>
-                    <div><strong>Modalidade:</strong> {getPaymentTypeDisplay(selectedFaturaForPreview)}</div>
-                    <div><strong>Leilão:</strong> {selectedFaturaForPreview.leilaoNome}</div>
-                    <div><strong>Data Vencimento:</strong> {new Date(selectedFaturaForPreview.dataVencimento).toLocaleDateString('pt-BR')}</div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <span className="text-sm text-slate-500">Nome</span>
+                      <span className="text-sm font-medium text-slate-900">{selectedFaturaForPreview.arrematanteNome}</span>
+                    </div>
+                    <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <span className="text-sm text-slate-500">Documento</span>
+                      <span className="text-sm font-medium text-slate-900">
+                        {auctions.find(a => a.id === selectedFaturaForPreview.auctionId)?.arrematante?.documento || 'Não informado'}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="border border-gray-300 rounded-lg p-4">
-                  <h2 className="font-bold text-gray-900 border-b border-gray-300 pb-2 mb-3">
-                    DADOS DO ARREMATANTE
-                  </h2>
-                  <div className="space-y-2 text-sm">
-                    <div><strong>Nome:</strong> {selectedFaturaForPreview.arrematanteNome}</div>
-                    <div><strong>Documento:</strong> {
-                      auctions.find(a => a.id === selectedFaturaForPreview.auctionId)?.arrematante?.documento || 'Não informado'
-                    }</div>
+                {/* Informações do Leilão */}
                     <div>
-                      <strong>Status:</strong> 
-                      <span className={`ml-2 inline-block px-2 py-1 rounded text-xs font-bold uppercase ${
-                        selectedFaturaForPreview.status === 'em_aberto' ? 'bg-gray-100 text-gray-600' :
-                        selectedFaturaForPreview.status === 'pago' ? 'bg-green-100 text-green-800' :
-                        'bg-red-100 text-red-800'
-                      }`}>
-                        {getStatusText(selectedFaturaForPreview.status)}
-                      </span>
+                  <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4" style={{ fontSize: '10px' }}>
+                    Informações do Leilão
+                  </h2>
+                  <div className="space-y-3">
+                    <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <span className="text-sm text-slate-500">Leilão</span>
+                      <span className="text-sm font-medium text-slate-900">{selectedFaturaForPreview.leilaoNome}</span>
+                    </div>
+                    <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <span className="text-sm text-slate-500">Modalidade</span>
+                      <span className="text-sm font-medium text-slate-900">{getPaymentTypeDisplay(selectedFaturaForPreview)}</span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-gray-50 border border-gray-300 rounded-lg p-6 text-center mb-6">
-                <h2 className="font-bold text-gray-900 mb-3 text-lg">VALOR TOTAL DO ARREMATAÇÃO</h2>
-                <div className="text-3xl font-bold text-gray-900 mb-2">
-                  {formatCurrency(selectedFaturaForPreview.valorLiquido)}
+              {/* Valor Total - Minimalista */}
+              <div className="py-8 mb-8" style={{ borderTop: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0' }}>
+                <div className="text-center">
+                  <div className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3" style={{ fontSize: '10px' }}>
+                    Valor Total
+                  </div>
+                  <div>
+                    {(() => {
+                      const auction = auctions.find(a => a.id === selectedFaturaForPreview.auctionId);
+                      const arrematante = auction?.arrematante;
+                      const loteArrematado = auction?.lotes?.find(lote => lote.id === selectedFaturaForPreview.lotId);
+                      const tipoPagamento = loteArrematado?.tipoPagamento || auction?.tipoPagamento;
+                      const valorBase = selectedFaturaForPreview.valorLiquido;
+                      const percentualJuros = arrematante?.percentualJurosAtraso || 0;
+                      
+                      // Para pagamento à vista
+                      if (tipoPagamento === 'a_vista') {
+                        if (!arrematante || !percentualJuros) {
+                          return (
+                            <div className="text-4xl font-semibold text-slate-900" style={{ letterSpacing: '-0.02em' }}>
+                              {formatCurrency(valorBase)}
+                            </div>
+                          );
+                        }
+                        
+                        const dataVencimento = loteArrematado?.dataVencimentoVista || auction?.dataVencimentoVista;
+                        let valorTotalComJuros = valorBase;
+                        
+                        if (dataVencimento) {
+                          const hoje = new Date();
+                          const vencimento = new Date(dataVencimento + 'T23:59:59');
+                          if (hoje > vencimento) {
+                            const mesesAtraso = Math.max(0, Math.floor((hoje.getTime() - vencimento.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                            if (mesesAtraso >= 1) {
+                              valorTotalComJuros = calcularJurosProgressivos(valorBase, percentualJuros, mesesAtraso);
+                            }
+                          }
+                        }
+                        
+                        const valorJuros = valorTotalComJuros - valorBase;
+                        return (
+                          <div className="text-4xl font-semibold text-slate-900" style={{ letterSpacing: '-0.02em' }}>
+                            {formatCurrency(valorTotalComJuros)}
+                            {valorJuros > 0 && (
+                              <span className="text-sm text-red-600 ml-2">
+                                ({formatCurrency(valorJuros)} juros)
+                              </span>
+                            )}
+                          </div>
+                        );
+                      }
+                      
+                      // Para parcelamento
+                      if (!arrematante || !arrematante.mesInicioPagamento) {
+                        return (
+                          <div className="text-4xl font-semibold text-slate-900" style={{ letterSpacing: '-0.02em' }}>
+                            {formatCurrency(valorBase)}
+                          </div>
+                        );
+                      }
+                      
+                      const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
+                      const mesNormalizado = normalizarMesInicioPagamento(arrematante.mesInicioPagamento);
+                      const [startYear, startMonth] = mesNormalizado.split('-').map(Number);
+                      
+                      let valorTotalComJuros = 0;
+                      
+                      if (tipoPagamento === 'entrada_parcelamento') {
+                        const valorEntradaBase = arrematante.valorEntrada ? 
+                          parseCurrencyToNumber(arrematante.valorEntrada) : 
+                          valorBase * 0.3;
+                        const valorRestante = valorBase - valorEntradaBase;
+                        const valorPorParcela = valorRestante / quantidadeParcelas;
+                        
+                        const dataEntrada = loteArrematado?.dataEntrada || auction?.dataEntrada;
+                        if (dataEntrada && percentualJuros) {
+                          const mesesAtrasoEntrada = Math.max(0, Math.floor((new Date().getTime() - new Date(dataEntrada + 'T23:59:59').getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                          valorTotalComJuros += calcularJurosProgressivos(valorEntradaBase, percentualJuros, mesesAtrasoEntrada);
+                        } else {
+                          valorTotalComJuros += valorEntradaBase;
+                        }
+                        
+                        for (let i = 0; i < quantidadeParcelas; i++) {
+                          const parcelaDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal || 15, 23, 59, 59);
+                          const mesesAtraso = Math.max(0, Math.floor((new Date().getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                          if (mesesAtraso >= 1 && percentualJuros) {
+                            valorTotalComJuros += calcularJurosProgressivos(valorPorParcela, percentualJuros, mesesAtraso);
+                          } else {
+                            valorTotalComJuros += valorPorParcela;
+                          }
+                        }
+                      } else {
+                        const valorPorParcela = valorBase / quantidadeParcelas;
+                        for (let i = 0; i < quantidadeParcelas; i++) {
+                          const parcelaDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal || 15, 23, 59, 59);
+                          const mesesAtraso = Math.max(0, Math.floor((new Date().getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                          if (mesesAtraso >= 1 && percentualJuros) {
+                            valorTotalComJuros += calcularJurosProgressivos(valorPorParcela, percentualJuros, mesesAtraso);
+                          } else {
+                            valorTotalComJuros += valorPorParcela;
+                          }
+                        }
+                      }
+                      
+                      const valorJuros = valorTotalComJuros - valorBase;
+                      return (
+                        <div className="text-4xl font-semibold text-slate-900" style={{ letterSpacing: '-0.02em' }}>
+                          {formatCurrency(valorTotalComJuros)}
+                          {valorJuros > 0 && (
+                            <span className="text-sm text-red-600 ml-2">
+                              ({formatCurrency(valorJuros)} juros)
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
-                <p className="text-gray-600 text-sm">Valor total arrematado no leilão</p>
               </div>
 
+              {/* Condições de Pagamento Minimalista */}
               {selectedFaturaForPreview.tipoPagamento === 'entrada_parcelamento' && (
-                <div className="bg-gray-50 border border-gray-300 rounded-lg p-4 mb-6">
-                  <h3 className="font-bold text-gray-900 border-b border-gray-300 pb-2 mb-3">
-                    ESPECIFICAÇÕES DE PAGAMENTO
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div className="mb-8">
+                  <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4" style={{ fontSize: '10px' }}>
+                    Condições de Pagamento
+                  </h2>
+                  <div className="space-y-3 text-sm">
                     {(() => {
                       const auction = auctions.find(a => a.id === selectedFaturaForPreview.auctionId);
                       const arrematante = auction?.arrematante;
@@ -1747,7 +2023,8 @@ function Faturas() {
                       let mesInicioTexto = 'Não definido';
                       if (arrematante.mesInicioPagamento) {
                         try {
-                          const [ano, mes] = arrematante.mesInicioPagamento.split('-');
+                          const mesNormalizado = normalizarMesInicioPagamento(arrematante.mesInicioPagamento);
+                          const [ano, mes] = mesNormalizado.split('-');
                           const data = new Date(parseInt(ano), parseInt(mes) - 1);
                           mesInicioTexto = data.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
                         } catch (error) {
@@ -1755,43 +2032,68 @@ function Faturas() {
                         }
                       }
 
+                      // Calcular entrada com juros se atrasada
+                      const valorEntradaBase = arrematante.valorEntrada ? 
+                        parseCurrencyToNumber(arrematante.valorEntrada) : 
+                        selectedFaturaForPreview.valorLiquido * 0.3;
+                      
+                      const valorRestante = selectedFaturaForPreview.valorLiquido - valorEntradaBase;
+                      const valorPorParcela = valorRestante / quantidadeParcelasTotal;
+                      
+                      const dataEntrada = loteArrematado?.dataEntrada || auction?.dataEntrada;
+                      const percentualJuros = arrematante.percentualJurosAtraso || 0;
+                      
+                      let valorEntradaComJuros = valorEntradaBase;
+                      let entradaAtrasada = false;
+                      
+                      if (dataEntrada && arrematante.parcelasPagas === 0 && percentualJuros) {
+                        const mesesAtraso = Math.max(0, Math.floor((new Date().getTime() - new Date(dataEntrada + 'T23:59:59').getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                        if (mesesAtraso >= 1) {
+                          valorEntradaComJuros = calcularJurosProgressivos(valorEntradaBase, percentualJuros, mesesAtraso);
+                          entradaAtrasada = true;
+                        }
+                      }
+
                       return (
                         <>
-                          <div className="border-b border-gray-200 pb-2">
-                            <strong>Valor da Entrada:</strong>
-                            <div>{arrematante.valorEntrada ? 
-                              formatCurrency(parseCurrencyToNumber(arrematante.valorEntrada)) : 
-                              formatCurrency(selectedFaturaForPreview.valorLiquido * 0.3)}
+                          <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <span className="text-slate-500">Entrada</span>
+                            <span className="font-medium text-slate-900">
+                              {formatCurrency(valorEntradaComJuros)}
+                              {entradaAtrasada && (
+                                <span className="text-xs text-red-600 ml-2">
+                                  (+{formatCurrency(valorEntradaComJuros - valorEntradaBase)})
+                                </span>
+                              )}
+                            </span>
                             </div>
+                          <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <span className="text-slate-500">Vencimento da Entrada</span>
+                            <span className="font-medium text-slate-900">
+                              {dataEntrada ? new Date(dataEntrada + 'T00:00:00').toLocaleDateString('pt-BR') : 'Não definida'}
+                            </span>
                           </div>
-                          <div className="border-b border-gray-200 pb-2">
-                            <strong>Data da Entrada:</strong>
-                            <div>{(loteArrematado?.dataEntrada || auction?.dataEntrada) ? 
-                              new Date((loteArrematado?.dataEntrada || auction?.dataEntrada) + 'T00:00:00').toLocaleDateString('pt-BR') : 
-                              'Não definida'}
+                          <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <span className="text-slate-500">Parcelas</span>
+                            <span className="font-medium text-slate-900">{quantidadeParcelasTotal}× mensais</span>
                             </div>
+                          <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <span className="text-slate-500">Valor por Parcela</span>
+                            <span className="font-medium text-slate-900">{formatCurrency(valorPorParcela)}</span>
                           </div>
-                          <div className="border-b border-gray-200 pb-2">
-                            <strong>Quantidade de Parcelas:</strong>
-                            <div>{quantidadeParcelasTotal} parcelas mensais</div>
+                          <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <span className="text-slate-500">Início</span>
+                            <span className="font-medium text-slate-900 capitalize">{mesInicioTexto}</span>
                           </div>
-                          <div className="border-b border-gray-200 pb-2">
-                            <strong>Valor por Parcela:</strong>
-                            <div>{formatCurrency(
-                              (selectedFaturaForPreview.valorLiquido - (arrematante.valorEntrada ? parseCurrencyToNumber(arrematante.valorEntrada) : selectedFaturaForPreview.valorLiquido * 0.3)) / quantidadeParcelasTotal
-                            )}</div>
+                          <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <span className="text-slate-500">Vencimento</span>
+                            <span className="font-medium text-slate-900">Dia {arrematante.diaVencimentoMensal || 15}</span>
                           </div>
-                          <div className="border-b border-gray-200 pb-2">
-                            <strong>Mês de Início das Parcelas:</strong>
-                            <div>{mesInicioTexto}</div>
-                          </div>
-                          <div className="border-b border-gray-200 pb-2">
-                            <strong>Dia de Vencimento Mensal:</strong>
-                            <div>Todo dia {arrematante.diaVencimentoMensal || 15}</div>
-                          </div>
-                          <div>
-                            <strong>Situação dos Pagamentos:</strong>
-                            <div>{parcelasPagasCorretas} de {quantidadeParcelasTotal + 1} pagas (entrada + parcelas)</div>
+                          <div className="flex justify-between py-2">
+                            <span className="text-slate-500">Situação</span>
+                            <span className="font-medium text-slate-900">
+                              {parcelasPagasCorretas} de {quantidadeParcelasTotal + 1} pagas
+                            </span>
                           </div>
                         </>
                       );
@@ -1800,12 +2102,51 @@ function Faturas() {
                 </div>
               )}
 
+              {/* Observações */}
+              <div className="mb-8 p-4" style={{ backgroundColor: '#fafafa', border: '1px solid #e2e8f0' }}>
+                <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3" style={{ fontSize: '10px' }}>
+                  Observações
+                </h3>
+                <ul className="text-xs text-slate-600 space-y-1.5" style={{ fontSize: '11px', lineHeight: '1.6' }}>
+                  <li>• Este documento tem validade legal para fins de cobrança</li>
+                  <li>• O pagamento após o vencimento está sujeito a juros de mora conforme legislação vigente</li>
+                  <li>• Em caso de dúvidas, entre em contato com o departamento financeiro</li>
+                </ul>
+              </div>
 
-              <div className="border-t-2 border-gray-800 pt-4 text-center text-xs text-gray-600">
-                <div>
-                  Página 1 de 1 - Data: {new Date().toLocaleDateString('pt-BR')} - {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              {/* Rodapé */}
+              <div className="pt-6 mt-8" style={{ borderTop: '1px solid #e2e8f0' }}>
+                <div className="text-center mb-6">
+                  <div className="text-xs text-slate-500" style={{ fontSize: '11px' }}>
+                    Documento gerado automaticamente em {new Date().toLocaleDateString('pt-BR', { 
+                      day: '2-digit', 
+                      month: '2-digit', 
+                      year: 'numeric' 
+                    })} às {new Date().toLocaleTimeString('pt-BR')}
                 </div>
-                <p className="mt-2">Esta fatura foi gerada automaticamente pelo sistema.</p>
+                  <div className="text-xs text-slate-400 mt-1" style={{ fontSize: '10px' }}>
+                    Sistema de Gestão de Leilões • Página 1 de 1
+                  </div>
+                </div>
+                <div className="text-center text-xs text-slate-400 mb-8" style={{ fontSize: '10px' }}>
+                  Este documento é válido sem assinatura conforme artigo 10º da MP 2.200-2/2001
+                </div>
+              </div>
+
+              {/* Logos no Rodapé */}
+              <div className="mt-8 flex justify-center items-center -ml-20">
+                <img 
+                  src="/logo-elionx-softwares.png" 
+                  alt="Elionx Softwares" 
+                  className="max-h-80 object-contain opacity-90"
+                  style={{ maxHeight: '320px', maxWidth: '620px' }}
+                />
+                <img 
+                  src="/arthur-lira-logo.png" 
+                  alt="Arthur Lira Leilões" 
+                  className="max-h-14 object-contain opacity-90 -mt-2 -ml-16"
+                  style={{ maxHeight: '55px', maxWidth: '110px' }}
+                />
               </div>
             </div>
 
@@ -1950,8 +2291,22 @@ const FaturaPreview = ({ fatura, auctions }: { fatura: FaturaExtendida, auctions
       : Number(arrematante.valorPagar)) 
     : fatura.valorLiquido;
   
-  const valorEntradaBase = arrematante?.valorEntrada ? parseCurrencyToNumber(arrematante.valorEntrada) : valorTotalArrematante * 0.3;
-  const valorPorParcelaBase = (valorTotalArrematante - valorEntradaBase) / quantidadeParcelasTotal;
+  // Verificar tipo de pagamento
+  const tipoPagamento = loteArrematado?.tipoPagamento || auction?.tipoPagamento;
+  
+  let valorEntradaBase = 0;
+  let valorPorParcelaBase = 0;
+  
+  if (tipoPagamento === 'entrada_parcelamento') {
+    // Para entrada + parcelamento, calcular entrada e parcelas do restante
+    valorEntradaBase = arrematante?.valorEntrada ? parseCurrencyToNumber(arrematante.valorEntrada) : valorTotalArrematante * 0.3;
+    const valorRestante = valorTotalArrematante - valorEntradaBase;
+    valorPorParcelaBase = valorRestante / quantidadeParcelasTotal;
+  } else {
+    // Para parcelamento simples, dividir valor total pelas parcelas
+    valorPorParcelaBase = valorTotalArrematante / quantidadeParcelasTotal;
+  }
+  
   const dataEntradaStr = (loteArrematado?.dataEntrada || auction?.dataEntrada) || '';
   const dataEntrada = dataEntradaStr ? 
     new Date(dataEntradaStr + 'T00:00:00').toLocaleDateString('pt-BR') : 
@@ -1959,62 +2314,163 @@ const FaturaPreview = ({ fatura, auctions }: { fatura: FaturaExtendida, auctions
   
   // Calcular valores com juros se atrasados
   const percentualJuros = arrematante?.percentualJurosAtraso || 0;
-  const valorEntrada = dataEntradaStr ? calcularJurosProgressivos(valorEntradaBase, dataEntradaStr, percentualJuros) : valorEntradaBase;
+  const valorEntrada = (dataEntradaStr && tipoPagamento === 'entrada_parcelamento') 
+    ? calcularJurosProgressivos(valorEntradaBase, dataEntradaStr, percentualJuros) 
+    : valorEntradaBase;
   const valorPorParcela = valorPorParcelaBase;
 
   return (
-    <div className="bg-white space-y-4 font-sans" style={{ fontFamily: 'Arial, sans-serif', padding: '20px' }}>
-      {/* Cabeçalho Corporativo (igual aos relatórios) */}
-      <div className="text-center border-b-2 border-slate-800 pb-4 mb-4">
-        <h1 className="text-2xl font-light text-slate-900 tracking-wider uppercase mb-2">
+    <div className="bg-white font-sans" style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif", padding: '48px 40px', maxWidth: '800px', margin: '0 auto' }}>
+      {/* Cabeçalho Minimalista Corporativo */}
+      <div className="mb-8 pb-6" style={{ borderBottom: '1px solid #e2e8f0' }}>
+        <div className="flex justify-between items-start mb-5">
+          <div>
+            <h1 className="text-2xl font-light text-slate-800 tracking-tight mb-1" style={{ letterSpacing: '-0.01em' }}>
           Fatura de Arrematação
         </h1>
-        <div className="text-sm text-slate-600 font-light space-y-1">
-          <div className="border-b border-slate-200 pb-1 mb-1"></div>
-          <div>Data de emissão: {new Date().toLocaleDateString('pt-BR')}</div>
-          <div>Horário: {new Date().toLocaleTimeString('pt-BR')}</div>
-          <div>Documento: Fatura de arrematação - Lote #{fatura.loteNumero}</div>
+            <p className="text-xs text-slate-500 uppercase tracking-wide" style={{ fontSize: '10px' }}>Sistema de Gestão de Leilões</p>
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-slate-400 uppercase tracking-wide mb-1" style={{ fontSize: '9px' }}>Documento</div>
+            <div className="text-xl font-medium text-slate-800">#{fatura.loteNumero}</div>
+          </div>
+        </div>
+        <div className="flex gap-6 text-xs text-slate-500" style={{ fontSize: '11px' }}>
+          <div>
+            <span className="text-slate-400">Emissão:</span>{' '}
+            <span className="text-slate-600">{new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+          </div>
+          <div>
+            <span className="text-slate-400">Horário:</span>{' '}
+            <span className="text-slate-600">{new Date().toLocaleTimeString('pt-BR')}</span>
+          </div>
+          <div>
+            <span className="text-slate-400">Status:</span>{' '}
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+              fatura.status === 'pago' ? 'bg-slate-100 text-slate-700' :
+              fatura.status === 'atrasado' ? 'bg-red-50 text-red-700 font-semibold' :
+              'bg-slate-100 text-slate-600'
+            }`} style={{ fontSize: '10px' }}>
+              {getStatusText(fatura.status)}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Identificação da Fatura */}
-      <div className="border border-slate-300 rounded-lg p-4 mb-4">
-        <h2 className="text-lg font-semibold text-slate-800 border-b border-slate-300 pb-2 mb-3">
-          IDENTIFICAÇÃO DA FATURA
+      {/* Grid de Informações */}
+      <div className="grid grid-cols-2 gap-10 mb-8">
+        {/* Dados do Arrematante */}
+        <div>
+          <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4" style={{ fontSize: '10px' }}>
+            Arrematante
         </h2>
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div><strong>Lote:</strong> #{fatura.loteNumero}</div>
-          <div><strong>Modalidade:</strong> {getPaymentTypeDisplay(fatura)}</div>
-          <div><strong>Leilão:</strong> {fatura.leilaoNome}</div>
-          <div><strong>Data Vencimento:</strong> {new Date(fatura.dataVencimento).toLocaleDateString('pt-BR')}</div>
+          <div className="space-y-3">
+            <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <span className="text-sm text-slate-500">Nome</span>
+              <span className="text-sm font-medium text-slate-900">{fatura.arrematanteNome}</span>
+            </div>
+            <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <span className="text-sm text-slate-500">Documento</span>
+              <span className="text-sm font-medium text-slate-900">{arrematante?.documento || 'Não informado'}</span>
+            </div>
+            <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <span className="text-sm text-slate-500">E-mail</span>
+              <span className="text-sm font-medium text-slate-900">{arrematante?.email || 'Não informado'}</span>
+            </div>
+            <div className="flex justify-between py-2">
+              <span className="text-sm text-slate-500">Telefone</span>
+              <span className="text-sm font-medium text-slate-900">{arrematante?.telefone || 'Não informado'}</span>
+            </div>
         </div>
       </div>
 
-      {/* Dados do Arrematante */}
-      <div className="border border-slate-300 rounded-lg p-4 mb-4">
-        <h2 className="text-lg font-semibold text-slate-800 border-b border-slate-300 pb-2 mb-3">
-          DADOS DO ARREMATANTE
+        {/* Informações do Leilão */}
+        <div>
+          <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4" style={{ fontSize: '10px' }}>
+            Informações do Leilão
         </h2>
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div><strong>Nome:</strong> {fatura.arrematanteNome}</div>
-          <div><strong>Documento:</strong> {arrematante?.documento || 'Não informado'}</div>
-          <div><strong>Status:</strong> {getStatusText(fatura.status)}</div>
-          <div><strong>Email:</strong> {arrematante?.email || 'Não informado'}</div>
+          <div className="space-y-3">
+            <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <span className="text-sm text-slate-500">Leilão</span>
+              <span className="text-sm font-medium text-slate-900">{fatura.leilaoNome}</span>
+            </div>
+            <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <span className="text-sm text-slate-500">Lote</span>
+              <span className="text-sm font-medium text-slate-900">#{fatura.loteNumero}</span>
+            </div>
+            <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <span className="text-sm text-slate-500">Modalidade</span>
+              <span className="text-sm font-medium text-slate-900">{getPaymentTypeDisplay(fatura)}</span>
+            </div>
+            <div className="flex justify-between py-2">
+              <span className="text-sm text-slate-500">Vencimento</span>
+              <span className="text-sm font-medium text-slate-900">{new Date(fatura.dataVencimento).toLocaleDateString('pt-BR')}</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Valor Total */}
-      <div className="bg-slate-50 border border-slate-300 rounded-lg p-6 text-center mb-4">
-        <h2 className="text-xl font-semibold text-slate-800 mb-3">VALOR TOTAL DO ARREMATAÇÃO</h2>
-        <div className="text-3xl font-bold text-slate-900 mb-2">
+      {/* Valor Total - Minimalista */}
+      <div className="py-8 mb-8" style={{ borderTop: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0' }}>
+        <div className="text-center">
+          <div className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3" style={{ fontSize: '10px' }}>
+            Valor Total
+          </div>
+          <div>
           {(() => {
-            // Calcular valor total com juros progressivos
+            // Para pagamento à vista
+            if (tipoPagamento === 'a_vista') {
+              if (!arrematante || !percentualJuros) {
+                return (
+                  <div className="text-4xl font-semibold text-slate-900" style={{ letterSpacing: '-0.02em' }}>
+                    {formatCurrency(valorTotalArrematante)}
+                  </div>
+                );
+              }
+              
+              const dataVencimento = loteArrematado?.dataVencimentoVista || auction?.dataVencimentoVista;
+              let valorTotalComJuros = valorTotalArrematante;
+              
+              if (dataVencimento) {
+                const hoje = new Date();
+                const vencimento = new Date(dataVencimento + 'T23:59:59');
+                if (hoje > vencimento) {
+                  const mesesAtraso = Math.max(0, Math.floor((hoje.getTime() - vencimento.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                  if (mesesAtraso >= 1) {
+                    valorTotalComJuros = calcularJurosProgressivos(valorTotalArrematante, dataVencimento, percentualJuros);
+                  }
+                }
+              }
+              
+              const valorJuros = valorTotalComJuros - valorTotalArrematante;
+              return (
+                <div className="text-4xl font-semibold text-slate-900" style={{ letterSpacing: '-0.02em' }}>
+                  {formatCurrency(valorTotalComJuros)}
+                  {valorJuros > 0 && (
+                    <span className="text-sm text-red-600 ml-2">
+                      ({formatCurrency(valorJuros)} juros)
+                    </span>
+                  )}
+                </div>
+              );
+            }
+            
+            // Para parcelamento
             if (!arrematante || !mesInicioParcelas) {
-              return formatCurrency(valorTotalArrematante);
+                return (
+                  <div className="text-4xl font-semibold text-slate-900" style={{ letterSpacing: '-0.02em' }}>
+                    {formatCurrency(valorTotalArrematante)}
+                  </div>
+                );
             }
             
             const [startYear, startMonth] = mesInicioParcelas.split('-').map(Number);
-            let valorTotalComJuros = valorEntrada; // Já calculado com juros se atrasada
+              let valorTotalComJuros = 0;
+              
+              // Para entrada + parcelamento, adicionar entrada com juros
+              if (tipoPagamento === 'entrada_parcelamento') {
+                valorTotalComJuros = valorEntrada; // Já calculado com juros se atrasada
+              }
             
             // Somar todas as parcelas com seus juros
             for (let i = 0; i < quantidadeParcelasTotal; i++) {
@@ -2023,94 +2479,120 @@ const FaturaPreview = ({ fatura, auctions }: { fatura: FaturaExtendida, auctions
               valorTotalComJuros += calcularJurosProgressivos(valorPorParcela, dataVencimentoStr, percentualJuros);
             }
             
-            const temJuros = valorTotalComJuros > valorTotalArrematante;
+            const valorJuros = valorTotalComJuros - valorTotalArrematante;
             return (
-              <div>
-                <div>{formatCurrency(valorTotalComJuros)}</div>
-                {temJuros && (
-                  <div className="text-sm text-red-600 mt-2">
-                    (Inclui {formatCurrency(valorTotalComJuros - valorTotalArrematante)} de juros acumulados)
-                  </div>
+              <div className="text-4xl font-semibold text-slate-900" style={{ letterSpacing: '-0.02em' }}>
+                {formatCurrency(valorTotalComJuros)}
+                {valorJuros > 0 && (
+                  <span className="text-sm text-red-600 ml-2">
+                    ({formatCurrency(valorJuros)} juros)
+                  </span>
                 )}
               </div>
             );
           })()}
         </div>
-        <p className="text-sm text-slate-600">Valor total arrematado no leilão {percentualJuros > 0 && '(com juros de atraso, se aplicável)'}</p>
+        </div>
       </div>
 
-      {/* Especificações de Pagamento */}
+      {/* Condições de Pagamento */}
       {fatura.tipoPagamento === 'entrada_parcelamento' && arrematante ? (
-        <div className="border border-slate-300 rounded-lg p-4 mb-4">
-          <h2 className="text-lg font-semibold text-slate-800 border-b border-slate-300 pb-2 mb-3">
-            ESPECIFICAÇÕES DE PAGAMENTO
+        <div className="mb-8">
+          <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4" style={{ fontSize: '10px' }}>
+            Condições de Pagamento
           </h2>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between py-1 border-b border-slate-200">
-              <strong>Valor da Entrada:</strong>
-              <span>
+          
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <span className="text-slate-500">Entrada</span>
+              <span className="font-medium text-slate-900">
                 {formatCurrency(valorEntrada)}
                 {valorEntrada > valorEntradaBase && (
                   <span className="text-xs text-red-600 ml-2">
-                    (+ {formatCurrency(valorEntrada - valorEntradaBase)} juros)
+                    (+{formatCurrency(valorEntrada - valorEntradaBase)})
                   </span>
                 )}
               </span>
             </div>
-            <div className="flex justify-between py-1 border-b border-slate-200">
-              <strong>Data da Entrada:</strong>
-              <span>{dataEntrada}</span>
+            <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <span className="text-slate-500">Vencimento da Entrada</span>
+              <span className="font-medium text-slate-900">{dataEntrada}</span>
             </div>
-            <div className="flex justify-between py-1 border-b border-slate-200">
-              <strong>Quantidade de Parcelas:</strong>
-              <span>{quantidadeParcelasTotal} parcelas mensais</span>
+            <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <span className="text-slate-500">Parcelas</span>
+              <span className="font-medium text-slate-900">{quantidadeParcelasTotal}× mensais</span>
             </div>
-            <div className="flex justify-between py-1 border-b border-slate-200">
-              <strong>Valor por Parcela:</strong>
-              <span>{formatCurrency(valorPorParcela)}</span>
+            <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <span className="text-slate-500">Valor por Parcela</span>
+              <span className="font-medium text-slate-900">{formatCurrency(valorPorParcela)}</span>
             </div>
-            <div className="flex justify-between py-1 border-b border-slate-200">
-              <strong>Mês de Início das Parcelas:</strong>
-              <span>{mesInicioTexto}</span>
+            <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <span className="text-slate-500">Início</span>
+              <span className="font-medium text-slate-900 capitalize">{mesInicioTexto}</span>
             </div>
-            <div className="flex justify-between py-1 border-b border-slate-200">
-              <strong>Dia de Vencimento Mensal:</strong>
-              <span>Todo dia {arrematante.diaVencimentoMensal || 15}</span>
+            <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <span className="text-slate-500">Vencimento</span>
+              <span className="font-medium text-slate-900">Dia {arrematante.diaVencimentoMensal || 15}</span>
             </div>
-            <div className="flex justify-between py-1">
-              <strong>Situação dos Pagamentos:</strong>
-              <span>{parcelasPagasCorretas} de {quantidadeParcelasTotal + 1} pagas (entrada + parcelas)</span>
+            <div className="flex justify-between py-2">
+              <span className="text-slate-500">Situação</span>
+              <span className="font-medium text-slate-900">
+                {parcelasPagasCorretas} de {quantidadeParcelasTotal + 1} pagas
+              </span>
             </div>
           </div>
           
-          {/* Detalhamento de Parcelas */}
+          {/* Detalhamento de Parcelas com Juros */}
           {mesInicioParcelas && (
-            <div className="mt-4 border-t border-slate-300 pt-4">
-              <h3 className="text-md font-semibold text-slate-800 mb-3">Detalhamento das Parcelas</h3>
+            <div className="mt-6 pt-6" style={{ borderTop: '1px solid #e2e8f0' }}>
+              <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4" style={{ fontSize: '10px' }}>
+                Detalhamento de Parcelas
+              </h3>
               <div className="space-y-2">
                 {Array.from({ length: quantidadeParcelasTotal }, (_, index) => {
                   const [startYear, startMonth] = mesInicioParcelas.split('-').map(Number);
-                  const isPaga = (index + 1) < parcelasPagasCorretas; // +1 porque a entrada é a primeira paga
+                  const isPaga = (index + 1) < parcelasPagasCorretas;
                   const dataVencimento = new Date(startYear, startMonth - 1 + index, arrematante.diaVencimentoMensal || 15);
                   const dataVencimentoStr = dataVencimento.toISOString().split('T')[0];
                   const valorComJuros = calcularJurosProgressivos(valorPorParcela, dataVencimentoStr, percentualJuros);
                   const temJuros = valorComJuros > valorPorParcela;
+                  const hoje = new Date();
+                  hoje.setHours(0, 0, 0, 0);
+                  const isAtrasada = !isPaga && dataVencimento < hoje;
                   
                   return (
-                    <div key={index} className={`text-xs p-2 rounded ${isPaga ? 'bg-green-50' : temJuros ? 'bg-red-50' : 'bg-gray-50'}`}>
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium">
-                          {index + 1}ª Parcela - Vence em {dataVencimento.toLocaleDateString('pt-BR')}
-                        </span>
+                    <div key={index} className="flex items-center justify-between py-2 px-3" style={{ 
+                      borderBottom: index < quantidadeParcelasTotal - 1 ? '1px solid #f1f5f9' : 'none',
+                      backgroundColor: isAtrasada ? '#fef2f2' : 'transparent'
+                    }}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                          isPaga ? 'bg-slate-700 text-white' :
+                          isAtrasada ? 'bg-red-600 text-white' :
+                          'bg-slate-200 text-slate-600'
+                        }`} style={{ fontSize: '10px' }}>
+                          {index + 1}
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-slate-900">
+                            {index + 1}ª Parcela
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {dataVencimento.toLocaleDateString('pt-BR')}
+                          </div>
+                        </div>
+                      </div>
                         <div className="text-right">
-                          <span className="font-semibold">
+                        <div className={`text-sm font-semibold ${isAtrasada && !isPaga ? 'text-red-600' : 'text-slate-900'}`}>
                             {formatCurrency(temJuros && !isPaga ? valorComJuros : valorPorParcela)}
-                          </span>
+                        </div>
                           {temJuros && !isPaga && (
-                            <span className="text-red-600 ml-1">
-                              (+ {formatCurrency(valorComJuros - valorPorParcela)} juros)
-                            </span>
-                          )}
+                          <div className="text-xs text-red-600">
+                            +{formatCurrency(valorComJuros - valorPorParcela)}
+                          </div>
+                        )}
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          {isPaga ? 'Paga' : isAtrasada ? 'Atrasada' : 'A vencer'}
                         </div>
                       </div>
                     </div>
@@ -2121,34 +2603,59 @@ const FaturaPreview = ({ fatura, auctions }: { fatura: FaturaExtendida, auctions
           )}
         </div>
       ) : fatura.tipoPagamento === 'a_vista' ? (
-        <div className="border border-slate-300 rounded-lg p-4 mb-4">
-          <h2 className="text-lg font-semibold text-slate-800 border-b border-slate-300 pb-2 mb-3">
-            ESPECIFICAÇÕES DE PAGAMENTO
+        <div className="mb-8">
+          <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4" style={{ fontSize: '10px' }}>
+            Condições de Pagamento
           </h2>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between py-1 border-b border-slate-200">
-              <strong>Modalidade:</strong>
-              <span>Pagamento À Vista</span>
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <span className="text-slate-500">Modalidade</span>
+              <span className="font-medium text-slate-900">Pagamento À Vista</span>
             </div>
-            <div className="flex justify-between py-1 border-b border-slate-200">
-              <strong>Data de Vencimento:</strong>
-              <span>{new Date(fatura.dataVencimento).toLocaleDateString('pt-BR')}</span>
+            <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <span className="text-slate-500">Vencimento</span>
+              <span className="font-medium text-slate-900">{new Date(fatura.dataVencimento).toLocaleDateString('pt-BR')}</span>
             </div>
-            <div className="flex justify-between py-1">
-              <strong>Valor Total:</strong>
-              <span>{formatCurrency(fatura.valorLiquido)}</span>
+            <div className="flex justify-between py-2">
+              <span className="text-slate-500">Valor</span>
+              <span className="text-lg font-semibold text-slate-900">{formatCurrency(fatura.valorLiquido)}</span>
             </div>
           </div>
         </div>
       ) : null}
 
-      {/* Rodapé */}
-      <div className="border-t-2 border-slate-800 pt-4 mt-6 text-center text-xs text-slate-600">
-        <div>Página 1 de 1 - Data: {new Date().toLocaleDateString('pt-BR')} - {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
-        <div className="mt-2">Esta fatura foi gerada automaticamente pelo sistema.</div>
+      {/* Observações */}
+      <div className="mb-8 p-4" style={{ backgroundColor: '#fafafa', border: '1px solid #e2e8f0' }}>
+        <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3" style={{ fontSize: '10px' }}>
+          Observações
+        </h3>
+        <ul className="text-xs text-slate-600 space-y-1.5" style={{ fontSize: '11px', lineHeight: '1.6' }}>
+          <li>• Este documento tem validade legal para fins de cobrança</li>
+          <li>• O pagamento após o vencimento está sujeito a juros de mora conforme legislação vigente</li>
+          <li>• Em caso de dúvidas, entre em contato com o departamento financeiro</li>
+        </ul>
       </div>
 
-      {/* Logos Elionx e Arthur Lira */}
+      {/* Rodapé Minimalista */}
+      <div className="pt-6 mt-8" style={{ borderTop: '1px solid #e2e8f0' }}>
+        <div className="text-center mb-6">
+          <div className="text-xs text-slate-500" style={{ fontSize: '11px' }}>
+            Documento gerado automaticamente em {new Date().toLocaleDateString('pt-BR', { 
+              day: '2-digit', 
+              month: '2-digit', 
+              year: 'numeric' 
+            })} às {new Date().toLocaleTimeString('pt-BR')}
+          </div>
+          <div className="text-xs text-slate-400 mt-1" style={{ fontSize: '10px' }}>
+            Sistema de Gestão de Leilões • Página 1 de 1
+          </div>
+        </div>
+        <div className="text-center text-xs text-slate-400 mb-8" style={{ fontSize: '10px' }}>
+          Este documento é válido sem assinatura conforme artigo 10º da MP 2.200-2/2001
+        </div>
+      </div>
+
+      {/* Logos no Rodapé */}
       <div className="mt-8 flex justify-center items-center -ml-20">
         <img 
           src="/logo-elionx-softwares.png" 

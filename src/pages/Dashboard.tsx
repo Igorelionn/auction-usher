@@ -320,8 +320,27 @@ export default function Dashboard() {
           } else {
             valorAReceber += valorEntrada;
           }
-          // Adicionar todas as parcelas mensais
-          valorAReceber += valorRestante;
+          
+          // Calcular cada parcela mensal com juros se atrasada
+          if (arrematante?.mesInicioPagamento && arrematante?.diaVencimentoMensal) {
+            const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+            
+            for (let i = 0; i < quantidadeParcelas; i++) {
+              const parcelaDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal, 23, 59, 59);
+              if (now > parcelaDate && arrematante?.percentualJurosAtraso) {
+                const mesesAtraso = Math.max(0, Math.floor((now.getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                if (mesesAtraso >= 1) {
+                  valorAReceber += calcularJurosProgressivos(valorPorParcela, arrematante.percentualJurosAtraso, mesesAtraso);
+                } else {
+                  valorAReceber += valorPorParcela;
+                }
+              } else {
+                valorAReceber += valorPorParcela;
+              }
+            }
+          } else {
+            valorAReceber += valorRestante;
+          }
         } else {
           // Entrada já paga, calcular parcelas restantes
           const parcelasEfetivasPagas = Math.max(0, parcelasPagas - 1);
@@ -808,6 +827,11 @@ export default function Dashboard() {
                               const loteArrematado = auction.lotes?.find((lote: any) => lote.id === auction.arrematante?.loteId);
                               const parcelasPagas = auction.arrematante?.parcelasPagas || 0;
                               
+                              // Se o pagamento foi confirmado/quitado, mostrar mensagem de confirmação
+                              if (auction.arrematante?.pago) {
+                                return 'Pagamento confirmado';
+                              }
+                              
                               if (loteArrematado?.tipoPagamento === 'a_vista') {
                                 return `Data pagamento: ${invoice.dueDate}`;
                               } else if (loteArrematado?.tipoPagamento === 'entrada_parcelamento') {
@@ -992,6 +1016,11 @@ export default function Dashboard() {
                                   const dataVencimento = getProximaDataVencimento(auction.arrematante, auction);
                                   const parcelasPagas = auction.arrematante?.parcelasPagas || 0;
                                   
+                                  // Se o pagamento foi confirmado/quitado, mostrar mensagem de confirmação
+                                  if (auction.arrematante?.pago) {
+                                    return 'Pagamento confirmado';
+                                  }
+                                  
                                   if (loteArrematado?.tipoPagamento === 'a_vista') {
                                     return `Data pagamento: ${dataVencimento}`;
                                   } else if (loteArrematado?.tipoPagamento === 'entrada_parcelamento') {
@@ -1137,6 +1166,11 @@ export default function Dashboard() {
                                        // Adaptar texto baseado no tipo de pagamento
                                        const loteArrematado = auction.lotes?.find((lote: any) => lote.id === auction.arrematante?.loteId);
                                        const parcelasPagas = auction.arrematante?.parcelasPagas || 0;
+                                       
+                                       // Se o pagamento foi confirmado/quitado, mostrar mensagem de confirmação
+                                       if (auction.arrematante?.pago) {
+                                         return 'Pagamento confirmado';
+                                       }
                                        
                                        // Se não conseguiu calcular a data, mostrar mensagem de configuração pendente
                                        if (proximoVencimento === "—") {
