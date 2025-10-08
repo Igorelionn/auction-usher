@@ -151,7 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Usuário não possui credenciais válidas");
       }
 
-      if (!credentials || !credentials.password_hash) {
+      if (!credentials || !(credentials as any).password_hash) {
         console.log('❌ Credenciais não encontradas ou hash vazio');
         throw new Error("Usuário não possui credenciais válidas");
       }
