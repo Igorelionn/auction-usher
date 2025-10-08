@@ -1179,7 +1179,12 @@ function Faturas() {
                         <span className="text-sm text-gray-900">{fatura.leilaoNome}</span>
                       </TableCell>
                       <TableCell>
-                        <span className="font-semibold text-black">{formatCurrency(calcularValorTotalLeilaoComJuros(fatura))}</span>
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-black">{formatCurrency(fatura.valorLiquido)}</span>
+                          <span className="text-xs text-gray-500">
+                            (Total: {formatCurrency(calcularValorTotalLeilaoComJuros(fatura))})
+                          </span>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <span className="text-sm text-gray-600">

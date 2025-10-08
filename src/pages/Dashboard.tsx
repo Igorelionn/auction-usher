@@ -40,7 +40,7 @@ const parseCurrencyToNumber = (currencyString: string): number => {
 export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { auctions } = useSupabaseAuctions();
+  const { auctions, isLoading } = useSupabaseAuctions();
   const { stats } = useDashboardStats();
   
   // Carrossel da agenda
@@ -644,8 +644,147 @@ export default function Dashboard() {
   const currentHour = brasiliaDate.getHours();
   const greeting = currentHour < 12 ? "Bom dia" : currentHour < 18 ? "Boa tarde" : "Boa noite";
 
+  if (isLoading) {
+    return (
+      <div className="space-y-8">
+        {/* Header - mantém visível durante carregamento */}
+        <div className="pt-4 flex items-end justify-between">
+          <div>
+            <h1 className="text-4xl font-semibold tracking-tight text-foreground mb-2">
+              {greeting}, {user?.full_name || user?.name || "Usuário"}!
+            </h1>
+            <p className="text-lg text-muted-foreground">Carregando resumo dos leilões...</p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-muted-foreground">Data atual</p>
+            <p className="text-lg font-medium text-foreground">
+              {brasiliaDate.toLocaleDateString("pt-BR", {
+                weekday: "long",
+                year: "numeric", 
+                month: "long",
+                day: "numeric"
+              })}
+            </p>
+          </div>
+        </div>
+
+        {/* Layout Principal com Skeleton Loaders Premium */}
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Conteúdo Principal - 2 colunas */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Resumo Geral Skeleton */}
+            <Card className="overflow-hidden">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-3 text-xl">
+                  <TrendingUp className="h-6 w-6 text-muted-foreground/70" />
+                  <div className="h-6 bg-gradient-to-r from-muted via-muted/80 to-muted rounded-md w-32 animate-pulse"></div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {/* Primeira linha de estatísticas */}
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                  {[...Array(4)].map((_, i) => (
+                    <div key={`stat-${i}`} className="text-center px-2 space-y-3">
+                      <div className="h-3.5 bg-gradient-to-r from-muted via-muted/70 to-muted rounded-full mb-3 mx-auto w-24 animate-pulse" style={{ animationDelay: `${i * 100}ms` }}></div>
+                      <div className="h-px w-16 bg-gradient-to-r from-transparent via-muted to-transparent mx-auto mb-4"></div>
+                      <div className="h-9 bg-gradient-to-r from-muted/90 via-muted/70 to-muted/90 rounded-lg animate-pulse" style={{ animationDelay: `${i * 150}ms` }}></div>
+                      <div className="h-3 bg-gradient-to-r from-muted/60 via-muted/40 to-muted/60 rounded-full w-20 mx-auto animate-pulse" style={{ animationDelay: `${i * 200}ms` }}></div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Separador */}
+                <div className="mt-8 pt-6 border-t border-border/50">
+                  <div className="flex items-center gap-2 mb-5">
+                    <Package className="h-5 w-5 text-muted-foreground/70" />
+                    <div className="h-5 bg-gradient-to-r from-muted via-muted/80 to-muted rounded-md w-36 animate-pulse"></div>
+                  </div>
+                  
+                  {/* Segunda linha de estatísticas */}
+                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                    {[...Array(4)].map((_, i) => (
+                      <div key={`stat2-${i}`} className="text-center px-2 space-y-3">
+                        <div className="h-3.5 bg-gradient-to-r from-muted via-muted/70 to-muted rounded-full mb-3 mx-auto w-20 animate-pulse" style={{ animationDelay: `${i * 100}ms` }}></div>
+                        <div className="h-px w-16 bg-gradient-to-r from-transparent via-muted to-transparent mx-auto mb-4"></div>
+                        <div className="h-9 bg-gradient-to-r from-muted/90 via-muted/70 to-muted/90 rounded-lg animate-pulse" style={{ animationDelay: `${i * 150}ms` }}></div>
+                        <div className="h-3 bg-gradient-to-r from-muted/60 via-muted/40 to-muted/60 rounded-full w-24 mx-auto animate-pulse" style={{ animationDelay: `${i * 200}ms` }}></div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Faturas Recentes Skeleton */}
+            <Card className="flex-1 flex flex-col overflow-hidden">
+              <CardHeader className="flex-shrink-0">
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 text-xl">
+                    <FileText className="h-6 w-6 text-muted-foreground/70" />
+                    <div className="h-6 bg-gradient-to-r from-muted via-muted/80 to-muted rounded-md w-36 animate-pulse"></div>
+                  </div>
+                  <div className="h-8 w-8 bg-gradient-to-br from-muted to-muted/70 rounded-md animate-pulse"></div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex-1 flex flex-col">
+                <div className="flex-1 space-y-3 overflow-hidden">
+                  {[...Array(6)].map((_, i) => (
+                    <div key={`invoice-${i}`} className="flex items-start justify-between p-4 rounded-lg bg-muted/20 border border-border/30 animate-pulse" style={{ animationDelay: `${i * 50}ms` }}>
+                      <div className="flex-1 space-y-2.5">
+                        <div className="h-4 bg-gradient-to-r from-muted via-muted/70 to-muted rounded-md w-44 animate-pulse"></div>
+                        <div className="h-3.5 bg-gradient-to-r from-muted/70 via-muted/50 to-muted/70 rounded-md w-56 animate-pulse"></div>
+                        <div className="h-3 bg-gradient-to-r from-muted/50 via-muted/30 to-muted/50 rounded-md w-36 animate-pulse"></div>
+                        <div className="h-3 bg-gradient-to-r from-muted/50 via-muted/30 to-muted/50 rounded-md w-28 animate-pulse"></div>
+                      </div>
+                      <div className="h-6 w-20 bg-gradient-to-r from-muted via-muted/80 to-muted rounded-full ml-3 animate-pulse"></div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex-shrink-0 pt-4 border-t border-border/30 mt-4">
+                  <div className="h-11 bg-gradient-to-r from-muted/80 via-muted/60 to-muted/80 rounded-lg w-full animate-pulse"></div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Carrossel Skeleton - Lado direito */}
+          <Card className="lg:row-span-3 h-[calc(100vh-150px)] flex flex-col overflow-hidden">
+            <CardHeader className="flex-shrink-0">
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-3 text-xl">
+                  <Calendar className="h-6 w-6 text-muted-foreground/70" />
+                  <div className="h-6 bg-gradient-to-r from-muted via-muted/80 to-muted rounded-md w-36 animate-pulse"></div>
+                </div>
+                <div className="h-8 w-8 bg-gradient-to-br from-muted to-muted/70 rounded-md animate-pulse"></div>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex-1 flex flex-col">
+              <div className="flex-1 space-y-3.5 overflow-hidden">
+                {[...Array(5)].map((_, i) => (
+                  <div key={`carousel-${i}`} className="p-4 rounded-lg bg-muted/20 border border-border/30 animate-pulse" style={{ animationDelay: `${i * 80}ms` }}>
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1 space-y-2.5">
+                        <div className="h-4 bg-gradient-to-r from-muted via-muted/70 to-muted rounded-md w-36 animate-pulse"></div>
+                        <div className="h-3.5 bg-gradient-to-r from-muted/70 via-muted/50 to-muted/70 rounded-md w-28 animate-pulse"></div>
+                      </div>
+                      <div className="h-6 w-20 bg-gradient-to-r from-muted via-muted/80 to-muted rounded-full ml-3 animate-pulse"></div>
+                    </div>
+                    <div className="h-3 bg-gradient-to-r from-muted/50 via-muted/30 to-muted/50 rounded-md w-full animate-pulse"></div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex-shrink-0 pt-6 border-t border-border/30 mt-4">
+                <div className="h-11 bg-gradient-to-r from-muted/80 via-muted/60 to-muted/80 rounded-lg w-full animate-pulse"></div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
-          <div className="space-y-8 slide-in-top">
+          <div className="space-y-8">
         <div className="pt-4 flex items-end justify-between">
           <div>
             <h1 className="text-4xl font-semibold tracking-tight text-foreground mb-2">

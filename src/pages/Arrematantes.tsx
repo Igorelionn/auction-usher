@@ -60,7 +60,7 @@ interface ArrematanteExtendido extends ArrematanteInfo {
 }
 
 function Arrematantes() {
-  const { auctions, updateAuction, deleteAuction, archiveAuction, unarchiveAuction } = useSupabaseAuctions();
+  const { auctions, isLoading: isAuctionsLoading, updateAuction, deleteAuction, archiveAuction, unarchiveAuction } = useSupabaseAuctions();
   const { toast } = useToast();
   const { logBidderAction, logPaymentAction, logDocumentAction, logReportAction } = useActivityLogger();
 
@@ -2276,7 +2276,7 @@ function Arrematantes() {
         </CardHeader>
 
         <CardContent className="p-0 h-[calc(100%-120px)] overflow-y-auto">
-          {isLoading ? (
+          {isAuctionsLoading ? (
             <div className="space-y-0">
               {[...Array(4)].map((_, index) => (
                 <div
@@ -2385,21 +2385,107 @@ function Arrematantes() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="font-semibold text-gray-900">
+                        <div className="flex flex-col">
                           {(() => {
-                            const valorComJuros = calcularValorTotalComJuros(arrematante);
-                            const valorOriginal = arrematante.valorPagarNumerico || 0;
-                            const temJuros = valorComJuros > valorOriginal;
+                            const valorTotalComJuros = calcularValorTotalComJuros(arrematante);
+                            const auction = auctions.find(a => a.id === arrematante.leilaoId);
+                            const loteArrematado = auction?.lotes?.find(lote => lote.id === arrematante.loteId);
+                            const tipoPagamento = loteArrematado?.tipoPagamento || auction?.tipoPagamento || "parcelamento";
+                            const now = new Date();
+                            
+                            let valorParcelaExibir = valorTotalComJuros;
+                            
+                            if (tipoPagamento === 'parcelamento') {
+                              // Parcelamento simples: calcular próxima parcela com juros se atrasada
+                              const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
+                              const valorParcelaBase = (arrematante.valorPagarNumerico || 0) / quantidadeParcelas;
+                              const parcelasPagas = arrematante.parcelasPagas || 0;
+                              
+                              // Calcular valor da próxima parcela (com juros se atrasada)
+                              if (!arrematante.pago && arrematante.mesInicioPagamento && arrematante.diaVencimentoMensal) {
+                                const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+                                const proximaParcelaIndex = parcelasPagas;
+                                const parcelaDate = new Date(startYear, startMonth - 1 + proximaParcelaIndex, arrematante.diaVencimentoMensal, 23, 59, 59);
+                                
+                                if (now > parcelaDate && arrematante.percentualJurosAtraso) {
+                                  const mesesAtraso = Math.max(0, Math.floor((now.getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                                  if (mesesAtraso >= 1) {
+                                    valorParcelaExibir = calcularJurosProgressivos(valorParcelaBase, arrematante.percentualJurosAtraso, mesesAtraso);
+                                  } else {
+                                    valorParcelaExibir = valorParcelaBase;
+                                  }
+                                } else {
+                                  valorParcelaExibir = valorParcelaBase;
+                                }
+                              } else {
+                                valorParcelaExibir = valorParcelaBase;
+                              }
+                            } else if (tipoPagamento === 'entrada_parcelamento') {
+                              // Entrada + Parcelamento: calcular próxima parcela com juros se atrasada
+                              const valorEntrada = arrematante.valorEntrada 
+                                ? (typeof arrematante.valorEntrada === 'string' 
+                                  ? parseFloat(arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.'))
+                                  : arrematante.valorEntrada)
+                                : (arrematante.valorPagarNumerico || 0) * 0.3;
+                              const valorRestante = (arrematante.valorPagarNumerico || 0) - valorEntrada;
+                              const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
+                              const valorParcelaBase = valorRestante / quantidadeParcelas;
+                              const parcelasPagas = arrematante.parcelasPagas || 0;
+                              
+                              if (parcelasPagas === 0) {
+                                // Entrada ainda não foi paga - verificar se está atrasada
+                                if (!arrematante.pago && loteArrematado?.dataEntrada) {
+                                  const dataEntrada = new Date(loteArrematado.dataEntrada + 'T23:59:59');
+                                  if (now > dataEntrada && arrematante.percentualJurosAtraso) {
+                                    const mesesAtraso = Math.max(0, Math.floor((now.getTime() - dataEntrada.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                                    if (mesesAtraso >= 1) {
+                                      valorParcelaExibir = calcularJurosProgressivos(valorEntrada, arrematante.percentualJurosAtraso, mesesAtraso);
+                                    } else {
+                                      valorParcelaExibir = valorEntrada;
+                                    }
+                                  } else {
+                                    valorParcelaExibir = valorEntrada;
+                                  }
+                                } else {
+                                  valorParcelaExibir = valorEntrada;
+                                }
+                              } else {
+                                // Entrada paga, calcular próxima parcela mensal
+                                if (!arrematante.pago && arrematante.mesInicioPagamento && arrematante.diaVencimentoMensal) {
+                                  const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+                                  const parcelasEfetivasPagas = Math.max(0, parcelasPagas - 1);
+                                  const proximaParcelaIndex = parcelasEfetivasPagas;
+                                  const parcelaDate = new Date(startYear, startMonth - 1 + proximaParcelaIndex, arrematante.diaVencimentoMensal, 23, 59, 59);
+                                  
+                                  if (now > parcelaDate && arrematante.percentualJurosAtraso) {
+                                    const mesesAtraso = Math.max(0, Math.floor((now.getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                                    if (mesesAtraso >= 1) {
+                                      valorParcelaExibir = calcularJurosProgressivos(valorParcelaBase, arrematante.percentualJurosAtraso, mesesAtraso);
+                                    } else {
+                                      valorParcelaExibir = valorParcelaBase;
+                                    }
+                                  } else {
+                                    valorParcelaExibir = valorParcelaBase;
+                                  }
+                                } else {
+                                  valorParcelaExibir = valorParcelaBase;
+                                }
+                              }
+                            }
+                            // Para 'a_vista', valorParcelaExibir = valorTotalComJuros (já definido acima)
                             
                             return (
-                              <div className="flex flex-col">
-                                <span>
-                                  R$ {valorComJuros.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              <>
+                                <span className="font-semibold text-black">
+                                  R$ {valorParcelaExibir.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </span>
-                              </div>
+                                <span className="text-xs text-gray-500">
+                                  (Total: R$ {valorTotalComJuros.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                                </span>
+                              </>
                             );
                           })()}
-                        </span>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -3190,12 +3276,12 @@ function Arrematantes() {
                   )}
 
                   {tipoPagamento === "parcelamento" && (
-                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                       <div className="flex items-center gap-2 mb-2">
-                        <Calendar className="h-5 w-5 text-purple-600" />
-                        <span className="font-medium text-purple-800">Parcelamento</span>
+                        <Calendar className="h-5 w-5 text-gray-600" />
+                        <span className="font-medium text-gray-800">Parcelamento</span>
                       </div>
-                      <div className="space-y-1 text-sm text-purple-700">
+                      <div className="space-y-1 text-sm text-gray-700">
                         <p><strong>Parcelas:</strong> {selectedArrematante.quantidadeParcelas}x de R$ {(selectedArrematante.valorPagarNumerico / selectedArrematante.quantidadeParcelas).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                         <p><strong>Vencimento:</strong> Todo dia {selectedArrematante.diaVencimentoMensal} • {(() => {
                           const auction = auctions.find(a => a.arrematante && a.arrematante.nome === selectedArrematante.nome);

@@ -260,102 +260,116 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
       </div>
 
       <div id="pdf-content" className="bg-white text-black" style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif", padding: '48px 40px', maxWidth: '800px', margin: '0 auto', pageBreakInside: 'avoid' }}>
-        {/* Header Minimalista */}
-        <div className="mb-8 pb-6 break-inside-avoid" style={{ borderBottom: '1px solid #e2e8f0', pageBreakInside: 'avoid', pageBreakAfter: 'avoid' }}>
-          <div className="flex justify-between items-start mb-5">
+        {/* Header Corporativo */}
+        <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid', pageBreakAfter: 'avoid' }}>
+          <div className="flex justify-between items-start mb-4">
             <div>
-              <h1 className="text-2xl font-light text-slate-800 tracking-tight mb-1" style={{ letterSpacing: '-0.01em' }}>
+              <h1 className="text-3xl font-light text-slate-900 mb-2" style={{ letterSpacing: '-0.02em', fontWeight: 300 }}>
                 Relatório de Leilão
               </h1>
-              <p className="text-xs text-slate-500 uppercase tracking-wide" style={{ fontSize: '10px' }}>Sistema de Gestão de Leilões</p>
+              <p className="text-xs text-slate-500" style={{ fontSize: '11px' }}>
+                Data: {new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })} • Horário: {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              </p>
             </div>
             {(editableData.identificacao || editableData.nome) && (
               <div className="text-right">
-                <div className="text-xs text-slate-400 uppercase tracking-wide mb-1" style={{ fontSize: '9px' }}>Documento</div>
-                <div className="text-xl font-medium text-slate-800">
-                  {editableData.identificacao ? `#${editableData.identificacao}` : editableData.nome}
+                <div className="text-xs text-slate-400 uppercase tracking-wider mb-1" style={{ fontSize: '10px', letterSpacing: '0.1em' }}>Processo</div>
+                <div className="text-xl font-medium text-slate-900">
+                  {editableData.identificacao || 'N/A'}
                 </div>
               </div>
             )}
           </div>
-          <div className="flex gap-6 text-xs text-slate-500" style={{ fontSize: '11px' }}>
-            <div>
-              <span className="text-slate-400">Emissão:</span>{' '}
-              <span className="text-slate-600">{new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-            </div>
-            <div>
-              <span className="text-slate-400">Horário:</span>{' '}
-              <span className="text-slate-600">{new Date().toLocaleTimeString('pt-BR')}</span>
-            </div>
-            <div>
-              <span className="text-slate-400">Status:</span>{' '}
-              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                auction.status === 'finalizado' ? 'bg-slate-100 text-slate-700' :
-                auction.status === 'em_andamento' ? 'bg-blue-50 text-blue-700' :
-                'bg-slate-100 text-slate-600'
-              }`} style={{ fontSize: '10px' }}>
-                {getStatusLabel(auction.status)}
-              </span>
-            </div>
+          <div className="text-xs text-slate-500 mt-2" style={{ borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
+            Documentação Completa do Leilão e Arrematações
           </div>
         </div>
 
        {/* Identificação do Leilão */}
        <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-         <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4 break-after-avoid" style={{ fontSize: '10px', pageBreakAfter: 'avoid' }}>
+         <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
            Identificação do Leilão
          </h2>
-         <div className="space-y-3 text-sm break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-           <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
-             <span className="text-slate-500">Código de Identificação</span>
-             {isEditMode ? (
-               <Input
-                 value={editableData.identificacao}
-                 onChange={(e) => setEditableData({ ...editableData, identificacao: e.target.value })}
-                 className="inline-block w-auto min-w-[150px] h-6 text-sm border-gray-300"
-                 placeholder="Código do leilão"
-               />
-             ) : (
-               <span className="font-medium text-slate-900">{editableData.identificacao || auction.identificacao || 'Não informado'}</span>
-             )}
-           </div>
-           <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
-             <span className="text-slate-500">Nome do Evento</span>
-             {isEditMode ? (
-               <Input
-                 value={editableData.nome}
-                 onChange={(e) => setEditableData({ ...editableData, nome: e.target.value })}
-                 className="inline-block w-auto min-w-[200px] h-6 text-sm border-gray-300"
-                 placeholder="Nome do evento"
-               />
-             ) : (
-               <span className="font-medium text-slate-900">{editableData.nome || auction.nome || 'Não informado'}</span>
-             )}
-           </div>
-           <div className="flex justify-between py-2">
-             <span className="text-slate-500">Status do Leilão</span>
-             <span className="font-medium text-slate-900">{getStatusLabel(auction.status)}</span>
+         <div className="p-5 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
+           <div className="space-y-4 text-sm">
+             <div className="grid grid-cols-2 gap-6">
+               <div>
+                 <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Código de Identificação</div>
+                 {isEditMode ? (
+                   <Input
+                     value={editableData.identificacao}
+                     onChange={(e) => setEditableData({ ...editableData, identificacao: e.target.value })}
+                     className="inline-block w-full h-8 text-sm border-gray-300"
+                     placeholder="Código do leilão"
+                   />
+                 ) : (
+                   <div className="text-base font-medium text-slate-900">{editableData.identificacao || auction.identificacao || 'Não informado'}</div>
+                 )}
+               </div>
+               <div>
+                 <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Status do Leilão</div>
+                 <div className={`inline-flex items-center px-3 py-1 rounded text-sm font-medium ${
+                   auction.status === 'finalizado' ? 'bg-green-50 text-green-700 border border-green-200' :
+                   auction.status === 'em_andamento' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                   'bg-slate-100 text-slate-700 border border-slate-200'
+                 }`}>
+                   {getStatusLabel(auction.status)}
+                 </div>
+               </div>
+             </div>
+             <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+               <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Nome do Evento</div>
+               {isEditMode ? (
+                 <Input
+                   value={editableData.nome}
+                   onChange={(e) => setEditableData({ ...editableData, nome: e.target.value })}
+                   className="w-full h-8 text-sm border-gray-300"
+                   placeholder="Nome do evento"
+                 />
+               ) : (
+                 <div className="text-lg font-medium text-slate-900">{editableData.nome || auction.nome || 'Não informado'}</div>
+               )}
+             </div>
            </div>
          </div>
        </div>
 
-      {/* Cronograma */}
+      {/* Cronograma e Local */}
       <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-        <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4 break-after-avoid" style={{ fontSize: '10px', pageBreakAfter: 'avoid' }}>
-          Cronograma do Evento
+        <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
+          Cronograma e Local do Evento
         </h2>
-        <div className="space-y-3 text-sm break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-          <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
-            <span className="text-slate-500">Data de Início</span>
-            <span className="font-medium text-slate-900">{formatDate(auction.dataInicio)}</span>
+        <div className="p-5 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
+          <div className="grid grid-cols-3 gap-6 mb-4 text-sm">
+            <div>
+              <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Data de Início</div>
+              <div className="text-base font-medium text-slate-900">{formatDate(auction.dataInicio)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Data de Encerramento</div>
+              <div className="text-base font-medium text-slate-900">{formatDate(auction.dataEncerramento || '')}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Modalidade</div>
+              <div className="text-base font-medium text-slate-900">{getLocalLabel(auction.local)}</div>
+            </div>
           </div>
-          <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
-            <span className="text-slate-500">Data de Encerramento</span>
-            <span className="font-medium text-slate-900">{formatDate(auction.dataEncerramento || '')}</span>
+          <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+            <div className="text-xs text-slate-500 uppercase tracking-wider mb-2" style={{ fontWeight: 500 }}>Endereço do Evento</div>
+            {isEditMode ? (
+              <Input
+                value={editableData.endereco}
+                onChange={(e) => setEditableData({ ...editableData, endereco: e.target.value })}
+                className="w-full h-8 text-sm border-gray-300"
+                placeholder="Endereço do evento"
+              />
+            ) : (
+              <div className="text-sm text-slate-900">{editableData.endereco || auction.endereco || 'Não informado'}</div>
+            )}
           </div>
           {(editableData.observacoes || auction.historicoNotas?.join('; ')) && (
-            <div className="py-2">
-              <div className="text-slate-500 mb-2">Observações</div>
+            <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px', marginTop: '16px' }}>
+              <div className="text-xs text-slate-500 uppercase tracking-wider mb-2" style={{ fontWeight: 500 }}>Observações</div>
               {isEditMode ? (
                 <Textarea
                   value={editableData.observacoes}
@@ -373,49 +387,23 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
         </div>
       </div>
 
-      {/* Local */}
-      <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-        <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4 break-after-avoid" style={{ fontSize: '10px', pageBreakAfter: 'avoid' }}>
-          Local do Evento
-        </h2>
-        <div className="space-y-3 text-sm break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-          <div className="flex justify-between py-2" style={{ borderBottom: '1px solid #f1f5f9' }}>
-            <span className="text-slate-500">Modalidade</span>
-            <span className="font-medium text-slate-900">{getLocalLabel(auction.local)}</span>
-          </div>
-          <div className="flex justify-between py-2">
-            <span className="text-slate-500">Endereço do Evento</span>
-            {isEditMode ? (
-              <Input
-                value={editableData.endereco}
-                onChange={(e) => setEditableData({ ...editableData, endereco: e.target.value })}
-                className="inline-block w-full max-w-lg h-8 text-sm border-gray-300"
-                placeholder="Endereço do evento"
-              />
-            ) : (
-              <span className="font-medium text-slate-900">{editableData.endereco || auction.endereco || 'Não informado'}</span>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* Informações Financeiras */}
       <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-        <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4 break-after-avoid" style={{ fontSize: '10px', pageBreakAfter: 'avoid' }}>
+        <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
           Informações Financeiras
         </h2>
-        <div className="space-y-3 text-sm break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-          <div className="flex justify-between py-2">
-            <span className="text-slate-500">Custos</span>
+        <div className="p-5 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
+          <div>
+            <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Custos do Leilão</div>
             {isEditMode ? (
               <Input
                 value={editableData.custos}
                 onChange={(e) => setEditableData({ ...editableData, custos: e.target.value })}
-                className="inline-block w-auto min-w-[120px] h-6 text-sm border-gray-300"
+                className="inline-block w-auto min-w-[160px] h-8 text-sm border-gray-300"
                 placeholder="R$ 0,00"
               />
             ) : (
-              <span className="font-medium text-slate-900">
+              <div className="text-lg font-medium text-slate-900">
                 {(() => {
                   if (auction.custosNumerico && auction.custosNumerico > 0) {
                     return formatCurrency(auction.custosNumerico);
@@ -432,17 +420,16 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
                   
                   return "R$ 0,00";
                 })()}
-              </span>
+              </div>
             )}
           </div>
         </div>
       </div>
 
        {/* Configurações de Pagamento por Lote */}
-       <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2 border-b border-gray-200 pb-2 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-           <CreditCard className="h-5 w-5" />
-           CONFIGURAÇÕES DE PAGAMENTO POR LOTE
+       <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+         <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
+           Configurações de Pagamento por Lote
          </h2>
          
          {auction.lotes && auction.lotes.length > 0 ? (
@@ -568,10 +555,9 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
 
        {/* Arrematante */}
        {auction.arrematante && (
-         <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-           <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2 border-b border-gray-200 pb-2 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-             <User className="h-5 w-5" />
-             INFORMAÇÕES DO ARREMATANTE
+         <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+           <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
+             Informações do Arrematante
            </h2>
 
            {/* Dados Pessoais */}
@@ -809,19 +795,52 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
                <h3 className="text-sm font-medium text-gray-700 mb-3 border-l-4 border-gray-400 pl-3 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
                  Documentos do Arrematante ({auction.arrematante.documentos.length})
                </h3>
-               <div className="space-y-2">
-                 {auction.arrematante.documentos.map((doc, index) => (
-                   <div key={index} className="flex items-center gap-4 p-3 bg-gray-50 rounded border border-gray-200 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                     <FileText className="h-4 w-4 text-gray-600" />
-                     <div className="flex-1">
-                       <p className="font-semibold text-gray-900">{doc.nome}</p>
-                       <div className="text-sm text-gray-600 grid grid-cols-2 gap-2">
-                         <span><strong>Tipo:</strong> {doc.tipo}</span>
-                         <span><strong>Tamanho:</strong> {formatFileSize(doc.tamanho)}</span>
+               <div className="grid grid-cols-3 gap-4">
+                 {auction.arrematante.documentos.map((doc, index) => {
+                   // Determinar cor e ícone baseado no tipo de documento
+                   let bgGradient = 'linear-gradient(135deg, #64748b 0%, #475569 100%)'; // Cinza corporativo
+                   let tipoLabel = 'DOC';
+                   
+                   const tipo = doc.tipo?.toLowerCase() || '';
+                   if (tipo === 'pdf') {
+                     bgGradient = 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)'; // Vermelho corporativo
+                     tipoLabel = 'PDF';
+                   } else if (['doc', 'docx'].includes(tipo)) {
+                     bgGradient = 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)'; // Azul corporativo
+                     tipoLabel = 'DOC';
+                   } else if (['xls', 'xlsx'].includes(tipo)) {
+                     bgGradient = 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)'; // Verde corporativo
+                     tipoLabel = 'XLS';
+                   } else if (['txt', 'text'].includes(tipo)) {
+                     bgGradient = 'linear-gradient(135deg, #78716c 0%, #57534e 100%)'; // Marrom/Cinza
+                     tipoLabel = 'TXT';
+                   } else if (['zip', 'rar', '7z'].includes(tipo)) {
+                     bgGradient = 'linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)'; // Roxo corporativo
+                     tipoLabel = 'ZIP';
+                   }
+                   
+                   return (
+                     <div key={index} className="bg-gray-50 rounded border border-gray-200 overflow-hidden break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+                       <div className="w-full h-32 flex flex-col items-center justify-center" style={{ background: bgGradient }}>
+                         <FileText className="h-12 w-12 text-white opacity-90 mb-2" />
+                         <span className="text-white font-bold text-lg opacity-90">{tipoLabel}</span>
+                       </div>
+                       <div className="p-3">
+                         <h4 className="font-semibold text-gray-900 text-sm mb-2 truncate" title={doc.nome}>
+                           {doc.nome}
+                         </h4>
+                         <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                           <div>
+                             <span className="font-medium">Tipo:</span> {doc.tipo}
+                           </div>
+                           <div>
+                             <span className="font-medium">Tamanho:</span> {formatFileSize(doc.tamanho)}
+                           </div>
+                         </div>
                        </div>
                      </div>
-                   </div>
-                 ))}
+                   );
+                 })}
                </div>
              </div>
            )}
@@ -830,10 +849,9 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
 
        {/* Lotes */}
        {auction.lotes && auction.lotes.length > 0 && (
-         <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-           <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2 border-b border-gray-200 pb-2 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-             <Package className="h-5 w-5" />
-             LOTES DO LEILÃO ({auction.lotes.length})
+         <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+           <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
+             Lotes do Leilão ({auction.lotes.length})
            </h2>
            
            {/* Resumo dos Lotes */}
@@ -989,69 +1007,128 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
        {/* Documentos e Anexos */}
        {((auction.documentos && auction.documentos.length > 0) || 
          (auction.fotosMercadoria && auction.fotosMercadoria.length > 0)) && (
-         <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-           <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2 border-b border-gray-200 pb-2 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-             <FileText className="h-5 w-5" />
-             ANEXOS E DOCUMENTAÇÃO
+         <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+           <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
+             Anexos e Documentação
            </h2>
 
-           {/* Documentos do Leilão */}
-           {auction.documentos && auction.documentos.length > 0 && (
-             <div className="mb-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-               <h3 className="text-sm font-medium text-gray-700 mb-3 border-l-4 border-gray-400 pl-3 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-                 Documentos Oficiais do Leilão ({auction.documentos.length})
-               </h3>
-               <div className="space-y-3">
-                 {auction.documentos.map((doc, index) => (
-                   <div key={index} className="flex items-start gap-4 p-4 bg-gray-50 rounded border border-gray-200 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                     <FileText className="h-5 w-5 text-gray-600 mt-1" />
-                     <div className="flex-1">
-                       <h4 className="font-bold text-gray-900 mb-2">{doc.nome}</h4>
-                       <div className="grid grid-cols-3 gap-3 text-sm">
-                         <div>
-                           <span className="font-semibold text-gray-700">Tipo:</span>
-                           <p className="text-gray-800">{doc.tipo}</p>
-                         </div>
-                         <div>
-                           <span className="font-semibold text-gray-700">Tamanho:</span>
-                           <p className="text-gray-800">{formatFileSize(doc.tamanho)}</p>
-                         </div>
-                       </div>
-                     </div>
-                   </div>
-                 ))}
-               </div>
-             </div>
-           )}
+          {/* Documentos do Leilão */}
+          {auction.documentos && auction.documentos.length > 0 && (
+            <div className="mb-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+              <h3 className="text-sm font-medium text-gray-700 mb-3 border-l-4 border-gray-400 pl-3 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
+                Documentos Oficiais do Leilão ({auction.documentos.length})
+              </h3>
+              <div className="grid grid-cols-3 gap-4">
+                 {auction.documentos.map((doc, index) => {
+                   // Determinar cor e ícone baseado no tipo de documento
+                   let bgGradient = 'linear-gradient(135deg, #64748b 0%, #475569 100%)'; // Cinza corporativo
+                   let tipoLabel = 'DOC';
+                   
+                   const tipo = doc.tipo?.toLowerCase() || '';
+                   if (tipo === 'pdf') {
+                     bgGradient = 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)'; // Vermelho corporativo
+                     tipoLabel = 'PDF';
+                   } else if (['doc', 'docx'].includes(tipo)) {
+                     bgGradient = 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)'; // Azul corporativo
+                     tipoLabel = 'DOC';
+                   } else if (['xls', 'xlsx'].includes(tipo)) {
+                     bgGradient = 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)'; // Verde corporativo
+                     tipoLabel = 'XLS';
+                   } else if (['txt', 'text'].includes(tipo)) {
+                     bgGradient = 'linear-gradient(135deg, #78716c 0%, #57534e 100%)'; // Marrom/Cinza
+                     tipoLabel = 'TXT';
+                   } else if (['zip', 'rar', '7z'].includes(tipo)) {
+                     bgGradient = 'linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)'; // Roxo corporativo
+                     tipoLabel = 'ZIP';
+                   }
+                  
+                  return (
+                    <div key={index} className="bg-gray-50 rounded border border-gray-200 overflow-hidden break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+                      <div className="w-full h-32 flex flex-col items-center justify-center" style={{ background: bgGradient }}>
+                        <FileText className="h-12 w-12 text-white opacity-90 mb-2" />
+                        <span className="text-white font-bold text-lg opacity-90">{tipoLabel}</span>
+                      </div>
+                      <div className="p-3">
+                        <h4 className="font-semibold text-gray-900 text-sm mb-2 truncate" title={doc.nome}>
+                          {doc.nome}
+                        </h4>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                          <div>
+                            <span className="font-medium">Tipo:</span> {doc.tipo}
+                          </div>
+                          <div>
+                            <span className="font-medium">Tamanho:</span> {formatFileSize(doc.tamanho)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
-           {/* Fotos da Mercadoria */}
-           {auction.fotosMercadoria && auction.fotosMercadoria.length > 0 && (
-             <div className="mb-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-               <h3 className="text-sm font-medium text-gray-700 mb-3 border-l-4 border-gray-400 pl-3 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-                 Fotos da Mercadoria ({auction.fotosMercadoria.length})
-               </h3>
-               <div className="space-y-3">
-                 {auction.fotosMercadoria.map((foto, index) => (
-                   <div key={index} className="flex items-start gap-4 p-4 bg-gray-50 rounded border border-gray-200 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                     <Image className="h-5 w-5 text-gray-600 mt-1" />
-                     <div className="flex-1">
-                       <h4 className="font-bold text-gray-900 mb-2">{foto.nome}</h4>
-                       <div className="grid grid-cols-3 gap-3 text-sm">
-                         <div>
-                           <span className="font-semibold text-gray-700">Tipo:</span>
-                           <p className="text-gray-800">{foto.tipo}</p>
-                         </div>
-                         <div>
-                           <span className="font-semibold text-gray-700">Tamanho:</span>
-                           <p className="text-gray-800">{formatFileSize(foto.tamanho)}</p>
-                         </div>
-                       </div>
-                     </div>
-                   </div>
-                 ))}
-               </div>
-             </div>
-           )}
+          {/* Fotos da Mercadoria */}
+          {auction.fotosMercadoria && auction.fotosMercadoria.length > 0 && (
+            <div className="mb-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+              <h3 className="text-sm font-medium text-gray-700 mb-3 border-l-4 border-gray-400 pl-3 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
+                Fotos da Mercadoria ({auction.fotosMercadoria.length})
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                {auction.fotosMercadoria.map((foto, index) => {
+                  // Verificar se é uma imagem
+                  const tipoImagem = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
+                  const isImage = tipoImagem.includes(foto.tipo?.toLowerCase() || '');
+                  
+                  return (
+                    <div key={index} className="bg-gray-50 rounded border border-gray-200 overflow-hidden break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+                      {isImage && foto.url ? (
+                        <div className="w-full">
+                          <img 
+                            src={foto.url} 
+                            alt={foto.nome}
+                            className="w-full h-48 object-cover"
+                            style={{ width: '100%', height: '192px', objectFit: 'cover' }}
+                            onError={(e) => {
+                              // Se erro ao carregar, mostrar placeholder
+                              e.currentTarget.style.display = 'none';
+                              const parent = e.currentTarget.parentElement;
+                              if (parent) {
+                                parent.innerHTML = `
+                                  <div style="width: 100%; height: 192px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                                    <svg style="width: 64px; height: 64px; color: white; opacity: 0.8;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                    </svg>
+                                  </div>
+                                `;
+                              }
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="w-full h-48 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+                          <Image className="h-16 w-16 text-white opacity-80" />
+                        </div>
+                      )}
+                      <div className="p-3">
+                        <h4 className="font-semibold text-gray-900 text-sm mb-2 truncate" title={foto.nome}>
+                          {foto.nome}
+                        </h4>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                          <div>
+                            <span className="font-medium">Tipo:</span> {foto.tipo}
+                          </div>
+                          <div>
+                            <span className="font-medium">Tamanho:</span> {formatFileSize(foto.tamanho)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
            {/* Resumo de Anexos */}
            <div className="bg-gray-50 p-4 rounded border break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
@@ -1070,10 +1147,9 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
 
       {/* Observações Históricas */}
       {auction.historicoNotas && auction.historicoNotas.length > 0 && (
-        <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2 border-b border-gray-200 pb-2 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-            <Clock className="h-5 w-5" />
-            HISTÓRICO DE OBSERVAÇÕES
+        <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+          <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
+            Histórico de Observações
           </h2>
           <div className="space-y-3">
             {auction.historicoNotas.map((nota, index) => (
@@ -1085,22 +1161,13 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
         </div>
       )}
 
-      {/* Footer Minimalista */}
-      <div className="pt-6 mt-8 break-inside-avoid" style={{ borderTop: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
+      {/* Rodapé Corporativo */}
+      <div className="mt-12 pt-6 break-inside-avoid" style={{ borderTop: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
         <div className="text-center mb-6">
-          <div className="text-xs text-slate-500" style={{ fontSize: '11px' }}>
-            Documento gerado automaticamente em {new Date().toLocaleDateString('pt-BR', { 
-              day: '2-digit', 
-              month: '2-digit', 
-              year: 'numeric' 
-            })} às {new Date().toLocaleTimeString('pt-BR')}
-          </div>
-          <div className="text-xs text-slate-400 mt-1" style={{ fontSize: '10px' }}>
-            Sistema de Gestão de Leilões • Página 1 de 1
-          </div>
-        </div>
-        <div className="text-center text-xs text-slate-400 mb-8" style={{ fontSize: '10px' }}>
-          Este documento é válido sem assinatura conforme artigo 10º da MP 2.200-2/2001
+          <p className="text-xs text-slate-500 mb-4" style={{ fontWeight: 300, lineHeight: '1.6' }}>
+            Este documento foi gerado automaticamente pelo sistema de gestão de leilões.<br />
+            Informações atualizadas em {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.
+          </p>
         </div>
       </div>
 

@@ -55,15 +55,15 @@ export function Sidebar() {
           size="sm"
           onClick={toggleSidebar}
           className={cn(
-            "absolute -right-4 top-[280px] z-10 h-8 w-8 rounded-full bg-card border border-border shadow-md",
-            "hover:bg-primary/10 hover:border-primary/30 hover:shadow-lg transition-all duration-200",
+            "group absolute -right-4 top-[280px] z-10 h-8 w-8 rounded-full bg-card border border-border shadow-md",
+            "hover:bg-primary/10 hover:border-primary/30 hover:shadow-lg hover:scale-110 transition-all duration-200",
             "flex items-center justify-center"
           )}
         >
           {isCollapsed ? (
-            <ChevronsRight className="h-4 w-4 text-foreground/70" />
+            <ChevronsRight className="h-4 w-4 text-foreground/70 group-hover:translate-x-0.5 transition-transform duration-200" />
           ) : (
-            <ChevronsLeft className="h-4 w-4 text-foreground/70" />
+            <ChevronsLeft className="h-4 w-4 text-foreground/70 group-hover:-translate-x-0.5 transition-transform duration-200" />
           )}
         </Button>
         
@@ -73,12 +73,24 @@ export function Sidebar() {
               const Icon = item.icon;
               const isActive = location.pathname === item.path;
               
+              // Definir animação específica para cada ícone
+              const iconAnimation = {
+                Home: "group-hover:scale-110 group-hover:rotate-[8deg] transition-all duration-300",
+                Gavel: "group-hover:rotate-[15deg] group-hover:scale-110 transition-all duration-300",
+                Package: "group-hover:scale-110 group-hover:-translate-y-1 transition-all duration-300",
+                Users: "group-hover:scale-125 transition-all duration-300",
+                FileText: "group-hover:rotate-[10deg] group-hover:scale-110 transition-all duration-300",
+                AlertTriangle: "group-hover:animate-bounce",
+                BarChart3: "group-hover:scale-110 group-hover:translate-y-[-2px] transition-all duration-300",
+                Settings: "group-hover:rotate-90 transition-all duration-500",
+              }[item.icon.name] || "group-hover:scale-110 transition-all duration-300";
+              
               return (
                 <li key={item.path}>
                   <Link
                     to={item.path}
                     className={cn(
-                      "flex items-center rounded-lg transition-colors",
+                      "group flex items-center rounded-lg transition-colors",
                       isCollapsed ? "justify-center py-3 px-5 mx-0" : "space-x-3 px-3 py-2",
                       isActive
                         ? "bg-gray-100 text-black"
@@ -86,8 +98,8 @@ export function Sidebar() {
                     )}
                     title={isCollapsed ? item.label : undefined}
                   >
-                    <Icon className="h-5 w-5 flex-shrink-0" />
-                    {!isCollapsed && <span>{item.label}</span>}
+                    <Icon className={cn("h-5 w-5 flex-shrink-0", iconAnimation)} />
+                    {!isCollapsed && <span className="group-hover:translate-x-1 transition-transform duration-300">{item.label}</span>}
                   </Link>
                 </li>
               );
@@ -100,13 +112,13 @@ export function Sidebar() {
               variant="ghost"
               onClick={logout}
               className={cn(
-                "w-full flex items-center rounded-lg transition-colors text-muted-foreground hover:text-red-600 hover:bg-red-50",
+                "group w-full flex items-center rounded-lg transition-colors text-muted-foreground hover:text-red-600 hover:bg-red-50",
                 isCollapsed ? "justify-center py-3 px-5" : "justify-start space-x-3 px-3 py-2"
               )}
               title={isCollapsed ? "Sair" : undefined}
             >
-              <LogOut className="h-5 w-5 flex-shrink-0" />
-              {!isCollapsed && <span>Sair</span>}
+              <LogOut className="h-5 w-5 flex-shrink-0 group-hover:rotate-[20deg] group-hover:scale-110 transition-all duration-300" />
+              {!isCollapsed && <span className="group-hover:translate-x-1 transition-transform duration-300">Sair</span>}
             </Button>
           </div>
         </nav>

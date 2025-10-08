@@ -976,6 +976,50 @@ function Relatorios() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="space-y-8 slide-in-bottom">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-gray-900">Central de Relatórios</h1>
+            <p className="text-muted-foreground mt-2">Gere relatórios detalhados e análises profissionais dos seus leilões</p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div>
+            <div className="h-7 bg-gray-200 rounded animate-pulse w-48 mb-2"></div>
+            <div className="h-4 bg-gray-200 rounded animate-pulse w-80"></div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="relative p-8 animate-pulse">
+                <div className="absolute -top-1 -left-1 w-3 h-3 border-l-2 border-t-2 border-gray-300 border-dashed"></div>
+                <div className="absolute -top-1 -right-1 w-3 h-3 border-r-2 border-t-2 border-gray-300 border-dashed"></div>
+                <div className="absolute -bottom-1 -left-1 w-3 h-3 border-l-2 border-b-2 border-gray-300 border-dashed"></div>
+                <div className="absolute -bottom-1 -right-1 w-3 h-3 border-r-2 border-b-2 border-gray-300 border-dashed"></div>
+                <div className="text-center space-y-4">
+                  <div className="mx-auto w-12 h-12 bg-gray-200 rounded"></div>
+                  <div>
+                    <div className="h-5 bg-gray-200 rounded mx-auto w-24 mb-2"></div>
+                    <div className="h-3 bg-gray-200 rounded mx-auto w-32"></div>
+                  </div>
+                  <div className="h-9 bg-gray-200 rounded"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-gray-900"></div>
+            <p className="ml-4 text-gray-600">Carregando relatórios...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8 slide-in-bottom">
       {/* Header */}
@@ -2871,27 +2915,41 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
         {/* Indicadores Executivos */}
         {inadimplentes.length > 0 && (
           <div className="mb-8 p-6" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
-            <h2 className="text-sm font-medium text-slate-700 uppercase tracking-wider mb-4" style={{ letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
+            <h2 className="text-sm font-medium text-slate-700 uppercase tracking-wider mb-6" style={{ letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
               Resumo Executivo
             </h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-              <div className="text-center">
-                <div className="text-3xl font-light text-red-700 mb-1">{inadimplentes.length}</div>
-                <div className="text-xs text-slate-600 uppercase tracking-wider" style={{ fontWeight: 300 }}>Total Casos</div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-8" style={{ gap: '2rem', alignItems: 'start' }}>
+              <div className="text-center" style={{ minWidth: '120px', padding: '0.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}>
+                <div className="text-2xl font-light text-red-700" style={{ fontSize: '1.75rem', lineHeight: '1.2', marginBottom: '0.5rem', height: '2.1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {inadimplentes.length}
+                </div>
+                <div className="text-xs text-slate-600 uppercase tracking-wider" style={{ fontWeight: 300, fontSize: '0.7rem', lineHeight: '1.3', whiteSpace: 'nowrap' }}>
+                  Total Casos
+                </div>
               </div>
-              <div className="text-center">
-                <div className="text-3xl font-light text-red-700 mb-1">{formatCurrency(valorTotalInadimplencia)}</div>
-                <div className="text-xs text-slate-600 uppercase tracking-wider" style={{ fontWeight: 300 }}>Valor em Atraso</div>
+              <div className="text-center" style={{ minWidth: '140px', padding: '0.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}>
+                <div className="text-2xl font-light text-red-700" style={{ fontSize: '1.5rem', lineHeight: '1.2', marginBottom: '0.5rem', height: '2.1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', wordBreak: 'keep-all' }}>
+                  {formatCurrency(valorTotalInadimplencia)}
+                </div>
+                <div className="text-xs text-slate-600 uppercase tracking-wider" style={{ fontWeight: 300, fontSize: '0.7rem', lineHeight: '1.3', whiteSpace: 'nowrap' }}>
+                  Valor em Atraso
+                </div>
               </div>
-              <div className="text-center">
-                <div className="text-3xl font-light text-red-700 mb-1">{Math.round(diasAtrasoMedio)}</div>
-                <div className="text-xs text-slate-600 uppercase tracking-wider" style={{ fontWeight: 300 }}>Dias Médio Atraso</div>
+              <div className="text-center" style={{ minWidth: '120px', padding: '0.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}>
+                <div className="text-2xl font-light text-red-700" style={{ fontSize: '1.75rem', lineHeight: '1.2', marginBottom: '0.5rem', height: '2.1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {Math.round(diasAtrasoMedio)}
+                </div>
+                <div className="text-xs text-slate-600 uppercase tracking-wider" style={{ fontWeight: 300, fontSize: '0.7rem', lineHeight: '1.3', whiteSpace: 'nowrap' }}>
+                  Dias Médio Atraso
+                </div>
               </div>
-              <div className="text-center">
-                <div className="text-3xl font-light text-red-700 mb-1">
+              <div className="text-center" style={{ minWidth: '120px', padding: '0.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}>
+                <div className="text-2xl font-light text-red-700" style={{ fontSize: '1.75rem', lineHeight: '1.2', marginBottom: '0.5rem', height: '2.1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {inadimplentes.filter(a => a.detalhesInadimplencia?.diasAtraso > 30).length}
                 </div>
-                <div className="text-xs text-slate-600 uppercase tracking-wider" style={{ fontWeight: 300 }}>Casos Críticos (+30d)</div>
+                <div className="text-xs text-slate-600 uppercase tracking-wider" style={{ fontWeight: 300, fontSize: '0.7rem', lineHeight: '1.3', whiteSpace: 'nowrap' }}>
+                  Casos Críticos (+30d)
+                </div>
               </div>
             </div>
           </div>
@@ -3249,7 +3307,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                       }
 
                       return (
-                        <div className="pt-5" style={{ borderTop: '1px solid #e2e8f0' }}>
+                        <div className="pt-5" style={{ borderTop: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
                           <h4 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', pageBreakAfter: 'avoid' }}>
                             Detalhamento Entrada + Parcelamento
                           </h4>
@@ -3257,7 +3315,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                           {/* Informações da Entrada - só mostrar se estiver atrasada */}
                           {statusEntrada !== 'Pago' && (
                             <div className="p-4 mb-4" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
-                              <h5 className="text-sm font-medium text-slate-800 mb-3" style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
+                              <h5 className="text-sm font-medium text-slate-800 mb-3" style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', pageBreakAfter: 'avoid' }}>
                                 Status da Entrada
                               </h5>
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
@@ -3294,8 +3352,8 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                           )}
 
                           {/* Informações das Parcelas */}
-                          <div className="bg-slate-50 border border-slate-300 rounded-lg p-4">
-                            <h5 className="text-sm font-medium text-slate-800 mb-3 border-b border-slate-200 pb-1">
+                          <div className="bg-slate-50 border border-slate-300 rounded-lg p-4" style={{ pageBreakInside: 'avoid' }}>
+                            <h5 className="text-sm font-medium text-slate-800 mb-3 border-b border-slate-200 pb-1" style={{ pageBreakAfter: 'avoid' }}>
                               Status das Parcelas (após entrada)
                             </h5>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
@@ -3369,20 +3427,22 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                       }
                       
                       return (
-                        <div>
-                          <h4 className="text-sm font-light text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">
+                        <div className="pt-5" style={{ borderTop: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
+                          <h4 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', pageBreakAfter: 'avoid' }}>
                             Status do Parcelamento
                           </h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
-                            <div className="space-y-3">
-                              <div className="flex"><span className="text-slate-500 w-32">Valor por Parcela:</span> <span className="text-slate-900 font-medium">{formatCurrency(auction.detalhesInadimplencia?.valorParcela)}</span></div>
-                              <div className="flex"><span className="text-slate-500 w-32">Parcelas Pagas:</span> <span className="text-slate-900">{auction.arrematante?.parcelasPagas || 0} de {auction.arrematante?.quantidadeParcelas || 0}</span></div>
-                              <div className="flex"><span className="text-slate-500 w-32">Próxima Parcela:</span> <span className="text-slate-900">{proximaParcelaData}</span></div>
-                            </div>
-                            <div className="space-y-3">
-                              <div className="flex"><span className="text-slate-500 w-32">Dia Vencimento:</span> <span className="text-slate-900">Dia {auction.arrematante?.diaVencimentoMensal || 'N/A'}</span></div>
-                              <div className="flex"><span className="text-slate-500 w-32">Mês Início:</span> <span className="text-slate-900">{auction.arrematante?.mesInicioPagamento || 'N/A'}</span></div>
-                              <div className="flex"><span className="text-slate-500 w-32">Status:</span> <span className={`${statusProximaParcela === 'ATRASADO' ? 'text-red-700' : statusProximaParcela === 'Pendente' ? 'text-orange-600' : statusProximaParcela === 'Concluído' ? 'text-green-700' : 'text-slate-900'}`}>{statusProximaParcela}</span></div>
+                          <div className="p-4" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                              <div className="space-y-3">
+                                <div className="flex"><span className="text-slate-500 w-32">Valor por Parcela:</span> <span className="text-slate-900 font-medium">{formatCurrency(auction.detalhesInadimplencia?.valorParcela)}</span></div>
+                                <div className="flex"><span className="text-slate-500 w-32">Parcelas Pagas:</span> <span className="text-slate-900">{auction.arrematante?.parcelasPagas || 0} de {auction.arrematante?.quantidadeParcelas || 0}</span></div>
+                                <div className="flex"><span className="text-slate-500 w-32">Próxima Parcela:</span> <span className="text-slate-900">{proximaParcelaData}</span></div>
+                              </div>
+                              <div className="space-y-3">
+                                <div className="flex"><span className="text-slate-500 w-32">Dia Vencimento:</span> <span className="text-slate-900">Dia {auction.arrematante?.diaVencimentoMensal || 'N/A'}</span></div>
+                                <div className="flex"><span className="text-slate-500 w-32">Mês Início:</span> <span className="text-slate-900">{auction.arrematante?.mesInicioPagamento || 'N/A'}</span></div>
+                                <div className="flex"><span className="text-slate-500 w-32">Status:</span> <span className={`${statusProximaParcela === 'ATRASADO' ? 'text-red-700' : statusProximaParcela === 'Pendente' ? 'text-orange-600' : statusProximaParcela === 'Concluído' ? 'text-green-700' : 'text-slate-900'}`}>{statusProximaParcela}</span></div>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -3536,7 +3596,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                 
                   <div className="px-6 py-5 space-y-5">
                     {/* Identificação do Arrematante */}
-                    <div>
+                    <div style={{ pageBreakInside: 'avoid' }}>
                       <h4 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', pageBreakAfter: 'avoid' }}>
                         Identificação do Arrematante
                       </h4>
@@ -3589,7 +3649,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                     </div>
 
                     {/* Contrato Vinculado */}
-                    <div className="border-t border-slate-200 pt-6">
+                    <div className="border-t border-slate-200 pt-6" style={{ pageBreakInside: 'avoid' }}>
                       <h4 className="text-sm font-light text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">
                         Contrato Vinculado
                       </h4>
@@ -3656,7 +3716,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                     </div>
 
                     {/* Perfil de Risco */}
-                    <div className="border-t border-slate-200 pt-6">
+                    <div className="border-t border-slate-200 pt-6" style={{ pageBreakInside: 'avoid' }}>
                       <h4 className="text-sm font-light text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">
                         Perfil de Risco
                       </h4>
@@ -4284,7 +4344,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                 </div>
                 
                 <div className="px-8 py-6 space-y-6">
-                  <div>
+                  <div style={{ pageBreakInside: 'avoid' }}>
                     <h4 className="text-sm font-light text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">
                       Dados da Obrigação
                     </h4>
@@ -4567,7 +4627,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                     if (detalhamentoParcelas.length === 0) return null;
                     
                     return (
-                      <div className="border-t border-slate-200 pt-6">
+                      <div className="border-t border-slate-200 pt-6" style={{ pageBreakInside: 'avoid' }}>
                         <h4 className="text-sm font-light text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2">
                           Detalhamento de Parcelas
                         </h4>
@@ -4579,7 +4639,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                                 : parcela.isAtrasada 
                                   ? 'bg-red-50 border-red-200' 
                                   : 'bg-slate-50 border-slate-200'
-                            }`}>
+                            }`} style={{ pageBreakInside: 'avoid' }}>
                               <div className="flex justify-between items-center">
                                 <span className="font-medium text-slate-700">
                                   {parcela.numero} - Vence em {parcela.vencimento}
@@ -4613,7 +4673,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                   })()}
                   
                   {auction.arrematante?.endereco && (
-                    <div className="border-t border-slate-200 pt-6">
+                    <div className="border-t border-slate-200 pt-6" style={{ pageBreakInside: 'avoid' }}>
                       <h4 className="text-sm font-light text-slate-700 uppercase tracking-wider mb-3 border-b border-slate-200 pb-2">
                         Endereço de Cobrança
                       </h4>

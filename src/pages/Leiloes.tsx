@@ -2406,8 +2406,8 @@ function Leiloes() {
                               {(() => {
                                 const months = [];
                                 const currentDate = new Date();
-                                const startYear = currentDate.getFullYear();
-                                const endYear = startYear + 2;
+                                const startYear = currentDate.getFullYear() - 1; // Permitir ano anterior
+                                const endYear = currentDate.getFullYear() + 2;
                                 
                                 for (let year = startYear; year <= endYear; year++) {
                                   for (let month = 0; month < 12; month++) {
@@ -2558,95 +2558,125 @@ function Leiloes() {
                   );
                 }
 
-                // Para Parcelamento padrão - layout de 3 colunas
+                // Para Parcelamento padrão - layout com duas linhas
                 return (
-                  <div className="arrematante-form grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                      <Label htmlFor="diaVencimentoMensal" className="text-sm font-medium text-gray-700">Dia Vencimento</Label>
-                  <Select
-                        value={(arrematanteForm.diaVencimentoMensal || lotesSelecionado?.diaVencimentoPadrao || 15).toString()} 
-                        onValueChange={(v) => handleArrematanteFormChange("diaVencimentoMensal", parseInt(v))}
-                  >
-                        <SelectTrigger className="h-10 border-gray-300 focus:!ring-0 focus:!outline-none focus:!shadow-none bg-white text-sm">
-                          <SelectValue placeholder="Dia" />
-                    </SelectTrigger>
-                    <SelectContent>
-                          {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
-                            <SelectItem key={day} value={day.toString()}>
-                              Dia {day}
-                          </SelectItem>
-                          ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                  <div className="arrematante-form space-y-4">
+                    {/* Primeira linha: Mês de Início, Dia Vencimento, Qtd. Parcelas, Parcelas Pagas */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="mesInicioPagamentoParcelamento" className="text-sm font-medium text-gray-700">Mês de Início</Label>
+                        <Select
+                          value={arrematanteForm.mesInicioPagamento || lotesSelecionado?.mesInicioPagamento || ""}
+                          onValueChange={(value) => handleArrematanteFormChange("mesInicioPagamento", value)}
+                        >
+                          <SelectTrigger className="h-10 border-gray-300 focus:!ring-0 focus:!outline-none focus:!shadow-none bg-white text-sm">
+                            <SelectValue placeholder="Mês/Ano" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 36 }, (_, i) => {
+                              const date = new Date();
+                              // Começar 12 meses no passado e ir até 23 meses no futuro
+                              date.setMonth(date.getMonth() + (i - 12));
+                              const year = date.getFullYear();
+                              const month = String(date.getMonth() + 1).padStart(2, '0');
+                              const monthName = date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+                              return (
+                                <SelectItem key={`${year}-${month}`} value={`${year}-${month}`}>
+                                  {monthName.charAt(0).toUpperCase() + monthName.slice(1)}
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                <div className="space-y-2">
-                      <Label htmlFor="quantidadeParcelas" className="text-sm font-medium text-gray-700">Qtd. Parcelas</Label>
-                      <Input
-                        id="quantidadeParcelas"
-                        type="number"
-                        min="1"
-                        max="60"
-                        value={arrematanteForm.quantidadeParcelas || lotesSelecionado?.parcelasPadrao || ""}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          if (value === "") {
-                            handleArrematanteFormChange("quantidadeParcelas", "");
-                          } else {
-                            const numValue = parseInt(value);
-                            if (!isNaN(numValue) && numValue >= 1 && numValue <= 60) {
-                              handleArrematanteFormChange("quantidadeParcelas", numValue);
+                      <div className="space-y-2">
+                        <Label htmlFor="diaVencimentoMensal" className="text-sm font-medium text-gray-700">Dia Vencimento</Label>
+                        <Select
+                          value={(arrematanteForm.diaVencimentoMensal || lotesSelecionado?.diaVencimentoPadrao || 15).toString()} 
+                          onValueChange={(v) => handleArrematanteFormChange("diaVencimentoMensal", parseInt(v))}
+                        >
+                          <SelectTrigger className="h-10 border-gray-300 focus:!ring-0 focus:!outline-none focus:!shadow-none bg-white text-sm">
+                            <SelectValue placeholder="Dia" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                              <SelectItem key={day} value={day.toString()}>
+                                Dia {day}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="quantidadeParcelas" className="text-sm font-medium text-gray-700">Qtd. Parcelas</Label>
+                        <Input
+                          id="quantidadeParcelas"
+                          type="number"
+                          min="1"
+                          max="60"
+                          value={arrematanteForm.quantidadeParcelas || lotesSelecionado?.parcelasPadrao || ""}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === "") {
+                              handleArrematanteFormChange("quantidadeParcelas", "");
+                            } else {
+                              const numValue = parseInt(value);
+                              if (!isNaN(numValue) && numValue >= 1 && numValue <= 60) {
+                                handleArrematanteFormChange("quantidadeParcelas", numValue);
+                              }
                             }
-                          }
-                        }}
-                        className="h-10 border-gray-300 focus:!border-gray-900 focus:!ring-0 focus:!outline-none bg-white text-sm"
-                        required
-                      />
-                  </div>
+                          }}
+                          className="h-10 border-gray-300 focus:!border-gray-900 focus:!ring-0 focus:!outline-none bg-white text-sm"
+                          required
+                        />
+                      </div>
 
+                      <div className="space-y-2">
+                        <Label htmlFor="parcelasPagas" className="text-sm font-medium text-gray-700">Parcelas Pagas</Label>
+                        <Input
+                          id="parcelasPagas"
+                          type="number"
+                          min="0"
+                          max={arrematanteForm.quantidadeParcelas || 60}
+                          value={arrematanteForm.parcelasPagas === null || arrematanteForm.parcelasPagas === undefined ? '' : arrematanteForm.parcelasPagas}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === "") {
+                              handleArrematanteFormChange("parcelasPagas", null);
+                            } else {
+                              const numValue = parseInt(value);
+                              if (!isNaN(numValue) && numValue >= 0) {
+                                const maxParcelas = typeof arrematanteForm.quantidadeParcelas === 'number' ? arrematanteForm.quantidadeParcelas : 60;
+                                const valorLimitado = Math.min(numValue, maxParcelas);
+                                handleArrematanteFormChange("parcelasPagas", valorLimitado);
+                                handleArrematanteFormChange("pago", valorLimitado >= maxParcelas);
+                              }
+                            }
+                          }}
+                          onBlur={(e) => {
+                            if (e.target.value === '' || arrematanteForm.parcelasPagas === null || arrematanteForm.parcelasPagas === undefined) {
+                              handleArrematanteFormChange("parcelasPagas", 0);
+                            }
+                          }}
+                          placeholder="0"
+                          className="h-10 border-gray-300 focus:!border-gray-900 focus:!ring-0 focus:!outline-none bg-white text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Segunda linha: Campo de Juros por Atraso */}
                     <div className="space-y-2">
-                      <Label htmlFor="parcelasPagas" className="text-sm font-medium text-gray-700">Parcelas Pagas</Label>
+                      <Label htmlFor="percentualJurosAtraso" className="text-sm font-medium text-gray-700">
+                        Percentual de Juros por Atraso (% ao mês) - Juros Compostos
+                      </Label>
                       <Input
-                        id="parcelasPagas"
+                        id="percentualJurosAtraso"
                         type="number"
                         min="0"
-                        max={arrematanteForm.quantidadeParcelas || 60}
-                        value={arrematanteForm.parcelasPagas === null || arrematanteForm.parcelasPagas === undefined ? '' : arrematanteForm.parcelasPagas}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          if (value === "") {
-                            handleArrematanteFormChange("parcelasPagas", null);
-                          } else {
-                            const numValue = parseInt(value);
-                            if (!isNaN(numValue) && numValue >= 0) {
-                              const maxParcelas = typeof arrematanteForm.quantidadeParcelas === 'number' ? arrematanteForm.quantidadeParcelas : 60;
-                              const valorLimitado = Math.min(numValue, maxParcelas);
-                              handleArrematanteFormChange("parcelasPagas", valorLimitado);
-                              handleArrematanteFormChange("pago", valorLimitado >= maxParcelas);
-                            }
-                          }
-                        }}
-                        onBlur={(e) => {
-                          if (e.target.value === '' || arrematanteForm.parcelasPagas === null || arrematanteForm.parcelasPagas === undefined) {
-                            handleArrematanteFormChange("parcelasPagas", 0);
-                          }
-                        }}
-                        placeholder="0"
-                        className="h-10 border-gray-300 focus:!border-gray-900 focus:!ring-0 focus:!outline-none bg-white text-sm"
-                      />
-                </div>
-
-                {/* Campo de Juros por Atraso */}
-                <div className="space-y-2">
-                  <Label htmlFor="percentualJurosAtraso" className="text-sm font-medium text-gray-700">
-                    Percentual de Juros por Atraso (% ao mês) - Juros Compostos
-                  </Label>
-                  <Input
-                    id="percentualJurosAtraso"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
+                        max="100"
+                        step="0.1"
                     value={arrematanteForm.percentualJurosAtraso || ""}
                     onChange={(e) => {
                       const value = e.target.value;

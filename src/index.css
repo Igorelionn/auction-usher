@@ -460,4 +460,20 @@ All colors MUST be HSL.
     background-color: #f3f4f6 !important; /* gray-100 */
     color: #111827 !important; /* gray-900 */
   }
+
+  /* Animação profissional de email - movimento suave horizontal */
+  .animate-mail-bounce {
+    animation: mailSlide 2s ease-in-out infinite;
+  }
+  
+  @keyframes mailSlide {
+    0%, 100% {
+      transform: translateX(0);
+      opacity: 1;
+    }
+    50% {
+      transform: translateX(3px);
+      opacity: 0.85;
+    }
+  }
 }

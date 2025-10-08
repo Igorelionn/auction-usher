@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,6 +57,7 @@ import { supabase } from "@/lib/supabase";
 
 export default function Configuracoes() {
   const { user, updateFullName, updatePermissions, logUserAction } = useAuth();
+  const navigate = useNavigate();
   
   // Estados para configurações
   const [profile, setProfile] = useState({
@@ -438,8 +440,8 @@ export default function Configuracoes() {
       // Verificar se a senha corresponde usando RPC function (mesma lógica do login)
       const { data: passwordMatch, error: verifyError } = await supabase
         .rpc('verify_password' as any, {
-          user_password: currentPassword,
-          stored_hash: passwordFromDB
+          user_email: user?.email,
+          user_password: currentPassword
         });
 
       if (verifyError) {
@@ -725,8 +727,8 @@ export default function Configuracoes() {
       // Criar credenciais usando RPC para hash seguro
       const { error: credError } = await supabase
         .rpc('create_user_password' as any, {
-          p_user_id: (userData as any).id,
-          p_password: newUser.password
+          user_email: newUser.email,
+          user_password: newUser.password
         });
 
       if (credError) throw credError;
@@ -1372,8 +1374,8 @@ export default function Configuracoes() {
       // Verificar senha do administrador
       const { data: passwordMatch, error: verifyError } = await supabase
         .rpc('verify_password' as any, {
-          user_password: adminPasswordForConfirm,
-          stored_hash: (data as any).password_hash
+          user_email: user?.email,
+          user_password: adminPasswordForConfirm
         });
 
       if (verifyError) {
@@ -1454,8 +1456,8 @@ export default function Configuracoes() {
       // Criar nova credencial com nova senha usando RPC function
       const { error: createError } = await supabase
         .rpc('create_user_password' as any, {
-          p_user_id: selectedUserForPasswordChange.id,
-          p_password: newUserPassword
+          user_email: selectedUserForPasswordChange.email,
+          user_password: newUserPassword
         });
 
       if (createError) {
@@ -1793,6 +1795,16 @@ export default function Configuracoes() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                  {/* Botão Configurações de Email */}
+                  <Button 
+                    onClick={() => navigate('/email')}
+                    variant="outline"
+                    className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-gray-700 hover:border-gray-300 font-medium"
+                  >
+                    <Mail className="w-4 h-4 mr-2" />
+                    Configurações de Email
+                  </Button>
+
                   {/* Botão Adicionar Usuário - Apenas para administradores */}
                   {user?.permissions?.can_manage_users && (
                     <Button 
@@ -2011,6 +2023,7 @@ export default function Configuracoes() {
                 </div>
               )}
             </div>
+
           </div>
         </TabsContent>
 

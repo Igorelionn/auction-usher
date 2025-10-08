@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { useRealtimeSync } from "@/hooks/use-realtime-sync";
+import { useAutoEmailNotifications } from "@/hooks/use-auto-email-notifications";
 import Dashboard from "./pages/Dashboard";
 import Leiloes from "./pages/Leiloes";
 import Arrematantes from "./pages/Arrematantes";
@@ -13,6 +14,7 @@ import Faturas from "./pages/Faturas";
 import Relatorios from "./pages/Relatorios";
 import Inadimplencia from "./pages/Inadimplencia";
 import Configuracoes from "./pages/Configuracoes";
+import Email from "./pages/Email";
 import NotFoundPage from "./pages/NotFoundPage";
 import Login from "./pages/Login";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -31,9 +33,10 @@ const queryClient = new QueryClient({
   },
 });
 
-// Componente wrapper para sincronização em tempo real
+// Componente wrapper para sincronização em tempo real e emails automáticos
 function AppWithRealtime({ children }: { children: React.ReactNode }) {
   useRealtimeSync();
+  useAutoEmailNotifications(); // Sistema de envio automático de emails
   return <>{children}</>;
 }
 
@@ -115,6 +118,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <Layout><Configuracoes /></Layout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/email"
+                element={
+                  <ProtectedRoute>
+                    <Layout><Email /></Layout>
                   </ProtectedRoute>
                 }
               />

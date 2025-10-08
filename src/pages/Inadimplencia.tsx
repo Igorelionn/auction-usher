@@ -35,6 +35,7 @@ import {
 import { useSupabaseAuctions } from "@/hooks/use-supabase-auctions";
 import { useToast } from "@/hooks/use-toast";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
+import { useEmailNotifications } from "@/hooks/use-email-notifications";
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -233,9 +234,10 @@ const HoverSyncHeader = ({
 
 
 export default function Inadimplencia() {
-  const { auctions } = useSupabaseAuctions();
+  const { auctions, isLoading } = useSupabaseAuctions();
   const { toast } = useToast();
   const { logReportAction } = useActivityLogger();
+  const { enviarCobranca, enviarLembrete } = useEmailNotifications();
 
   // Função para calcular juros progressivos mês a mês
   const calcularJurosProgressivos = (valorOriginal: number, percentualJuros: number, mesesAtraso: number) => {
@@ -1240,16 +1242,22 @@ Atenciosamente,
             case 'parcelamento':
             default:
               valorPorParcela = valorTotal / (loteArrematado.parcelasPadrao || 1);
-              if (loteArrematado.mesInicioPagamento && loteArrematado.diaVencimentoPadrao) {
-                const [startYear, startMonth] = loteArrematado.mesInicioPagamento.split('-').map(Number);
+              // Buscar mesInicioPagamento e diaVencimento do arrematante primeiro, depois do lote
+              const mesInicioParc = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
+              const diaVencParc = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
+              
+              if (mesInicioParc && diaVencParc) {
+                const [startYear, startMonth] = mesInicioParc.split('-').map(Number);
                 const parcelasPagasParc = arrematante.parcelasPagas || 0;
-                nextPaymentDate = new Date(startYear, startMonth - 1 + parcelasPagasParc, loteArrematado.diaVencimentoPadrao);
+                nextPaymentDate = new Date(startYear, startMonth - 1 + parcelasPagasParc, diaVencParc);
               }
               break;
           }
         }
         
-        const dueDateFormatted = nextPaymentDate.toLocaleDateString('pt-BR');
+        const dueDateFormatted = nextPaymentDate && !isNaN(nextPaymentDate.getTime()) 
+          ? nextPaymentDate.toLocaleDateString('pt-BR')
+          : 'Data não definida';
         
         const parcelasPagasAtual = arrematante.parcelasPagas || 0;
         
@@ -1362,13 +1370,17 @@ Atenciosamente,
             
             entradaDetails = {
               valor: valorEntradaTooltip,
-              dataVencimento: dataEntrada.toLocaleDateString('pt-BR'),
+              dataVencimento: dataEntrada && !isNaN(dataEntrada.getTime()) 
+                ? dataEntrada.toLocaleDateString('pt-BR') 
+                : 'Data não definida',
               diasAtraso: diasEntrada
             };
             
             parcelaDetails = {
               valor: valorPorParcelaTooltip,
-              dataVencimento: dataPrimeiraParcela.toLocaleDateString('pt-BR'),
+              dataVencimento: dataPrimeiraParcela && !isNaN(dataPrimeiraParcela.getTime()) 
+                ? dataPrimeiraParcela.toLocaleDateString('pt-BR') 
+                : 'Data não definida',
               diasAtraso: diasParcela
             };
           }
@@ -1672,9 +1684,47 @@ Atenciosamente,
 Arthur Lira Leilões`;
   };
 
+  const handleSendReminder = async (auction: any) => {
+    if (!auction.arrematante?.email) {
+      toast({
+        title: "❌ Email Não Cadastrado",
+        description: "Este arrematante não possui email cadastrado.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    try {
+      const result = await enviarLembrete(auction);
+      
+      if (result.success) {
+        toast({
+          title: "✅ Lembrete Enviado",
+          description: result.message,
+        });
+      } else {
+        toast({
+          title: "⚠️ Aviso",
+          description: result.message,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "❌ Erro",
+        description: "Erro ao enviar lembrete. Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleSendCharge = (auction: any) => {
     if (!auction.arrematante?.email) {
-      alert("Este arrematante não possui email cadastrado. Adicione um email para enviar a cobrança.");
+      toast({
+        title: "❌ Email Não Cadastrado",
+        description: "Este arrematante não possui email cadastrado.",
+        variant: "destructive",
+      });
       return;
     }
     
@@ -1696,21 +1746,35 @@ Arthur Lira Leilões`;
   };
 
   const sendChargeEmail = async () => {
-    if (!selectedDebtor || !chargeMessage.trim()) return;
+    if (!selectedDebtor) return;
     
     setIsSending(true);
     
     try {
-      // Simular envio de email
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const result = await enviarCobranca(selectedDebtor);
       
-      alert(`Cobrança enviada com sucesso para ${selectedDebtor.arrematante?.email}!`);
-      setIsChargeModalOpen(false);
-      setSelectedDebtor(null);
-      setChargeMessage("");
-      setAttachments([]);
+      if (result.success) {
+        toast({
+          title: "✅ Email Enviado",
+          description: result.message,
+        });
+        setIsChargeModalOpen(false);
+        setSelectedDebtor(null);
+        setChargeMessage("");
+        setAttachments([]);
+      } else {
+        toast({
+          title: "❌ Erro ao Enviar",
+          description: result.message,
+          variant: "destructive",
+        });
+      }
     } catch (error) {
-      alert("Erro ao enviar cobrança. Tente novamente.");
+      toast({
+        title: "❌ Erro",
+        description: "Erro ao enviar cobrança. Tente novamente.",
+        variant: "destructive",
+      });
     } finally {
       setIsSending(false);
     }
@@ -1886,12 +1950,18 @@ Arthur Lira Leilões`;
                 <SelectItem value="due_date">Data</SelectItem>
               </SelectContent>
             </Select>
+
           </div>
             </div>
             </div>
         </CardHeader>
         <CardContent className="flex-1 overflow-y-auto">
-          {filteredOverdueAuctions.length === 0 ? (
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-gray-900"></div>
+              <p className="mt-4 text-gray-600">Carregando inadimplências...</p>
+            </div>
+          ) : filteredOverdueAuctions.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
               <AlertTriangle className="h-16 w-16 mx-auto mb-4 opacity-50" />
               <p className="text-lg font-medium">Nenhuma inadimplência encontrada</p>
@@ -2426,9 +2496,21 @@ Arthur Lira Leilões`;
                                 );
                               }
                               return null;
-                            })()}. 
-                            Foram registrados {selectedArrematante.arrematante?.parcelasPagas || 0} pagamentos (entrada + {Math.max(0, (selectedArrematante.arrematante?.parcelasPagas || 0) - 1)} parcelas) 
-                            de um total de {(selectedArrematante.arrematante?.quantidadeParcelas || 12) + 1} pagamentos programados (entrada + {selectedArrematante.arrematante?.quantidadeParcelas || 12} parcelas).
+                            })()}. {(() => {
+                              const arrematante = selectedArrematante.arrematante;
+                              const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
+                              const tipoPagamento = loteArrematado?.tipoPagamento || 'parcelamento';
+                              const parcelasPagas = arrematante?.parcelasPagas || 0;
+                              const quantidadeParcelas = arrematante?.quantidadeParcelas || 12;
+                              
+                              if (tipoPagamento === 'a_vista') {
+                                return `Foi ${arrematante?.pago ? 'realizado 1 pagamento à vista.' : 'programado 1 pagamento à vista (pendente).'}`;
+                              } else if (tipoPagamento === 'entrada_parcelamento') {
+                                return `Foram registrados ${parcelasPagas} pagamentos (entrada + ${Math.max(0, parcelasPagas - 1)} parcelas) de um total de ${quantidadeParcelas + 1} pagamentos programados (entrada + ${quantidadeParcelas} parcelas).`;
+                              } else {
+                                return `Foram registrados ${parcelasPagas} pagamentos de um total de ${quantidadeParcelas} parcelas programadas.`;
+                              }
+                            })()}
                           </p>
                            
                            <p>
@@ -2439,7 +2521,63 @@ Arthur Lira Leilões`;
                       </p>
                       
                       <p>
-                             <strong>Situação Atual:</strong> Contrato de parcelamento apresenta atrasos que requerem acompanhamento com vencimento em {selectedArrematante.dueDateFormatted || 'Data não informada'}.
+                        <strong>Situação Atual:</strong> {(() => {
+                          const arrematante = selectedArrematante.arrematante;
+                          const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
+                          const tipoPagamento = loteArrematado?.tipoPagamento || 'parcelamento';
+                          const parcelasPagas = arrematante?.parcelasPagas || 0;
+                          const quantidadeParcelas = arrematante?.quantidadeParcelas || 12;
+                          const now = new Date();
+                          const datasAtrasadas = [];
+                          
+                          if (tipoPagamento === 'a_vista') {
+                            const dataVencimento = loteArrematado?.dataVencimentoVista || selectedArrematante.dataVencimentoVista;
+                            if (dataVencimento && !arrematante?.pago) {
+                              const vencimento = new Date(dataVencimento + 'T23:59:59');
+                              if (now > vencimento) {
+                                datasAtrasadas.push(vencimento.toLocaleDateString('pt-BR'));
+                              }
+                            }
+                          } else if (tipoPagamento === 'entrada_parcelamento') {
+                            // Verificar entrada
+                            if (parcelasPagas === 0 && loteArrematado?.dataEntrada) {
+                              const dataEntrada = new Date(loteArrematado.dataEntrada + 'T23:59:59');
+                              if (now > dataEntrada) {
+                                datasAtrasadas.push(dataEntrada.toLocaleDateString('pt-BR') + ' (Entrada)');
+                              }
+                            }
+                            // Verificar parcelas
+                            if (arrematante?.mesInicioPagamento && arrematante?.diaVencimentoMensal) {
+                              const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+                              const parcelasEfetivasPagas = Math.max(0, parcelasPagas - 1);
+                              for (let i = parcelasEfetivasPagas; i < quantidadeParcelas; i++) {
+                                const vencimento = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal, 23, 59, 59);
+                                if (now > vencimento) {
+                                  datasAtrasadas.push(vencimento.toLocaleDateString('pt-BR') + ` (Parcela ${i + 1})`);
+                                }
+                              }
+                            }
+                          } else {
+                            // Parcelamento simples
+                            if (arrematante?.mesInicioPagamento && arrematante?.diaVencimentoMensal) {
+                              const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+                              for (let i = parcelasPagas; i < quantidadeParcelas; i++) {
+                                const vencimento = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal, 23, 59, 59);
+                                if (now > vencimento) {
+                                  datasAtrasadas.push(vencimento.toLocaleDateString('pt-BR') + ` (Parcela ${i + 1})`);
+                                }
+                              }
+                            }
+                          }
+                          
+                          if (datasAtrasadas.length === 0) {
+                            return 'Contrato em dia sem atrasos registrados.';
+                          } else if (datasAtrasadas.length === 1) {
+                            return `Contrato ${tipoPagamento === 'a_vista' ? 'de pagamento à vista' : 'de parcelamento'} apresenta atraso que requer acompanhamento com vencimento em ${datasAtrasadas[0]}.`;
+                          } else {
+                            return `Contrato de parcelamento apresenta ${datasAtrasadas.length} atrasos que requerem acompanhamento com vencimentos em: ${datasAtrasadas.join(', ')}.`;
+                          }
+                        })()}
                       </p>
                   </div>
                 </div>
@@ -2480,8 +2618,7 @@ Arthur Lira Leilões`;
                                  </p>
                                ) : (
                                  <p>
-                                   <strong>Detalhamento dos Pagamentos em Dia:</strong> Não foram registrados pagamentos realizados dentro do prazo de vencimento. 
-                                   Todos os {parcelasPagas} pagamentos processados foram quitados após a data de vencimento original.
+                                   <strong>Detalhamento dos Pagamentos em Dia:</strong> Não foram registrados pagamentos realizados dentro do prazo de vencimento.{parcelasPagas > 0 && ` Todos os ${parcelasPagas} pagamentos processados foram quitados após a data de vencimento original.`}
                                  </p>
                                )}
                     </div>
@@ -2513,7 +2650,7 @@ Arthur Lira Leilões`;
                               }
                               return null;
                             })()} vinculado ao arrematante {selectedArrematante.arrematante?.nome}. 
-                            O período do relatório compreende informações do leilão realizado em {selectedArrematante.dataInicio ? new Date(selectedArrematante.dataInicio).toLocaleDateString('pt-BR') : 'data não informada'}.
+                            O período do relatório compreende informações do leilão "{selectedArrematante.nome || 'Leilão'}" realizado em {selectedArrematante.dataInicio ? new Date(selectedArrematante.dataInicio).toLocaleDateString('pt-BR') : 'data não informada'}.
                           </p>
                            
                            <p>

@@ -142,8 +142,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('Verificando senha...');
       const { data: passwordMatch, error: verifyError } = await supabase
         .rpc('verify_password' as any, {
-          user_password: cleanPassword,
-          stored_hash: (credentials as any).password_hash
+          user_email: cleanEmail,
+          user_password: cleanPassword
         });
 
       if (verifyError) {

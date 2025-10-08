@@ -1,0 +1,63 @@
+═══════════════════════════════════════════════════════
+    CHAVE API DO RESEND - ARTHUR LIRA LEILÕES
+═══════════════════════════════════════════════════════
+
+📧 Email Remetente: onboarding@resend.dev (domínio de teste do Resend)
+
+🔑 Chave API do Resend:
+re_SfWdJiMK_7352YoeoJdgw3mBSe2eArUBH
+
+═══════════════════════════════════════════════════════
+
+✅ TABELA DO SUPABASE JÁ FOI CRIADA!
+   A tabela "email_logs" está pronta e funcionando.
+
+═══════════════════════════════════════════════════════
+
+🚀 COMO CONFIGURAR NO APP:
+
+1. Abra o aplicativo no navegador
+2. Faça login
+3. Vá em "Configurações" (menu lateral)
+4. Role até "Configurações de Email"
+5. Cole a chave API acima no campo "Chave API do Resend"
+6. Use o email: onboarding@resend.dev
+7. Clique em "Salvar Configurações"
+8. Teste enviando um email de teste
+
+═══════════════════════════════════════════════════════
+
+📊 INFORMAÇÕES DO PLANO:
+
+✅ Plano Gratuito do Resend
+   - 100 emails por dia
+   - 3.000 emails por mês
+   - Sem cartão de crédito necessário
+
+═══════════════════════════════════════════════════════
+
+⚠️ SEGURANÇA:
+
+Esta chave é PRIVADA e dá acesso ao envio de emails.
+NÃO compartilhe publicamente ou commite no Git!
+
+O sistema já está configurado para salvar a chave
+localmente no navegador (localStorage) de forma segura.
+
+═══════════════════════════════════════════════════════
+
+🎯 PRÓXIMOS PASSOS:
+
+1. ✅ Tabela no Supabase - CONCLUÍDO
+2. ✅ Chave API obtida - CONCLUÍDO  
+3. ⏳ Configurar no app - PENDENTE (siga os passos acima)
+4. ⏳ Testar envio - PENDENTE
+5. ⏳ Enviar primeira cobrança real - PENDENTE
+
+═══════════════════════════════════════════════════════
+
+📖 Para mais detalhes, consulte:
+   GUIA_NOTIFICACOES_EMAIL.md
+
+═══════════════════════════════════════════════════════
+
