@@ -112,13 +112,13 @@ export function Sidebar() {
               variant="ghost"
               onClick={logout}
               className={cn(
-                "group w-full flex items-center rounded-lg transition-colors text-muted-foreground hover:text-red-600 hover:bg-red-50",
+                "w-full flex items-center rounded-lg transition-colors text-muted-foreground hover:text-red-600 hover:bg-red-50",
                 isCollapsed ? "justify-center py-3 px-5" : "justify-start space-x-3 px-3 py-2"
               )}
               title={isCollapsed ? "Sair" : undefined}
             >
-              <LogOut className="h-5 w-5 flex-shrink-0 group-hover:rotate-[20deg] group-hover:scale-110 transition-all duration-300" />
-              {!isCollapsed && <span className="group-hover:translate-x-1 transition-transform duration-300">Sair</span>}
+              <LogOut className="h-5 w-5 flex-shrink-0" />
+              {!isCollapsed && <span>Sair</span>}
             </Button>
           </div>
         </nav>
