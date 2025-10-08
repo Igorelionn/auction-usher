@@ -95,24 +95,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      // Primeiro buscar o usuário
-      const { data: users, error: userError } = await supabase
+      // Primeiro buscar o usuário por email
+      console.log('🔍 Buscando usuário com email:', cleanEmail);
+      let { data: users, error: userError } = await supabase
         .from('users' as any)
         .select('id, name, email, role, full_name, can_edit, can_create, can_delete, can_manage_users, is_active')
-        .or(`email.eq.${cleanEmail},name.eq.${cleanEmail}`);
+        .eq('email', cleanEmail);
+
+      // Se não encontrar por email, buscar por nome
+      if (!users || users.length === 0) {
+        console.log('👤 Não encontrado por email, buscando por nome:', cleanEmail);
+        const { data: usersByName, error: nameError } = await supabase
+          .from('users' as any)
+          .select('id, name, email, role, full_name, can_edit, can_create, can_delete, can_manage_users, is_active')
+          .eq('name', cleanEmail);
+        
+        users = usersByName;
+        userError = nameError;
+      }
 
       if (userError) {
-        console.error('Erro ao buscar usuário:', userError);
+        console.error('❌ Erro ao buscar usuário:', userError);
         throw new Error("Usuário ou senha incorretos");
       }
 
       if (!users || users.length === 0) {
-        console.log('Usuário não encontrado:', cleanEmail);
+        console.log('❌ Usuário não encontrado:', cleanEmail);
         throw new Error("Usuário ou senha incorretos");
       }
 
       const user = users[0] as any;
-      console.log('Usuário encontrado:', { id: user.id, name: user.name, isActive: user.is_active });
+      console.log('✅ Usuário encontrado:', { 
+        id: user.id, 
+        name: user.name, 
+        email: user.email,
+        isActive: user.is_active 
+      });
 
       // Verificar se o usuário está ativo
       if (!user.is_active) {
@@ -121,7 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Depois buscar as credenciais do usuário
-      console.log('Buscando credenciais do usuário...');
+      console.log('🔑 Buscando credenciais do usuário...');
       const { data: credentials, error: credError } = await supabase
         .from('user_credentials' as any)
         .select('password_hash')
@@ -129,34 +147,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single();
 
       if (credError) {
-        console.error('Erro ao buscar credenciais:', credError);
+        console.error('❌ Erro ao buscar credenciais:', credError);
         throw new Error("Usuário não possui credenciais válidas");
       }
 
-      if (!credentials) {
-        console.log('Credenciais não encontradas');
+      if (!credentials || !credentials.password_hash) {
+        console.log('❌ Credenciais não encontradas ou hash vazio');
         throw new Error("Usuário não possui credenciais válidas");
       }
+
+      console.log('✅ Credenciais encontradas, hash existe');
 
       // Verificar se a senha corresponde usando RPC function
-      console.log('Verificando senha...');
+      console.log('🔐 Verificando senha com verify_password...');
+      console.log('📧 Email para verificação:', user.email);
+      console.log('🔑 Senha recebida (tamanho):', cleanPassword.length, 'caracteres');
+      
       const { data: passwordMatch, error: verifyError } = await supabase
         .rpc('verify_password' as any, {
-          user_email: cleanEmail,
+          user_email: user.email, // Usar o email do banco, não o digitado
           user_password: cleanPassword
         });
 
       if (verifyError) {
-        console.error('Erro na verificação de senha:', verifyError);
+        console.error('❌ Erro na verificação de senha:', verifyError);
+        console.error('❌ Detalhes do erro:', JSON.stringify(verifyError, null, 2));
         throw new Error("Usuário ou senha incorretos");
       }
+
+      console.log('📊 Resultado da verificação:', passwordMatch);
 
       if (!passwordMatch) {
-        console.log('Senha não confere');
+        console.log('❌ Senha não confere');
         throw new Error("Usuário ou senha incorretos");
       }
 
-      console.log('Senha verificada com sucesso');
+      console.log('✅ Senha verificada com sucesso!');
 
       const permissions = {
         can_edit: user.can_edit || false,
