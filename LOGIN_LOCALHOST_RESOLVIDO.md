@@ -58,7 +58,7 @@ VITE v5.x.x ready in xxx ms
 
 1. **Pressione:** `Ctrl + Shift + N` (aba anônima/privada)
 
-2. **Acesse:** http://localhost:5173/login
+2. **Acesse:** http://localhost:8080/login
 
 ---
 
@@ -205,7 +205,7 @@ O `--force` força reconstrução do cache.
 - **Senha:** `@Elionigorrr2010`
 
 **URL Local:**
-- http://localhost:5173/login
+- http://localhost:8080/login
 
 ---
 
@@ -214,7 +214,7 @@ O `--force` força reconstrução do cache.
 1. ✅ Aguarde servidor iniciar (10-30 segundos)
 2. ✅ Limpe cache do navegador (Ctrl + Shift + Del)
 3. ✅ Abra aba anônima (Ctrl + Shift + N)
-4. ✅ Acesse http://localhost:5173/login
+4. ✅ Acesse http://localhost:8080/login
 5. ✅ Faça login com as credenciais
 6. ✅ **Deve funcionar perfeitamente!**
 

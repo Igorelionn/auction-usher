@@ -26,7 +26,7 @@ interface EmailLog {
 
 const DEFAULT_CONFIG: EmailConfig = {
   resendApiKey: 're_SfWdJiMK_7352YoeoJdgw3mBSe2eArUBH',
-  emailRemetente: 'onboarding@resend.dev',
+  emailRemetente: 'notificacoes@grupoliraleiloes.com',
   diasAntesLembrete: 3,
   diasDepoisCobranca: 1,
   enviarAutomatico: true,

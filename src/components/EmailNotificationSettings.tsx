@@ -12,7 +12,7 @@ export function EmailNotificationSettings() {
   const { config, saveConfig, carregarLogs, emailLogs } = useEmailNotifications();
   const [localConfig, setLocalConfig] = useState({
     resendApiKey: 're_SfWdJiMK_7352YoeoJdgw3mBSe2eArUBH', // API Key padrão fixa
-    emailRemetente: 'onboarding@resend.dev', // Email remetente padrão fixo
+    emailRemetente: 'notificacoes@grupoliraleiloes.com', // Email remetente padrão fixo
     diasAntesLembrete: config.diasAntesLembrete,
     diasDepoisCobranca: config.diasDepoisCobranca,
     enviarAutomatico: true, // Sempre automático
