@@ -99,8 +99,21 @@ export function useEmailNotifications() {
     percentualJuros: number = 0,
     tipoJuros: 'simples' | 'composto' = 'simples'
   ): { valorJuros: number; valorTotal: number } => {
-    if (diasAtraso <= 0 || percentualJuros <= 0) {
+    // Validações de segurança
+    if (diasAtraso <= 0 || percentualJuros <= 0 || valorOriginal <= 0) {
       return { valorJuros: 0, valorTotal: valorOriginal };
+    }
+
+    // Limitar dias de atraso a um máximo razoável (5 anos = 1825 dias)
+    if (diasAtraso > 1825) {
+      console.warn(`⚠️ Dias de atraso muito alto (${diasAtraso}), limitando a 1825 dias (5 anos)`);
+      diasAtraso = 1825;
+    }
+
+    // Limitar juros a um máximo razoável (20% ao mês)
+    if (percentualJuros > 20) {
+      console.warn(`⚠️ Percentual de juros muito alto (${percentualJuros}%), limitando a 20%`);
+      percentualJuros = 20;
     }
 
     const taxaMensal = percentualJuros / 100;
@@ -114,6 +127,12 @@ export function useEmailNotifications() {
       // Juros compostos
       const valorTotal = valorOriginal * Math.pow(1 + taxaMensal, mesesAtraso);
       valorJuros = valorTotal - valorOriginal;
+    }
+
+    // Limitar juros a no máximo 500% do valor original (proteção adicional)
+    if (valorJuros > valorOriginal * 5) {
+      console.warn(`⚠️ Juros calculados muito altos (${valorJuros.toFixed(2)}), limitando a 500% do valor original`);
+      valorJuros = valorOriginal * 5;
     }
 
     return {
@@ -201,6 +220,12 @@ export function useEmailNotifications() {
     const hoje = new Date();
     const diasRestantes = differenceInDays(dataVencimento, hoje);
 
+    // Determinar informações de parcela
+    const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
+    const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
+    const parcelaAtual = (auction.arrematante.parcelasPagas || 0) + 1;
+    const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
+
     const templateData = {
       arrematanteNome: auction.arrematante.nome,
       leilaoNome: auction.nome,
@@ -208,6 +233,9 @@ export function useEmailNotifications() {
       valorPagar: auction.arrematante.valorPagar || `R$ ${auction.arrematante.valorPagarNumerico.toFixed(2)}`,
       dataVencimento: format(dataVencimento, "dd 'de' MMMM 'de' yyyy", { locale: ptBR }),
       diasRestantes,
+      tipoPagamento,
+      parcelaAtual,
+      totalParcelas,
     };
 
     const { subject, html } = getLembreteEmailTemplate(templateData);
@@ -275,6 +303,12 @@ export function useEmailNotifications() {
       tipoJuros
     );
 
+    // Determinar informações de parcela
+    const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
+    const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
+    const parcelaAtual = (auction.arrematante.parcelasPagas || 0) + 1;
+    const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
+
     const templateData = {
       arrematanteNome: auction.arrematante.nome,
       leilaoNome: auction.nome,
@@ -284,6 +318,9 @@ export function useEmailNotifications() {
       diasAtraso,
       valorJuros: valorJuros > 0 ? `R$ ${valorJuros.toFixed(2)}` : undefined,
       valorTotal: valorJuros > 0 ? `R$ ${valorTotal.toFixed(2)}` : undefined,
+      tipoPagamento,
+      parcelaAtual,
+      totalParcelas,
     };
 
     const { subject, html } = getCobrancaEmailTemplate(templateData);
@@ -314,12 +351,21 @@ export function useEmailNotifications() {
       return { success: false, message: 'Arrematante não possui email cadastrado' };
     }
 
+    // Determinar informações de parcela
+    const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
+    const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
+    const parcelaAtual = auction.arrematante.parcelasPagas || 0;
+    const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
+
     const templateData = {
       arrematanteNome: auction.arrematante.nome,
       leilaoNome: auction.nome,
       loteNumero: auction.lotes?.[0]?.numero,
       valorPagar: auction.arrematante.valorPagar || `R$ ${auction.arrematante.valorPagarNumerico.toFixed(2)}`,
       dataVencimento: '', // não é usado no template de confirmação
+      tipoPagamento,
+      parcelaAtual,
+      totalParcelas,
     };
 
     const { subject, html } = getConfirmacaoPagamentoEmailTemplate(templateData);
@@ -408,11 +454,12 @@ export function useEmailNotifications() {
     return resultados;
   };
 
-  // Carregar logs de email
+  // Carregar logs de email (apenas os enviados com sucesso)
   const carregarLogs = async (limit: number = 50) => {
     const { data, error } = await supabase
       .from('email_logs')
       .select('*')
+      .eq('sucesso', true) // Filtrar apenas emails enviados com sucesso
       .order('data_envio', { ascending: false })
       .limit(limit);
 
@@ -422,6 +469,38 @@ export function useEmailNotifications() {
     }
 
     setEmailLogs(data || []);
+  };
+
+  // Limpar histórico de emails (apenas para admins)
+  const limparHistorico = async (): Promise<{ success: boolean; message: string }> => {
+    try {
+      const { error } = await supabase
+        .from('email_logs')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000'); // Deletar todos os registros
+
+      if (error) {
+        console.error('Erro ao limpar histórico:', error);
+        return {
+          success: false,
+          message: 'Erro ao limpar histórico de comunicações'
+        };
+      }
+
+      // Atualizar estado local
+      setEmailLogs([]);
+
+      return {
+        success: true,
+        message: 'Histórico de comunicações limpo com sucesso'
+      };
+    } catch (error) {
+      console.error('Erro ao limpar histórico:', error);
+      return {
+        success: false,
+        message: 'Erro inesperado ao limpar histórico'
+      };
+    }
   };
 
   return {
@@ -434,6 +513,8 @@ export function useEmailNotifications() {
     enviarConfirmacao,
     verificarEEnviarAutomatico,
     carregarLogs,
+    limparHistorico,
+    jaEnviouEmail, // Exportar para uso externo
   };
 }
 

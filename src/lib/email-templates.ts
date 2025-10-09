@@ -11,10 +11,26 @@ interface EmailTemplateData {
   diasAtraso?: number;
   valorJuros?: string;
   valorTotal?: string;
+  tipoPagamento?: 'a_vista' | 'entrada_parcelamento' | 'parcelamento';
+  parcelaAtual?: number;
+  totalParcelas?: number;
+  valorEntrada?: string;
 }
 
 export function getLembreteEmailTemplate(data: EmailTemplateData): { subject: string; html: string } {
-  const { arrematanteNome, leilaoNome, loteNumero, valorPagar, dataVencimento, diasRestantes } = data;
+  const { arrematanteNome, leilaoNome, loteNumero, valorPagar, dataVencimento, diasRestantes, tipoPagamento, parcelaAtual, totalParcelas } = data;
+  
+  // Determinar tipo de pagamento humanizado
+  let tipoPagamentoTexto = '';
+  if (tipoPagamento === 'a_vista') {
+    tipoPagamentoTexto = 'Pagamento à Vista';
+  } else if (tipoPagamento === 'entrada_parcelamento') {
+    tipoPagamentoTexto = parcelaAtual === 1 
+      ? 'Entrada' 
+      : `Parcela ${parcelaAtual - 1}/${totalParcelas ? totalParcelas - 1 : '?'}`;
+  } else {
+    tipoPagamentoTexto = `Parcela ${parcelaAtual}/${totalParcelas}`;
+  }
   
   return {
     subject: `Lembrete de Vencimento - ${leilaoNome}`,
@@ -79,6 +95,12 @@ export function getLembreteEmailTemplate(data: EmailTemplateData): { subject: st
                       <tr>
                         <td style="padding: 8px 0; color: #718096; font-size: 14px;">Lote:</td>
                         <td style="padding: 8px 0; color: #2d3748; font-size: 14px; font-weight: 600;">${loteNumero}</td>
+                      </tr>
+                      ` : ''}
+                      ${tipoPagamentoTexto ? `
+                      <tr>
+                        <td style="padding: 8px 0; color: #718096; font-size: 14px;">Tipo:</td>
+                        <td style="padding: 8px 0; color: #2d3748; font-size: 14px; font-weight: 600;">${tipoPagamentoTexto}</td>
                       </tr>
                       ` : ''}
                       <tr>
@@ -170,7 +192,19 @@ export function getLembreteEmailTemplate(data: EmailTemplateData): { subject: st
 }
 
 export function getCobrancaEmailTemplate(data: EmailTemplateData): { subject: string; html: string } {
-  const { arrematanteNome, leilaoNome, loteNumero, valorPagar, dataVencimento, diasAtraso, valorJuros, valorTotal } = data;
+  const { arrematanteNome, leilaoNome, loteNumero, valorPagar, dataVencimento, diasAtraso, valorJuros, valorTotal, tipoPagamento, parcelaAtual, totalParcelas } = data;
+  
+  // Determinar tipo de pagamento humanizado
+  let tipoPagamentoTexto = '';
+  if (tipoPagamento === 'a_vista') {
+    tipoPagamentoTexto = 'Pagamento à Vista';
+  } else if (tipoPagamento === 'entrada_parcelamento') {
+    tipoPagamentoTexto = parcelaAtual === 1 
+      ? 'Entrada' 
+      : `Parcela ${parcelaAtual - 1}/${totalParcelas ? totalParcelas - 1 : '?'}`;
+  } else {
+    tipoPagamentoTexto = `Parcela ${parcelaAtual}/${totalParcelas}`;
+  }
   
   return {
     subject: `Notificação de Débito em Aberto - ${leilaoNome}`,
@@ -246,6 +280,12 @@ export function getCobrancaEmailTemplate(data: EmailTemplateData): { subject: st
                       <tr>
                         <td style="padding: 8px 0; color: #718096; font-size: 14px;">Lote:</td>
                         <td style="padding: 8px 0; color: #2d3748; font-size: 14px; font-weight: 600;">${loteNumero}</td>
+                      </tr>
+                      ` : ''}
+                      ${tipoPagamentoTexto ? `
+                      <tr>
+                        <td style="padding: 8px 0; color: #718096; font-size: 14px;">Tipo:</td>
+                        <td style="padding: 8px 0; color: #2d3748; font-size: 14px; font-weight: 600;">${tipoPagamentoTexto}</td>
                       </tr>
                       ` : ''}
                       <tr>
@@ -345,7 +385,19 @@ export function getCobrancaEmailTemplate(data: EmailTemplateData): { subject: st
 }
 
 export function getConfirmacaoPagamentoEmailTemplate(data: EmailTemplateData): { subject: string; html: string } {
-  const { arrematanteNome, leilaoNome, loteNumero, valorPagar } = data;
+  const { arrematanteNome, leilaoNome, loteNumero, valorPagar, tipoPagamento, parcelaAtual, totalParcelas } = data;
+  
+  // Determinar tipo de pagamento humanizado
+  let tipoPagamentoTexto = '';
+  if (tipoPagamento === 'a_vista') {
+    tipoPagamentoTexto = 'Pagamento à Vista';
+  } else if (tipoPagamento === 'entrada_parcelamento') {
+    tipoPagamentoTexto = parcelaAtual === 1 
+      ? 'Entrada' 
+      : `Parcela ${parcelaAtual - 1}/${totalParcelas ? totalParcelas - 1 : '?'}`;
+  } else {
+    tipoPagamentoTexto = `Parcela ${parcelaAtual}/${totalParcelas}`;
+  }
   
   return {
     subject: `Confirmação de Pagamento - ${leilaoNome}`,
@@ -421,6 +473,12 @@ export function getConfirmacaoPagamentoEmailTemplate(data: EmailTemplateData): {
                       <tr>
                         <td style="padding: 8px 0; color: #718096; font-size: 14px;">Lote:</td>
                         <td style="padding: 8px 0; color: #2d3748; font-size: 14px; font-weight: 600;">${loteNumero}</td>
+                      </tr>
+                      ` : ''}
+                      ${tipoPagamentoTexto ? `
+                      <tr>
+                        <td style="padding: 8px 0; color: #718096; font-size: 14px;">Tipo:</td>
+                        <td style="padding: 8px 0; color: #2d3748; font-size: 14px; font-weight: 600;">${tipoPagamentoTexto}</td>
                       </tr>
                       ` : ''}
                       <tr>

@@ -426,6 +426,116 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
         </div>
       </div>
 
+      {/* Especificação dos Custos */}
+      {auction.detalheCustos && auction.detalheCustos.length > 0 && (
+        <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+          <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
+            Especificação dos Gastos
+          </h2>
+          <div className="p-5 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
+            <div className="space-y-2">
+              {auction.detalheCustos.map((item, index) => (
+                <div key={item.id || index} className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded border border-gray-200">
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-gray-200 text-xs font-semibold text-gray-700">
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
+                    <span className="text-sm text-gray-700">
+                      {item.descricao || 'Item de custo'}
+                    </span>
+                  </div>
+                  <span className="text-sm font-medium text-gray-900">
+                    {formatCurrency(item.valorNumerico)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Patrocínios Recebidos */}
+      {auction.detalhePatrocinios && auction.detalhePatrocinios.length > 0 && (
+        <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+          <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
+            Patrocínios Recebidos
+          </h2>
+          <div className="p-5 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
+            {/* Total de Patrocínios */}
+            <div className="mb-4 pb-3 border-b border-gray-200">
+              <div className="flex justify-between items-center">
+                <div className="text-xs text-slate-500 uppercase tracking-wider" style={{ fontWeight: 500 }}>Total de Patrocínios</div>
+                <div className="text-lg font-light text-slate-900 tracking-tight">
+                  {formatCurrency(auction.patrociniosTotal || 0)}
+                </div>
+              </div>
+            </div>
+
+            {/* Lista de Patrocinadores */}
+            <div className="border-t border-gray-200 pt-4">
+              <div className="text-xs font-medium text-gray-600 uppercase tracking-wide mb-3">Patrocinadores</div>
+              <div className="space-y-2">
+                {auction.detalhePatrocinios.map((item, index) => (
+                  <div key={item.id || index} className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded border border-gray-200">
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-gray-200 text-xs font-semibold text-gray-700">
+                        {String(index + 1).padStart(2, '0')}
+                      </span>
+                      <span className="text-sm text-gray-700">
+                        {item.nomePatrocinador || 'Patrocinador'}
+                      </span>
+                    </div>
+                    <span className="text-sm font-medium text-gray-900">
+                      {formatCurrency(item.valorNumerico)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Resumo Financeiro */}
+            {auction.custosNumerico && (
+              <div className="mt-4 p-4 bg-gray-50 rounded border border-gray-200">
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-600">Custos Totais:</span>
+                    <span className="font-medium text-gray-900">
+                      {formatCurrency(auction.custosNumerico)}
+                    </span>
+                  </div>
+                  
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-600">Patrocínios:</span>
+                    <span className="font-medium text-gray-700">
+                      - {formatCurrency(auction.patrociniosTotal || 0)}
+                    </span>
+                  </div>
+                  
+                  <div className="border-t border-gray-300 pt-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-semibold text-gray-900">
+                        {(auction.patrociniosTotal || 0) > auction.custosNumerico ? 'Superávit:' : 'Saldo Líquido:'}
+                      </span>
+                      <span className="text-base font-medium text-gray-900">
+                        {(() => {
+                          const saldo = auction.custosNumerico - (auction.patrociniosTotal || 0);
+                          return formatCurrency(Math.abs(saldo));
+                        })()}
+                      </span>
+                    </div>
+                    {(auction.patrociniosTotal || 0) > auction.custosNumerico && (
+                      <p className="text-xs text-gray-500 mt-1 text-right">
+                        Superávit de patrocínios
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
        {/* Configurações de Pagamento por Lote */}
        <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
          <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>

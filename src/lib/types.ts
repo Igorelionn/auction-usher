@@ -10,6 +10,20 @@ export interface DocumentoInfo {
   categoria?: string; // categoria da foto (lote, mercadoria, etc.)
 }
 
+export interface ItemCustoInfo {
+  id: string;
+  descricao: string; // descrição do gasto (ex: "Transporte", "Alimentação")
+  valor: string; // valor como string para preservar formatação
+  valorNumerico: number; // valor numérico para cálculos
+}
+
+export interface ItemPatrocinioInfo {
+  id: string;
+  nomePatrocinador: string; // nome do patrocinador
+  valor: string; // valor como string para preservar formatação
+  valorNumerico: number; // valor numérico para cálculos
+}
+
 export interface MercadoriaInfo {
   id: string;
   nome?: string; // nome personalizado da mercadoria (opcional)
@@ -79,6 +93,9 @@ export interface Auction {
   status: AuctionStatus;
   custos?: string; // custos como string para preservar formatação
   custosNumerico?: number; // custos numérico para cálculos
+  detalheCustos?: ItemCustoInfo[]; // detalhamento dos custos
+  detalhePatrocinios?: ItemPatrocinioInfo[]; // detalhamento dos patrocínios
+  patrociniosTotal?: number; // total de patrocínios recebidos
   lotes?: LoteInfo[]; // informações dos lotes do leilão
   fotosMercadoria?: DocumentoInfo[]; // fotos da mercadoria
   historicoNotas?: string[];

@@ -1813,6 +1813,9 @@ function Leiloes() {
                 status: editingAuction.status,
                 custos: editingAuction.custos,
                 custosNumerico: editingAuction.custosNumerico,
+                detalheCustos: editingAuction.detalheCustos || [],
+                detalhePatrocinios: editingAuction.detalhePatrocinios || [],
+                patrociniosTotal: editingAuction.patrociniosTotal,
                 lotes: editingAuction.lotes || [],
                 fotosMercadoria: editingAuction.fotosMercadoria || [], // Mantido no formulário
                 documentos: editingAuction.documentos || [], // Mantido no formulário

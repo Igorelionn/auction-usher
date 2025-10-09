@@ -257,6 +257,9 @@ function Relatorios() {
   const [previewType, setPreviewType] = useState<'leiloes' | 'inadimplencia' | 'historico' | 'faturas'>('leiloes');
   const [paymentTypeFilter, setPaymentTypeFilter] = useState<'todos' | 'a_vista' | 'parcelamento' | 'entrada_parcelamento'>('todos');
   
+  // Estado para o gráfico de evolução
+  const [hoveredPoint, setHoveredPoint] = useState<any>(null);
+  
   // Estados para o modal de PDF temporário (invisível)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedAuctionForExport, setSelectedAuctionForExport] = useState<string>("");
@@ -1462,8 +1465,6 @@ function Relatorios() {
                               
                               {/* Gráfico com áreas preenchidas e tooltips */}
                               {(() => {
-                                const [hoveredPoint, setHoveredPoint] = React.useState(null);
-                                
                                 // Calcular dados de faturamento e despesas REAIS baseado no período selecionado
                                 const dadosGrafico = [];
                                 const tipoGrafico = config.periodo.inicio || 'mensal';
@@ -1523,6 +1524,25 @@ function Relatorios() {
                                     return sum;
                                   }, 0) || 0;
                                   
+                                  // Adicionar superávit de patrocínios ao faturamento
+                                  const superavitPatrocinios = auctions?.reduce((sum, auction) => {
+                                    if (!auction.arquivado) {
+                                      const dataLeilao = new Date(auction.dataInicio + 'T00:00:00.000');
+                                      if (dataLeilao >= dataInicio && dataLeilao <= dataFim) {
+                                        const custosNumerico = auction.custosNumerico || 0;
+                                        const patrociniosTotal = auction.patrociniosTotal || 0;
+                                        
+                                        // Se há superávit, adicionar ao faturamento
+                                        if (patrociniosTotal > custosNumerico) {
+                                          return sum + (patrociniosTotal - custosNumerico);
+                                        }
+                                      }
+                                    }
+                                    return sum;
+                                  }, 0) || 0;
+                                  
+                                  const faturamentoTotalPeriodo = faturamentoPeriodo + superavitPatrocinios;
+                                  
                                   // DESPESAS = Custos de todos os leilões com custos definidos (passados ou futuros)
                                   const despesasPeriodo = auctions?.reduce((sum, auction) => {
                                     if (!auction.arquivado) {
@@ -1550,7 +1570,7 @@ function Relatorios() {
                                   }, 0) || 0;
                                   return {
                                     mes: label,
-                                    faturamento: faturamentoPeriodo,
+                                    faturamento: faturamentoTotalPeriodo,
                                     despesas: despesasPeriodo
                                   };
                                 };
@@ -2334,6 +2354,110 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                     </div>
                   </div>
                 </div>
+
+                {/* Especificação dos Custos */}
+                {auction.detalheCustos && auction.detalheCustos.length > 0 && (
+                  <div className="pt-5" style={{ borderTop: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
+                    <h4 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', pageBreakAfter: 'avoid' }}>
+                      Especificação dos Gastos
+                    </h4>
+                    <div className="space-y-2">
+                      {auction.detalheCustos.map((item: any, index: number) => (
+                        <div key={item.id || index} className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded border border-gray-200">
+                          <div className="flex items-center gap-3">
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-gray-200 text-xs font-semibold text-gray-700">
+                              {String(index + 1).padStart(2, '0')}
+                            </span>
+                            <span className="text-sm text-gray-700">
+                              {item.descricao || 'Item de custo'}
+                            </span>
+                          </div>
+                          <span className="text-sm font-medium text-gray-900">
+                            {formatCurrency(item.valorNumerico)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Patrocínios Recebidos */}
+                {auction.detalhePatrocinios && auction.detalhePatrocinios.length > 0 && (
+                  <div className="pt-5" style={{ borderTop: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
+                    <h4 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', pageBreakAfter: 'avoid' }}>
+                      Patrocínios Recebidos
+                    </h4>
+                    
+                    {/* Total de Patrocínios */}
+                    <div className="mb-4 pb-3 border-b border-gray-200">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-slate-500 uppercase tracking-wider" style={{ fontWeight: 500 }}>Total de Patrocínios</span>
+                        <span className="text-lg font-light text-slate-900 tracking-tight">
+                          {formatCurrency(auction.patrociniosTotal || 0)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Lista de Patrocinadores */}
+                    <div className="space-y-2 mb-4">
+                      {auction.detalhePatrocinios.map((item: any, index: number) => (
+                        <div key={item.id || index} className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded border border-gray-200">
+                          <div className="flex items-center gap-3">
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-gray-200 text-xs font-semibold text-gray-700">
+                              {String(index + 1).padStart(2, '0')}
+                            </span>
+                            <span className="text-sm text-gray-700">
+                              {item.nomePatrocinador || 'Patrocinador'}
+                            </span>
+                          </div>
+                          <span className="text-sm font-medium text-gray-900">
+                            {formatCurrency(item.valorNumerico)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Resumo Financeiro */}
+                    {auction.custosNumerico && (
+                      <div className="p-4 bg-gray-50 rounded border border-gray-200">
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="text-gray-600">Custos Totais:</span>
+                            <span className="font-medium text-gray-900">
+                              {formatCurrency(auction.custosNumerico)}
+                            </span>
+                          </div>
+                          
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="text-gray-600">Patrocínios:</span>
+                            <span className="font-medium text-gray-700">
+                              - {formatCurrency(auction.patrociniosTotal || 0)}
+                            </span>
+                          </div>
+                          
+                          <div className="border-t border-gray-300 pt-3">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm font-semibold text-gray-900">
+                                {(auction.patrociniosTotal || 0) > auction.custosNumerico ? 'Superávit:' : 'Saldo Líquido:'}
+                              </span>
+                              <span className="text-base font-medium text-gray-900">
+                                {(() => {
+                                  const saldo = auction.custosNumerico - (auction.patrociniosTotal || 0);
+                                  return formatCurrency(Math.abs(saldo));
+                                })()}
+                              </span>
+                            </div>
+                            {(auction.patrociniosTotal || 0) > auction.custosNumerico && (
+                              <p className="text-xs text-gray-500 mt-1 text-right">
+                                Superávit de patrocínios
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Informações do Arrematante */}
                 {auction.arrematante && (

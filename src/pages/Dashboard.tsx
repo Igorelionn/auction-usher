@@ -243,6 +243,23 @@ export default function Dashboard() {
       return total;
     }, 0);
 
+  // Calcular superávit de patrocínios (quando patrocínios > custos)
+  const totalSuperavitPatrocinios = activeAuctions.reduce((total, auction) => {
+    const custosNumerico = auction.custosNumerico || 0;
+    const patrociniosTotal = auction.patrociniosTotal || 0;
+    
+    // Se há superávit de patrocínios, adicionar ao total
+    if (patrociniosTotal > custosNumerico) {
+      const superavit = patrociniosTotal - custosNumerico;
+      return total + superavit;
+    }
+    
+    return total;
+  }, 0);
+
+  // Total recebido final = pagamentos dos arrematantes + superávit de patrocínios
+  const totalRecebidoComSuperavit = localTotalRecebido + totalSuperavitPatrocinios;
+
   // Calcular inadimplentes localmente com lógica correta
   const localOverdueCount = activeAuctions
     .filter(auction => auction.arrematante && isOverdue(auction.arrematante, auction))
@@ -409,7 +426,7 @@ export default function Dashboard() {
   const totalReceiverNumber = localTotalAReceber;
   const auctionCostsNumber = stats?.total_custos || 0;
   const overdueCount = localOverdueCount;
-  const totalRecebido = localTotalRecebido;
+  const totalRecebido = totalRecebidoComSuperavit;
   const activeAuctionsCount = localActiveAuctionsCount;
   const scheduledAuctionsCount = activeAuctions.filter(a => a.status === "agendado").length;
   const totalArrematantes = localTotalArrematantes;
@@ -853,6 +870,11 @@ export default function Dashboard() {
                   </p>
                   <div className="h-px w-20 bg-gray-300 mx-auto mb-4"></div>
                   <p className="text-4xl font-extralight text-gray-900 mb-2 tracking-tight">{currency.format(totalRecebido)}</p>
+                  {totalSuperavitPatrocinios > 0 && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      Inclui {currency.format(totalSuperavitPatrocinios)} de superávit de patrocínios
+                    </p>
+                  )}
                 </div>
               </div>
 

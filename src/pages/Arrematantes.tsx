@@ -4555,11 +4555,8 @@ const ArrematantePdfReport = ({ arrematante }: { arrematante: ArrematanteExtendi
           </div>
           <div className="col-span-2">
             <strong>Status do Pagamento:</strong>{' '}
-            <span className={`font-semibold ${
-              arrematante.statusPagamento === 'pago' ? 'text-green-600' :
-              arrematante.statusPagamento === 'pendente' ? 'text-yellow-600' : 'text-red-600'
-            }`}>
-              {arrematante.statusPagamento === 'pago' ? 'PAGO' :
+            <span className="font-semibold text-gray-900">
+              {arrematante.statusPagamento === 'pago' ? 'QUITADO' :
                arrematante.statusPagamento === 'pendente' ? 'PENDENTE' : 'EM ATRASO'}
             </span>
           </div>
@@ -4648,41 +4645,69 @@ const ArrematantePdfReport = ({ arrematante }: { arrematante: ArrematanteExtendi
         </div>
       </div>
 
-      {/* Configuração de Parcelas */}
+      {/* Configuração de Parcelas ou Forma de Pagamento */}
       <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
         <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-3 border-b border-gray-200 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-          Parcelamento e Cronograma
+          {arrematante.quantidadeParcelas && arrematante.quantidadeParcelas > 1 
+            ? 'Parcelamento e Cronograma' 
+            : 'Modalidade de Pagamento'}
         </h2>
         <div className="grid grid-cols-2 gap-6">
-          <div>
-            <strong>Total de Parcelas:</strong> {arrematante.quantidadeParcelas || 'Não informado'}
-          </div>
-          <div>
-            <strong>Parcelas Pagas:</strong>{' '}
-            <span className="font-semibold text-black">
-              {arrematante.parcelasPagas || 0} de {arrematante.quantidadeParcelas || 0}
-            </span>
-          </div>
-          <div>
-            <strong>Dia de Vencimento:</strong> Todo dia {arrematante.diaVencimentoMensal || 'Não definido'}
-          </div>
-          <div>
-            <strong>Mês de Início:</strong> {formatMonthYear(arrematante.mesInicioPagamento)}
-          </div>
-          <div className="col-span-2">
-            <strong>Progresso do Pagamento:</strong>
-            <div className="mt-2 bg-gray-200 rounded-full h-4">
-              <div 
-                className="bg-blue-500 h-4 rounded-full transition-all duration-300"
-                style={{ 
-                  width: `${((arrematante.parcelasPagas || 0) / (arrematante.quantidadeParcelas || 1)) * 100}%` 
-                }}
-              ></div>
-            </div>
-            <p className="text-sm text-gray-600 mt-1">
-              {Math.round(((arrematante.parcelasPagas || 0) / (arrematante.quantidadeParcelas || 1)) * 100)}% concluído
-            </p>
-          </div>
+          {arrematante.quantidadeParcelas && arrematante.quantidadeParcelas > 1 ? (
+            <>
+              <div>
+                <strong>Total de Parcelas:</strong> {arrematante.quantidadeParcelas}
+              </div>
+              <div>
+                <strong>Parcelas Pagas:</strong>{' '}
+                <span className="font-semibold text-black">
+                  {arrematante.parcelasPagas || 0} de {arrematante.quantidadeParcelas}
+                </span>
+              </div>
+              <div>
+                <strong>Dia de Vencimento:</strong> Todo dia {arrematante.diaVencimentoMensal || 'Não definido'}
+              </div>
+              <div>
+                <strong>Mês de Início:</strong> {formatMonthYear(arrematante.mesInicioPagamento)}
+              </div>
+              <div className="col-span-2">
+                <strong>Progresso do Pagamento:</strong>
+                <div className="mt-2 bg-gray-200 rounded-full h-4">
+                  <div 
+                    className="bg-gray-700 h-4 rounded-full transition-all duration-300"
+                    style={{ 
+                      width: `${((arrematante.parcelasPagas || 0) / (arrematante.quantidadeParcelas || 1)) * 100}%` 
+                    }}
+                  ></div>
+                </div>
+                <p className="text-sm text-gray-600 mt-1">
+                  {Math.round(((arrematante.parcelasPagas || 0) / (arrematante.quantidadeParcelas || 1)) * 100)}% concluído
+                </p>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="col-span-2">
+                <strong>Forma de Pagamento:</strong> Pagamento à Vista
+              </div>
+              <div>
+                <strong>Data de Vencimento:</strong>{' '}
+                {arrematante.mesInicioPagamento && arrematante.diaVencimentoMensal
+                  ? (() => {
+                      const [year, month] = arrematante.mesInicioPagamento.split('-');
+                      const date = new Date(parseInt(year), parseInt(month) - 1, arrematante.diaVencimentoMensal);
+                      return date.toLocaleDateString('pt-BR');
+                    })()
+                  : 'Não informado'}
+              </div>
+              <div>
+                <strong>Status:</strong>{' '}
+                <span className="font-semibold text-gray-900">
+                  {arrematante.pago ? 'PAGO' : 'PENDENTE'}
+                </span>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -4711,10 +4736,7 @@ const ArrematantePdfReport = ({ arrematante }: { arrematante: ArrematanteExtendi
                 return (
                   <div key={index} className={`p-3 rounded border ${isPaga ? 'bg-green-50 border-green-200' : temJuros ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
                     <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        {isPaga && <div className="w-2 h-2 bg-green-500 rounded-full"></div>}
-                        {!isPaga && temJuros && <div className="w-2 h-2 bg-red-500 rounded-full"></div>}
-                        {!isPaga && !temJuros && <div className="w-2 h-2 bg-gray-400 rounded-full"></div>}
+                      <div>
                         <span className="font-medium text-gray-800">
                           {index + 1}ª Parcela
                         </span>
@@ -4725,9 +4747,9 @@ const ArrematantePdfReport = ({ arrematante }: { arrematante: ArrematanteExtendi
                         </div>
                       </div>
                     </div>
-                    <div className="mt-1 text-sm text-gray-600 flex justify-between">
+                    <div className="mt-1 text-sm text-gray-700 flex justify-between">
                       <span>Vence em: {dataVencimento.toLocaleDateString('pt-BR')}</span>
-                      <span className={`font-medium ${isPaga ? 'text-green-600' : temJuros ? 'text-red-600' : 'text-yellow-600'}`}>
+                      <span className="font-medium text-gray-900">
                         {isPaga ? 'PAGA' : temJuros ? 'ATRASADA' : 'PENDENTE'}
                       </span>
                     </div>
@@ -4739,35 +4761,38 @@ const ArrematantePdfReport = ({ arrematante }: { arrematante: ArrematanteExtendi
         </div>
       )}
 
-      {/* Histórico de Pagamentos (se disponível) */}
+      {/* Histórico de Pagamentos */}
       {arrematante.parcelasPagas && arrematante.parcelasPagas > 0 && (
         <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
           <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-3 border-b border-gray-200 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-            Resumo dos Pagamentos
+            Resumo dos Pagamentos Realizados
           </h2>
           <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-              <strong className="text-green-800">Parcelas Quitadas</strong>
+            <div className="mb-3">
+              <strong className="text-gray-900 text-base">Valores Quitados</strong>
             </div>
-            <p className="text-green-700">
-              {arrematante.parcelasPagas} parcela{arrematante.parcelasPagas > 1 ? 's' : ''} de{' '}
-              {(() => {
-                const valorTotal = typeof arrematante.valorPagar === 'string' 
-                  ? parseFloat(arrematante.valorPagar.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.'))
-                  : parseFloat(arrematante.valorPagar);
-                const valorPorParcela = valorTotal / (arrematante.quantidadeParcelas || 1);
-                return formatCurrency(valorPorParcela);
-              })()}{' '}
-              cada, totalizando{' '}
-              {(() => {
-                const valorTotal = typeof arrematante.valorPagar === 'string' 
-                  ? parseFloat(arrematante.valorPagar.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.'))
-                  : parseFloat(arrematante.valorPagar);
-                const valorPorParcela = valorTotal / (arrematante.quantidadeParcelas || 1);
-                const totalPago = (arrematante.parcelasPagas || 0) * valorPorParcela;
-                return formatCurrency(totalPago);
-              })()}
+            <p className="text-gray-800 leading-relaxed">
+              {arrematante.parcelasPagas} {arrematante.parcelasPagas > 1 ? 'parcelas quitadas' : 'parcela quitada'} no valor de{' '}
+              <span className="font-semibold text-gray-900">
+                {(() => {
+                  const valorTotal = typeof arrematante.valorPagar === 'string' 
+                    ? parseFloat(arrematante.valorPagar.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.'))
+                    : parseFloat(arrematante.valorPagar);
+                  const valorPorParcela = valorTotal / (arrematante.quantidadeParcelas || 1);
+                  return formatCurrency(valorPorParcela);
+                })()}
+              </span>{' '}
+              cada, representando um montante total de{' '}
+              <span className="font-semibold text-gray-900">
+                {(() => {
+                  const valorTotal = typeof arrematante.valorPagar === 'string' 
+                    ? parseFloat(arrematante.valorPagar.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.'))
+                    : parseFloat(arrematante.valorPagar);
+                  const valorPorParcela = valorTotal / (arrematante.quantidadeParcelas || 1);
+                  const totalPago = (arrematante.parcelasPagas || 0) * valorPorParcela;
+                  return formatCurrency(totalPago);
+                })()}
+              </span>.
             </p>
           </div>
         </div>
@@ -4779,13 +4804,13 @@ const ArrematantePdfReport = ({ arrematante }: { arrematante: ArrematanteExtendi
           Informações Adicionais
         </h2>
         <div className="bg-gray-50 p-4 rounded-lg">
-          <p className="text-gray-700">
+          <p className="text-gray-700 leading-relaxed">
             Este relatório foi gerado com base nos dados cadastrais e transações registradas no sistema.
             Todas as informações financeiras estão atualizadas até a data de geração deste documento.
             {arrematante.statusPagamento === 'atrasado' && (
-              <span className="block mt-2 text-red-600 font-medium">
-                ⚠️ ATENÇÃO: Este arrematante possui pagamentos em atraso. 
-                Recomenda-se contato imediato para regularização.
+              <span className="block mt-3 text-gray-900 font-semibold border-l-4 border-gray-600 pl-3 py-2">
+                ATENÇÃO: Este arrematante possui pagamentos em atraso. 
+                Recomenda-se contato imediato para regularização da situação financeira.
               </span>
             )}
           </p>

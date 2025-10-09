@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 import { useAutoEmailNotifications } from "@/hooks/use-auto-email-notifications";
+import { usePaymentEmailWatcher } from "@/hooks/use-payment-email-watcher";
 import Dashboard from "./pages/Dashboard";
 import Leiloes from "./pages/Leiloes";
 import Arrematantes from "./pages/Arrematantes";
@@ -36,7 +37,8 @@ const queryClient = new QueryClient({
 // Componente wrapper para sincronização em tempo real e emails automáticos
 function AppWithRealtime({ children }: { children: React.ReactNode }) {
   useRealtimeSync();
-  useAutoEmailNotifications(); // Sistema de envio automático de emails
+  useAutoEmailNotifications(); // Sistema de envio automático de emails (lembretes e cobranças)
+  usePaymentEmailWatcher(); // Sistema de envio de confirmação de pagamento
   return <>{children}</>;
 }
 

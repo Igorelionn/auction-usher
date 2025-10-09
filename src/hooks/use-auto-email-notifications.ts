@@ -16,7 +16,7 @@ import { parseISO, differenceInDays, isAfter, isBefore } from 'date-fns';
  */
 export function useAutoEmailNotifications() {
   const { auctions } = useSupabaseAuctions();
-  const { config, enviarLembrete, enviarCobranca } = useEmailNotifications();
+  const { config, enviarLembrete, enviarCobranca, jaEnviouEmail } = useEmailNotifications();
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const ultimaVerificacaoRef = useRef<string>('');
 
@@ -82,6 +82,14 @@ export function useAutoEmailNotifications() {
 
       // LEMBRETE: Enviar X dias antes do vencimento
       if (diasDiferenca > 0 && diasDiferenca <= config.diasAntesLembrete) {
+        // Verificar se já enviou lembrete hoje
+        const jaEnviou = await jaEnviouEmail(auction.id, 'lembrete');
+        
+        if (jaEnviou) {
+          console.log(`⏭️ Lembrete já foi enviado hoje para ${auction.arrematante.nome}, pulando...`);
+          continue;
+        }
+        
         console.log(`📧 Enviando lembrete para ${auction.arrematante.nome} (${diasDiferenca} dias para vencer)`);
         
         const resultado = await enviarLembrete(auction);
@@ -95,6 +103,14 @@ export function useAutoEmailNotifications() {
 
       // COBRANÇA: Enviar X dias após o vencimento
       if (diasDiferenca < 0 && Math.abs(diasDiferenca) >= config.diasDepoisCobranca) {
+        // Verificar se já enviou cobrança hoje
+        const jaEnviou = await jaEnviouEmail(auction.id, 'cobranca');
+        
+        if (jaEnviou) {
+          console.log(`⏭️ Cobrança já foi enviada hoje para ${auction.arrematante.nome}, pulando...`);
+          continue;
+        }
+        
         console.log(`⚠️ Enviando cobrança para ${auction.arrematante.nome} (${Math.abs(diasDiferenca)} dias atrasado)`);
         
         const resultado = await enviarCobranca(auction);

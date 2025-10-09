@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Auction, AuctionStatus, DocumentoInfo, MercadoriaInfo, LoteInfo } from "@/lib/types";
+import { Auction, AuctionStatus, DocumentoInfo, MercadoriaInfo, LoteInfo, ItemCustoInfo, ItemPatrocinioInfo } from "@/lib/types";
 import { parseCurrencyToNumber } from "@/lib/utils";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,14 @@ import {
   AlertDialogHeader, 
   AlertDialogTitle 
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { 
   Calendar, 
   MapPin, 
@@ -40,7 +48,8 @@ import {
   FileSpreadsheet,
   Plus,
   Pencil,
-  CreditCard
+  CreditCard,
+  List
 } from "lucide-react";
 
 export interface AuctionFormValues extends Omit<Auction, "id"> {}
@@ -82,17 +91,9 @@ export function AuctionForm({
     const handleLoteChanged = (event: CustomEvent) => {
       const { auctionId, loteId, lote, action, allLotes } = event.detail;
       
-      console.log("📡 AuctionForm recebeu evento loteChanged:", {
-        auctionId,
-        loteId,
-        action,
-        currentAuctionId: initial.id,
-        hasLotes: !!(values.lotes && values.lotes.length > 0)
-      });
       
       // Verificar se o lote pertence ao leilão atual
       if (initial.id && auctionId === initial.id) {
-        console.log("✅ Lote pertence ao leilão atual, atualizando...");
         
         // Atualizar os lotes do formulário com os dados mais recentes
         const newValues = { ...values, lotes: allLotes };
@@ -106,7 +107,6 @@ export function AuctionForm({
           onChange(newValues, 'lotes');
         }
         
-        console.log("✅ Lotes sincronizados com sucesso no AuctionForm");
       }
     };
 
@@ -135,10 +135,6 @@ export function AuctionForm({
     
     // 🔄 SINCRONIZAÇÃO: Emitir evento quando lotes forem modificados
     if (key === 'lotes' && initial.id) {
-      console.log("📡 AuctionForm emitindo evento loteChangedFromForm:", {
-        auctionId: initial.id,
-        lotesCount: (val as LoteInfo[])?.length || 0
-      });
       
       window.dispatchEvent(new CustomEvent('loteChangedFromForm', {
         detail: {
@@ -281,7 +277,6 @@ export function AuctionForm({
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
-    console.log(`📤 Upload de ${files.length} arquivo(s) do tipo: ${tipo}`);
     
     // Processar todos os arquivos e coletar em um array
     const novosDocumentos: DocumentoInfo[] = [];
@@ -303,7 +298,6 @@ export function AuctionForm({
         tempBlobUrlsRef.current.add(blobUrl);
         novosDocumentos.push(novoDocumento);
         
-        console.log(`✅ Arquivo processado: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
       } catch (error) {
         console.error("❌ Erro ao processar arquivo:", file.name, error);
       }
@@ -314,11 +308,9 @@ export function AuctionForm({
       if (tipo === 'fotosMercadoria') {
         const atualizados = [...(values.fotosMercadoria || []), ...novosDocumentos];
         update("fotosMercadoria", atualizados);
-        console.log(`📸 ${novosDocumentos.length} foto(s) adicionada(s). Total: ${atualizados.length}`);
       } else {
         const atualizados = [...(values.documentos || []), ...novosDocumentos];
         update("documentos", atualizados);
-        console.log(`📄 ${novosDocumentos.length} documento(s) adicionado(s). Total: ${atualizados.length}`);
       }
     }
 
@@ -405,6 +397,70 @@ export function AuctionForm({
     return "";
   });
 
+  // Estados para detalhamento de custos
+  const [isCostDetailDialogOpen, setIsCostDetailDialogOpen] = useState(false);
+  const [costItems, setCostItems] = useState<ItemCustoInfo[]>(initial.detalheCustos || []);
+  
+  // Sincronizar costItems quando o initial mudar (ao carregar leilão para edição)
+  useEffect(() => {
+    if (!hasUserChanges && initial.detalheCustos) {
+      setCostItems(initial.detalheCustos);
+    }
+  }, [initial.detalheCustos, hasUserChanges]);
+  
+  // Sincronizar costItems quando o dialog abrir
+  useEffect(() => {
+    if (isCostDetailDialogOpen) {
+      setCostItems(values.detalheCustos || []);
+    }
+  }, [isCostDetailDialogOpen]);
+
+  // Função para atualizar os itens de custo e recalcular o total
+  const updateCostItems = (items: ItemCustoInfo[]) => {
+    setCostItems(items);
+    
+    // Atualizar values de forma síncrona
+    const newValues = { ...values, detalheCustos: items };
+    setValues(newValues);
+    setHasUserChanges(true);
+    
+    // Notificar onChange se existir
+    if (onChange) {
+      onChange(newValues, "detalheCustos");
+    }
+  };
+
+  // Estados para detalhamento de patrocínios
+  const [isSponsorDetailDialogOpen, setIsSponsorDetailDialogOpen] = useState(false);
+  const [sponsorItems, setSponsorItems] = useState<ItemPatrocinioInfo[]>(initial.detalhePatrocinios || []);
+  
+  // Sincronizar sponsorItems quando o initial mudar (ao carregar leilão para edição)
+  useEffect(() => {
+    if (!hasUserChanges && initial.detalhePatrocinios) {
+      setSponsorItems(initial.detalhePatrocinios);
+    }
+  }, [initial.detalhePatrocinios, hasUserChanges]);
+  
+  // Sincronizar sponsorItems quando o dialog abrir
+  useEffect(() => {
+    if (isSponsorDetailDialogOpen) {
+      setSponsorItems(values.detalhePatrocinios || []);
+    }
+  }, [isSponsorDetailDialogOpen]);
+  
+  // Função para calcular e atualizar o total baseado nos itens
+  const calcularEAtualizarTotal = (items: ItemCustoInfo[]) => {
+    const total = items.reduce((sum, item) => sum + item.valorNumerico, 0);
+    
+    const totalFormatado = total.toLocaleString('pt-BR', { 
+      minimumFractionDigits: 2, 
+      maximumFractionDigits: 2 
+    });
+    
+    setCostInputValue(totalFormatado);
+    update("custos", totalFormatado);
+    update("custosNumerico", total);
+  };
 
   // Função para atualizar status automaticamente baseado na data
   const updateStatusBasedOnDate = useCallback((dataInicio: string, dataEncerramento?: string) => {
@@ -655,39 +711,505 @@ export function AuctionForm({
                   <Label htmlFor="custos" className="text-sm font-medium text-gray-700">
                   Custos Estimados (R$)
                 </Label>
-                <div className="relative">
-                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-sm font-medium text-gray-500">
-                      R$
-                    </span>
-                  <Input 
-                    id="custos"
-                      type="text" 
-                      value={costInputValue} 
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        // Permite digitação livre de números, pontos, vírgulas OU campo vazio
-                        if (value === "" || /^[\d.,]*$/.test(value)) {
-                          setCostInputValue(value);
-                          setHasUserChanges(true);
-                        }
-                      }}
-                      onBlur={() => {
-                        // Salva exatamente o que está no campo
-                        const finalValue = costInputValue;
-                        const numericValue = parseCurrencyToNumber(finalValue);
-                        update("custos", finalValue);
-                        update("custosNumerico", numericValue);
-                      }}
-                      onFocus={() => {
-                        // Focus event handler - pode ser usado para formatação futura
-                      }}
-                      className="h-11 pl-12 border-gray-300 focus:border-black focus:ring-0 focus-visible:ring-0 bg-white"
-                    placeholder="0,00"
-                  />
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-sm font-medium text-gray-500">
+                        R$
+                      </span>
+                    <Input 
+                      id="custos"
+                        type="text" 
+                        value={costInputValue} 
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          // Permite digitação livre de números, pontos, vírgulas OU campo vazio
+                          if (value === "" || /^[\d.,]*$/.test(value)) {
+                            setCostInputValue(value);
+                            setHasUserChanges(true);
+                          }
+                        }}
+                        onBlur={() => {
+                          // Salva exatamente o que está no campo
+                          const finalValue = costInputValue;
+                          const numericValue = parseCurrencyToNumber(finalValue);
+                          update("custos", finalValue);
+                          update("custosNumerico", numericValue);
+                        }}
+                        onFocus={() => {
+                          // Focus event handler - pode ser usado para formatação futura
+                        }}
+                        className="h-11 pl-12 border-gray-300 focus:border-black focus:ring-0 focus-visible:ring-0 bg-white"
+                      placeholder="0,00"
+                    />
+                  </div>
+                  
+                  <Dialog open={isCostDetailDialogOpen} onOpenChange={setIsCostDetailDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-11 px-3 border-gray-300 hover:bg-gray-100 hover:border-gray-400 text-gray-700 hover:text-gray-700"
+                      >
+                        <List className="h-4 w-4 mr-2" />
+                        Detalhar
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col bg-white">
+                      {/* Header Clean */}
+                      <DialogHeader className="px-10 pt-8 pb-6 border-b">
+                        <DialogTitle className="text-2xl font-semibold text-gray-900">
+                          Especificação de Custos
+                        </DialogTitle>
+                        <DialogDescription className="text-sm text-gray-600 mt-2">
+                          Discrimine cada item de custo para compor o orçamento total do leilão
+                        </DialogDescription>
+                      </DialogHeader>
+                      
+                      {/* Tabela de Itens */}
+                      <div className="flex-1 overflow-y-auto px-10 py-6">
+                        {/* Cabeçalho da Tabela */}
+                        {costItems.length > 0 && (
+                          <div className="grid grid-cols-12 gap-4 px-4 pb-3 mb-3 border-b">
+                            <div className="col-span-1 text-xs font-semibold text-gray-500 uppercase">Nº</div>
+                            <div className="col-span-6 text-xs font-semibold text-gray-500 uppercase">Descrição</div>
+                            <div className="col-span-4 text-xs font-semibold text-gray-500 uppercase">Valor</div>
+                            <div className="col-span-1"></div>
+                          </div>
+                        )}
+                        
+                        <div className="space-y-2">
+                          {costItems.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-20 text-center">
+                              <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center mb-4">
+                                <DollarSign className="h-8 w-8 text-gray-400" />
+                              </div>
+                              <p className="text-base font-medium text-gray-900 mb-1">Nenhum item de custo cadastrado</p>
+                              <p className="text-sm text-gray-500">
+                                Adicione itens para especificar os custos do leilão
+                              </p>
+                            </div>
+                          ) : (
+                            costItems.map((item, index) => (
+                              <div 
+                                key={item.id} 
+                                className="group grid grid-cols-12 gap-4 items-center px-4 py-3 hover:bg-gray-50 border border-transparent hover:border-gray-200 rounded-lg transition-all"
+                              >
+                                {/* Número */}
+                                <div className="col-span-1">
+                                  <span className="inline-flex items-center justify-center w-8 h-8 rounded bg-gray-100 text-sm font-semibold text-gray-700">
+                                    {String(index + 1).padStart(2, '0')}
+                                  </span>
+                                </div>
+                                
+                                {/* Descrição */}
+                                <div className="col-span-6">
+                                  <Input
+                                    placeholder="Descrição do item de custo"
+                                    value={item.descricao}
+                                    onChange={(e) => {
+                                      const newItems = [...costItems];
+                                      newItems[index].descricao = e.target.value;
+                                      setCostItems(newItems);
+                                    }}
+                                    className="h-10 bg-white border-gray-300 focus:border-gray-900 focus:ring-0 focus-visible:ring-0"
+                                  />
+                                </div>
+                                
+                                {/* Valor */}
+                                <div className="col-span-4">
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-sm font-medium text-gray-500">
+                                      R$
+                                    </span>
+                                    <Input
+                                      type="text"
+                                      placeholder="0,00"
+                                      value={item.valor}
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        if (value === "" || /^[\d.,]*$/.test(value)) {
+                                          const numericValue = parseCurrencyToNumber(value);
+                                          const newItems = [...costItems];
+                                          newItems[index].valor = value;
+                                          newItems[index].valorNumerico = numericValue;
+                                          setCostItems(newItems);
+                                        }
+                                      }}
+                                      className="h-10 pl-10 bg-white border-gray-300 focus:border-gray-900 focus:ring-0 focus-visible:ring-0 font-medium"
+                                    />
+                                  </div>
+                                </div>
+                                
+                                {/* Botão Remover */}
+                                <div className="col-span-1 flex justify-center">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      const newItems = costItems.filter((_, i) => i !== index);
+                                      setCostItems(newItems);
+                                    }}
+                                    className="h-8 w-8 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                          
+                          {/* Botão Adicionar */}
+                          <div className="pt-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => {
+                                const novoItem: ItemCustoInfo = {
+                                  id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+                                  descricao: "",
+                                  valor: "",
+                                  valorNumerico: 0
+                                };
+                                setCostItems([...costItems, novoItem]);
+                              }}
+                              className="w-full h-11 border border-dashed border-gray-300 hover:border-gray-400 hover:bg-gray-50 text-gray-700 hover:text-gray-700 font-medium"
+                            >
+                              <Plus className="h-4 w-4 mr-2" />
+                              Adicionar Item
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Footer Formal */}
+                      <div className="border-t bg-white px-10 py-6">
+                        <div className="flex items-center justify-between mb-6">
+                          <div>
+                            <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5">Resumo</p>
+                            <p className="text-sm text-gray-600">
+                              {costItems.length} {costItems.length === 1 ? 'item cadastrado' : 'itens cadastrados'}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-2">Valor Total</p>
+                            <span className="text-2xl font-light text-gray-900 tracking-tight">
+                              {(() => {
+                                const total = costItems.reduce((sum, item) => sum + item.valorNumerico, 0);
+                                return total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                              })()}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        <div className="flex gap-3">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setIsCostDetailDialogOpen(false)}
+                            className="flex-1 h-11 border-gray-300 text-gray-700 hover:text-gray-900 hover:bg-gray-50 font-medium"
+                          >
+                            Cancelar
+                          </Button>
+                          <Button
+                            type="button"
+                            onClick={() => {
+                              
+                              // Calcular total
+                              const total = costItems.reduce((sum, item) => sum + item.valorNumerico, 0);
+                              const totalFormatado = total.toLocaleString('pt-BR', { 
+                                minimumFractionDigits: 2, 
+                                maximumFractionDigits: 2 
+                              });
+                              
+                              // Atualizar tudo de uma vez (atômico)
+                              const newValues = {
+                                ...values,
+                                detalheCustos: costItems,
+                                custos: totalFormatado,
+                                custosNumerico: total
+                              };
+                              
+                              
+                              setValues(newValues);
+                              setCostInputValue(totalFormatado);
+                              setHasUserChanges(true);
+                              
+                              // Notificar onChange
+                              if (onChange) {
+                                onChange(newValues, "detalheCustos");
+                              }
+                              
+                              // Fechar modal
+                              setIsCostDetailDialogOpen(false);
+                            }}
+                            className="flex-1 h-11 bg-gray-900 hover:bg-gray-800 text-white font-medium"
+                          >
+                            Confirmar
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                 </div>
               </div>
             </div>
 
+            {/* Patrocínios */}
+            <div className="space-y-4">
+              <div>
+                <Label className="text-sm font-medium text-gray-700 mb-2">Patrocínios</Label>
+                <p className="text-xs text-gray-500 mb-4">
+                  Registre os patrocínios recebidos. Os valores serão descontados dos custos totais.
+                </p>
+                
+                <Dialog open={isSponsorDetailDialogOpen} onOpenChange={setIsSponsorDetailDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full border-dashed border-gray-300 text-gray-700 hover:text-gray-700 hover:bg-gray-50 hover:border-gray-400"
+                    >
+                      <Users className="h-4 w-4 mr-2" />
+                      {sponsorItems.length > 0 
+                        ? `${sponsorItems.length} Patrocinador${sponsorItems.length > 1 ? 'es' : ''} Cadastrado${sponsorItems.length > 1 ? 's' : ''}`
+                        : 'Adicionar Patrocinadores'
+                      }
+                    </Button>
+                  </DialogTrigger>
+                  
+                  <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col bg-white">
+                    {/* Header */}
+                    <DialogHeader className="px-10 pt-8 pb-6 border-b">
+                      <DialogTitle className="text-2xl font-semibold text-gray-900">
+                        Registro de Patrocínios
+                      </DialogTitle>
+                      <DialogDescription className="text-sm text-gray-600 mt-2">
+                        Cadastre os patrocinadores e valores recebidos para o leilão
+                      </DialogDescription>
+                    </DialogHeader>
+                    
+                    {/* Tabela de Patrocinadores */}
+                    <div className="flex-1 overflow-y-auto px-10 py-6">
+                      {/* Cabeçalho da Tabela */}
+                      {sponsorItems.length > 0 && (
+                        <div className="grid grid-cols-12 gap-4 px-4 pb-3 mb-3 border-b">
+                          <div className="col-span-1 text-xs font-semibold text-gray-500 uppercase">Nº</div>
+                          <div className="col-span-6 text-xs font-semibold text-gray-500 uppercase">Patrocinador</div>
+                          <div className="col-span-4 text-xs font-semibold text-gray-500 uppercase">Valor</div>
+                          <div className="col-span-1"></div>
+                        </div>
+                      )}
+                      
+                      <div className="space-y-2">
+                        {sponsorItems.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center py-20 text-center">
+                            <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center mb-4">
+                              <Users className="h-8 w-8 text-gray-400" />
+                            </div>
+                            <p className="text-base font-medium text-gray-900 mb-1">Nenhum patrocinador cadastrado</p>
+                            <p className="text-sm text-gray-500">
+                              Adicione patrocinadores para registrar apoios recebidos
+                            </p>
+                          </div>
+                        ) : (
+                          sponsorItems.map((item, index) => (
+                            <div 
+                              key={item.id} 
+                              className="group grid grid-cols-12 gap-4 items-center px-4 py-3 hover:bg-gray-50 border border-transparent hover:border-gray-200 rounded-lg transition-all"
+                            >
+                              {/* Número */}
+                              <div className="col-span-1">
+                                <span className="inline-flex items-center justify-center w-8 h-8 rounded bg-gray-100 text-sm font-semibold text-gray-700">
+                                  {String(index + 1).padStart(2, '0')}
+                                </span>
+                              </div>
+                              
+                              {/* Nome do Patrocinador */}
+                              <div className="col-span-6">
+                                <Input
+                                  placeholder="Nome do patrocinador"
+                                  value={item.nomePatrocinador}
+                                  onChange={(e) => {
+                                    const newItems = [...sponsorItems];
+                                    newItems[index].nomePatrocinador = e.target.value;
+                                    setSponsorItems(newItems);
+                                  }}
+                                  className="h-10 bg-white border-gray-300 focus:border-gray-900 focus:ring-0 focus-visible:ring-0"
+                                />
+                              </div>
+                              
+                              {/* Valor */}
+                              <div className="col-span-4">
+                                <div className="relative">
+                                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-sm font-medium text-gray-500">
+                                    R$
+                                  </span>
+                                  <Input
+                                    type="text"
+                                    placeholder="0,00"
+                                    value={item.valor}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      if (value === "" || /^[\d.,]*$/.test(value)) {
+                                        const numericValue = parseCurrencyToNumber(value);
+                                        const newItems = [...sponsorItems];
+                                        newItems[index].valor = value;
+                                        newItems[index].valorNumerico = numericValue;
+                                        setSponsorItems(newItems);
+                                      }
+                                    }}
+                                    className="h-10 pl-10 bg-white border-gray-300 focus:border-gray-900 focus:ring-0 focus-visible:ring-0 font-medium"
+                                  />
+                                </div>
+                              </div>
+                              
+                              {/* Botão Remover */}
+                              <div className="col-span-1 flex justify-center">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    const newItems = sponsorItems.filter((_, i) => i !== index);
+                                    setSponsorItems(newItems);
+                                  }}
+                                  className="h-8 w-8 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                        
+                        {/* Botão Adicionar */}
+                        <div className="pt-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              const novoItem: ItemPatrocinioInfo = {
+                                id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+                                nomePatrocinador: "",
+                                valor: "",
+                                valorNumerico: 0
+                              };
+                              setSponsorItems([...sponsorItems, novoItem]);
+                            }}
+                            className="w-full h-11 border border-dashed border-gray-300 hover:border-gray-400 hover:bg-gray-50 text-gray-700 hover:text-gray-700 font-medium"
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Adicionar Patrocinador
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Footer */}
+                    <div className="border-t bg-white px-10 py-6">
+                      <div className="flex items-center justify-between mb-6">
+                        <div>
+                          <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5">Resumo</p>
+                          <p className="text-sm text-gray-600">
+                            {sponsorItems.length} {sponsorItems.length === 1 ? 'patrocinador cadastrado' : 'patrocinadores cadastrados'}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-2">Total de Patrocínios</p>
+                          <span className="text-2xl font-light text-gray-900 tracking-tight">
+                            {(() => {
+                              const total = sponsorItems.reduce((sum, item) => sum + item.valorNumerico, 0);
+                              return total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                            })()}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setIsSponsorDetailDialogOpen(false)}
+                          className="flex-1 h-11 border-gray-300 text-gray-700 hover:text-gray-900 hover:bg-gray-50 font-medium"
+                        >
+                          Cancelar
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            const total = sponsorItems.reduce((sum, item) => sum + item.valorNumerico, 0);
+                            
+                            const newValues = {
+                              ...values,
+                              detalhePatrocinios: sponsorItems,
+                              patrociniosTotal: total
+                            };
+                            
+                            setValues(newValues);
+                            setHasUserChanges(true);
+                            
+                            if (onChange) {
+                              onChange(newValues, "detalhePatrocinios");
+                            }
+                            
+                            setIsSponsorDetailDialogOpen(false);
+                          }}
+                          className="flex-1 h-11 bg-gray-900 hover:bg-gray-800 text-white font-medium"
+                        >
+                          Confirmar
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+                
+                {/* Resumo Visual do Impacto dos Patrocínios */}
+                {(values.custosNumerico || sponsorItems.length > 0) && (
+                  <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-600">Custos Totais:</span>
+                        <span className="font-medium text-gray-900">
+                          {(values.custosNumerico || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
+                      </div>
+                      
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-600">Patrocínios Recebidos:</span>
+                        <span className="font-medium text-gray-700">
+                          - {(values.patrociniosTotal || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
+                      </div>
+                      
+                      <div className="border-t border-gray-300 pt-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-semibold text-gray-900">
+                            {(values.patrociniosTotal || 0) > (values.custosNumerico || 0) ? 'Valor Recebido:' : 'Saldo Líquido:'}
+                          </span>
+                          <span className={`text-lg font-light tracking-tight ${
+                            (values.patrociniosTotal || 0) > (values.custosNumerico || 0) 
+                              ? 'text-gray-900' 
+                              : 'text-gray-900'
+                          }`}>
+                            {(() => {
+                              const saldo = (values.custosNumerico || 0) - (values.patrociniosTotal || 0);
+                              return Math.abs(saldo).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                            })()}
+                          </span>
+                        </div>
+                        {(values.patrociniosTotal || 0) > (values.custosNumerico || 0) && (
+                          <p className="text-xs text-gray-500 mt-1 text-right">
+                            Superávit de patrocínios
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
 
               {/* Lotes do Leilão */}
               <div className="space-y-4">
@@ -1598,6 +2120,7 @@ export function createEmptyAuctionForm(): AuctionFormValues {
     status: "agendado",
     custos: "",
     custosNumerico: 0,
+    detalheCustos: [],
     lotes: [],
     fotosMercadoria: [], // Fotos da mercadoria serão salvas no banco
     documentos: [], // Documentos do leilão serão salvos no banco

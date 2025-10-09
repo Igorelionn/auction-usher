@@ -4,12 +4,27 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useEmailNotifications } from '@/hooks/use-email-notifications';
-import { Mail, CheckCircle, XCircle, Clock, Check } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import { useToast } from '@/hooks/use-toast';
+import { Mail, CheckCircle, Check, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 export function EmailNotificationSettings() {
-  const { config, saveConfig, carregarLogs, emailLogs } = useEmailNotifications();
+  const { config, saveConfig, carregarLogs, emailLogs, limparHistorico } = useEmailNotifications();
+  const { user } = useAuth();
+  const { toast } = useToast();
   const [localConfig, setLocalConfig] = useState({
     resendApiKey: 're_SfWdJiMK_7352YoeoJdgw3mBSe2eArUBH', // API Key padrão fixa
     emailRemetente: 'notificacoes@grupoliraleiloes.com', // Email remetente padrão fixo
@@ -18,12 +33,25 @@ export function EmailNotificationSettings() {
     enviarAutomatico: true, // Sempre automático
   });
 
+  // Carregar logs ao montar e periodicamente
   useEffect(() => {
+    // Carregar imediatamente
     carregarLogs(20);
+
+    // Recarregar a cada 10 segundos
+    const interval = setInterval(() => {
+      carregarLogs(20);
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+
+  // Verificar se usuário é administrador
+  const isAdmin = user?.role === 'admin' || user?.permissions?.can_manage_users === true;
 
   const handleSaveConfig = () => {
     // Fase 1: Carregamento
@@ -40,6 +68,28 @@ export function EmailNotificationSettings() {
         setIsSaved(false);
       }, 1500);
     }, 800);
+  };
+
+  const handleLimparHistorico = async () => {
+    setIsClearing(true);
+    
+    const result = await limparHistorico();
+    
+    if (result.success) {
+      toast({
+        title: 'Histórico limpo',
+        description: result.message,
+        variant: 'default',
+      });
+    } else {
+      toast({
+        title: 'Erro ao limpar histórico',
+        description: result.message,
+        variant: 'destructive',
+      });
+    }
+    
+    setIsClearing(false);
   };
 
   return (
@@ -141,11 +191,46 @@ export function EmailNotificationSettings() {
       {/* Histórico de Emails */}
       <Card className="border-gray-200 shadow-sm">
         <CardHeader className="bg-gradient-to-r from-gray-50 to-white border-b border-gray-100 pb-6">
-          <div>
-            <CardTitle className="text-xl text-gray-900">Registro de Comunicações Enviadas</CardTitle>
-            <CardDescription className="text-gray-600 mt-2">
-              Histórico das últimas 20 notificações automáticas processadas pelo sistema
-            </CardDescription>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <CardTitle className="text-xl text-gray-900">Registro de Comunicações Enviadas</CardTitle>
+              <CardDescription className="text-gray-600 mt-2">
+                Histórico das últimas 20 notificações enviadas com sucesso pelo sistema
+              </CardDescription>
+            </div>
+            {isAdmin && emailLogs.length > 0 && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-red-200 text-red-700 hover:bg-red-600 hover:text-white hover:border-red-600 transition-colors flex-shrink-0"
+                    disabled={isClearing}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Limpar Histórico
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Confirmar limpeza do histórico</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Esta ação irá remover permanentemente todos os registros de comunicações enviadas.
+                      Esta operação não pode ser desfeita. Deseja continuar?
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleLimparHistorico}
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                    >
+                      {isClearing ? 'Limpando...' : 'Sim, limpar histórico'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
           </div>
         </CardHeader>
         <CardContent className="pt-6">
@@ -162,16 +247,10 @@ export function EmailNotificationSettings() {
               {emailLogs.map((log) => (
                 <div
                   key={log.id}
-                  className={`flex items-center justify-between p-5 rounded-lg border transition-all ${
-                    log.sucesso ? 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm' : 'bg-red-50 border-red-200 hover:border-red-300'
-                  }`}
+                  className="flex items-center justify-between p-5 rounded-lg border bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all"
                 >
                   <div className="flex items-center gap-3 flex-1">
-                    {log.sucesso ? (
-                      <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
-                    ) : (
-                      <XCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
-                    )}
+                    <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">
                         {log.arrematante_nome}
