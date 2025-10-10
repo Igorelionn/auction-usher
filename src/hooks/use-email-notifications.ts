@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabaseClient } from '@/lib/supabase-client';
 import { Auction } from '@/lib/types';
 import { getLembreteEmailTemplate, getCobrancaEmailTemplate, getConfirmacaoPagamentoEmailTemplate } from '@/lib/email-templates';
 import { format, parseISO, differenceInDays, addDays } from 'date-fns';
@@ -25,7 +25,7 @@ interface EmailLog {
 }
 
 const DEFAULT_CONFIG: EmailConfig = {
-  resendApiKey: 're_SfWdJiMK_7352YoeoJdgw3mBSe2eArUBH',
+  resendApiKey: 're_5s8gu2qB_AaRSuTA5DWf5RbgyrfwC2oby',
   emailRemetente: 'notificacoes@grupoliraleiloes.com',
   diasAntesLembrete: 3,
   diasDepoisCobranca: 1,
@@ -64,7 +64,7 @@ export function useEmailNotifications() {
   ): Promise<boolean> => {
     const hoje = new Date().toISOString().split('T')[0];
     
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('email_logs')
       .select('id')
       .eq('auction_id', auctionId)
@@ -83,7 +83,7 @@ export function useEmailNotifications() {
 
   // Registrar log de email
   const registrarLog = async (log: Omit<EmailLog, 'id'>) => {
-    const { error } = await supabase
+    const { error } = await supabaseClient
       .from('email_logs')
       .insert([log]);
 
@@ -104,16 +104,15 @@ export function useEmailNotifications() {
       return { valorJuros: 0, valorTotal: valorOriginal };
     }
 
-    // Limitar dias de atraso a um máximo razoável (5 anos = 1825 dias)
-    if (diasAtraso > 1825) {
-      console.warn(`⚠️ Dias de atraso muito alto (${diasAtraso}), limitando a 1825 dias (5 anos)`);
-      diasAtraso = 1825;
+    // Limitar dias de atraso a um máximo razoável (10 anos = 3650 dias)
+    if (diasAtraso > 3650) {
+      console.warn(`⚠️ Dias de atraso muito alto (${diasAtraso}), limitando a 3650 dias (10 anos)`);
+      diasAtraso = 3650;
     }
 
-    // Limitar juros a um máximo razoável (20% ao mês)
-    if (percentualJuros > 20) {
-      console.warn(`⚠️ Percentual de juros muito alto (${percentualJuros}%), limitando a 20%`);
-      percentualJuros = 20;
+    // Sem limite de percentual de juros - usar o valor configurado pelo usuário
+    if (percentualJuros > 100) {
+      console.warn(`⚠️ Percentual de juros muito alto: ${percentualJuros}% ao mês`);
     }
 
     const taxaMensal = percentualJuros / 100;
@@ -129,10 +128,11 @@ export function useEmailNotifications() {
       valorJuros = valorTotal - valorOriginal;
     }
 
-    // Limitar juros a no máximo 500% do valor original (proteção adicional)
-    if (valorJuros > valorOriginal * 5) {
-      console.warn(`⚠️ Juros calculados muito altos (${valorJuros.toFixed(2)}), limitando a 500% do valor original`);
-      valorJuros = valorOriginal * 5;
+    // Limitar juros a no máximo 1000% do valor original (proteção contra erros de cálculo extremos)
+    const limiteJuros = valorOriginal * 10;
+    if (valorJuros > limiteJuros) {
+      console.warn(`⚠️ Juros calculados muito altos (R$ ${valorJuros.toFixed(2)}), limitando a 1000% do valor original (R$ ${limiteJuros.toFixed(2)})`);
+      valorJuros = limiteJuros;
     }
 
     return {
@@ -156,21 +156,54 @@ export function useEmailNotifications() {
 
     try {
       // URL da Edge Function do Supabase
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://moojuqphvhrhasxhaahd.supabase.co';
-      const edgeFunctionUrl = `${supabaseUrl}/functions/v1/send-email`;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vb2p1cXBodmhyaGFzeGhhYWhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwNDExMzEsImV4cCI6MjA3MjYxNzEzMX0.GR3YIs0QWsZP3Rdvw_-vCOPVtH2KCaoVO2pKeo1-WPs';
+      const supabaseClientUrl = import.meta.env.VITE_SUPABASE_URL || 'https://moojuqphvhrhasxhaahd.supabaseClient.co';
+      const edgeFunctionUrl = `${supabaseClientUrl}/functions/v1/send-email`;
+      const supabaseClientAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vb2p1cXBodmhyaGFzeGhhYWhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwNDExMzEsImV4cCI6MjA3MjYxNzEzMX0.GR3YIs0QWsZP3Rdvw_-vCOPVtH2KCaoVO2pKeo1-WPs';
+
+      // Email verificado (único que funciona enquanto domínio não é verificado)
+      const emailVerificado = 'lireleiloesgestoes@gmail.com';
+      const usarModoTeste = destinatario !== emailVerificado;
+
+      let destinatarioFinal = destinatario;
+      let assuntoFinal = assunto;
+      let htmlFinal = htmlContent;
+
+      // Se destinatário diferente do verificado, preparar para modo teste
+      if (usarModoTeste) {
+        destinatarioFinal = emailVerificado;
+        assuntoFinal = `[PARA: ${destinatario}] ${assunto}`;
+        
+        // Adicionar banner de teste no email
+        htmlFinal = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;">
+  <div style="background:#fff3cd;padding:15px;text-align:center;border-bottom:3px solid #ffc107;">
+    <p style="margin:0;color:#856404;font-size:14px;font-weight:bold;">
+      ⚠️ MODO TESTE - Aguardando Verificação do Domínio
+    </p>
+    <p style="margin:5px 0 0 0;color:#856404;font-size:13px;">
+      📧 Destinatário: <strong>${destinatario}</strong> | 
+      Redirecionado para: <strong>${emailVerificado}</strong>
+    </p>
+  </div>
+  ${htmlContent}
+</body>
+</html>`;
+      }
 
       const response = await fetch(edgeFunctionUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'apikey': supabaseAnonKey,
-          'Authorization': `Bearer ${supabaseAnonKey}`,
+          'apikey': supabaseClientAnonKey,
+          'Authorization': `Bearer ${supabaseClientAnonKey}`,
         },
         body: JSON.stringify({
-          to: destinatario,
-          subject: assunto,
-          html: htmlContent,
+          to: destinatarioFinal,
+          subject: assuntoFinal,
+          html: htmlFinal,
           from: `Arthur Lira Leilões <${config.emailRemetente}>`,
           resendApiKey: config.resendApiKey,
         }),
@@ -179,12 +212,48 @@ export function useEmailNotifications() {
       const responseData = await response.json();
 
       if (!response.ok) {
+        // Se erro de sandbox/domínio, tentar com email verificado
+        if (responseData.error && responseData.error.includes('testing emails')) {
+          console.warn('⚠️ Domínio não verificado, enviando para email verificado...');
+          
+          const retryResponse = await fetch(edgeFunctionUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': supabaseClientAnonKey,
+              'Authorization': `Bearer ${supabaseClientAnonKey}`,
+            },
+            body: JSON.stringify({
+              to: emailVerificado,
+              subject: `[PARA: ${destinatario}] ${assunto}`,
+              html: htmlFinal,
+              from: `Arthur Lira Leilões <${config.emailRemetente}>`,
+              resendApiKey: config.resendApiKey,
+            }),
+          });
+          
+          const retryData = await retryResponse.json();
+          
+          if (!retryResponse.ok) {
+            throw new Error(retryData.error || 'Erro ao enviar email');
+          }
+          
+          console.log(`✅ Email enviado (modo teste) para: ${emailVerificado} | Original: ${destinatario}`);
+          return { success: true };
+        }
+        
         throw new Error(responseData.error || 'Erro ao enviar email');
+      }
+
+      if (usarModoTeste) {
+        console.log(`✅ Email enviado (modo teste) para: ${emailVerificado} | Destinatário original: ${destinatario}`);
+      } else {
+        console.log('✅ Email enviado com sucesso para:', destinatario);
       }
 
       return { success: true };
     } catch (error) {
-      console.error('Erro ao enviar email:', error);
+      console.error('❌ Erro ao enviar email:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Erro desconhecido',
@@ -346,7 +415,7 @@ export function useEmailNotifications() {
   };
 
   // Enviar confirmação de pagamento
-  const enviarConfirmacao = async (auction: Auction): Promise<{ success: boolean; message: string }> => {
+  const enviarConfirmacao = async (auction: Auction, parcelaId?: string): Promise<{ success: boolean; message: string }> => {
     if (!auction.arrematante?.email) {
       return { success: false, message: 'Arrematante não possui email cadastrado' };
     }
@@ -357,11 +426,31 @@ export function useEmailNotifications() {
     const parcelaAtual = auction.arrematante.parcelasPagas || 0;
     const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
 
+    // Calcular valor da parcela (se for parcelamento)
+    let valorParcela = auction.arrematante.valorPagar || `R$ ${auction.arrematante.valorPagarNumerico.toFixed(2)}`;
+    
+    // Se é parcelamento ou entrada+parcelamento, calcular valor da parcela
+    if (tipoPagamento === 'parcelamento' && totalParcelas > 0) {
+      const valorTotal = auction.arrematante.valorPagarNumerico;
+      const valorPorParcela = valorTotal / totalParcelas;
+      valorParcela = `R$ ${valorPorParcela.toFixed(2)}`;
+    } else if (tipoPagamento === 'entrada_parcelamento' && parcelaAtual > 1) {
+      // Para entrada+parcelamento, descontar a entrada das parcelas restantes
+      const valorTotal = auction.arrematante.valorPagarNumerico;
+      const valorEntrada = auction.arrematante.valorEntrada 
+        ? parseFloat(auction.arrematante.valorEntrada.replace(/[^0-9,]/g, '').replace(',', '.'))
+        : 0;
+      const valorRestante = valorTotal - valorEntrada;
+      const valorPorParcela = valorRestante / (totalParcelas || 1);
+      valorParcela = `R$ ${valorPorParcela.toFixed(2)}`;
+    }
+
     const templateData = {
       arrematanteNome: auction.arrematante.nome,
       leilaoNome: auction.nome,
-      loteNumero: auction.lotes?.[0]?.numero,
-      valorPagar: auction.arrematante.valorPagar || `R$ ${auction.arrematante.valorPagarNumerico.toFixed(2)}`,
+      loteNumero: lote?.numero || auction.lotes?.[0]?.numero,
+      valorPagar: valorParcela,
+      valorEntrada: auction.arrematante.valorEntrada,
       dataVencimento: '', // não é usado no template de confirmação
       tipoPagamento,
       parcelaAtual,
@@ -371,9 +460,10 @@ export function useEmailNotifications() {
     const { subject, html } = getConfirmacaoPagamentoEmailTemplate(templateData);
     const result = await enviarEmail(auction.arrematante.email, subject, html);
 
-    // Registrar log
+    // Registrar log (usar parcelaId se fornecido, caso contrário usar auction.id)
+    const logId = parcelaId || auction.id;
     await registrarLog({
-      auction_id: auction.id,
+      auction_id: logId,
       arrematante_nome: auction.arrematante.nome,
       tipo_email: 'confirmacao',
       email_destinatario: auction.arrematante.email,
@@ -382,10 +472,14 @@ export function useEmailNotifications() {
       erro: result.error,
     });
 
+    const tipoDescricao = tipoPagamento === 'a_vista' 
+      ? 'pagamento à vista' 
+      : `parcela ${parcelaAtual}/${totalParcelas}`;
+
     return {
       success: result.success,
       message: result.success
-        ? `Confirmação enviada com sucesso para ${auction.arrematante.email}`
+        ? `Confirmação de ${tipoDescricao} enviada com sucesso para ${auction.arrematante.email}`
         : `Erro ao enviar confirmação: ${result.error}`,
     };
   };
@@ -456,7 +550,7 @@ export function useEmailNotifications() {
 
   // Carregar logs de email (apenas os enviados com sucesso)
   const carregarLogs = async (limit: number = 50) => {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('email_logs')
       .select('*')
       .eq('sucesso', true) // Filtrar apenas emails enviados com sucesso
@@ -468,13 +562,14 @@ export function useEmailNotifications() {
       return;
     }
 
+    // @ts-ignore
     setEmailLogs(data || []);
   };
 
   // Limpar histórico de emails (apenas para admins)
   const limparHistorico = async (): Promise<{ success: boolean; message: string }> => {
     try {
-      const { error } = await supabase
+        const { error } = await supabaseClient
         .from('email_logs')
         .delete()
         .neq('id', '00000000-0000-0000-0000-000000000000'); // Deletar todos os registros

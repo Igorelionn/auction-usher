@@ -271,6 +271,50 @@ export type Database = {
           },
         ]
       }
+      email_logs: {
+        Row: {
+          auction_id: string
+          arrematante_nome: string
+          created_at: string | null
+          data_envio: string
+          email_destinatario: string
+          erro: string | null
+          id: string
+          sucesso: boolean
+          tipo_email: string
+        }
+        Insert: {
+          auction_id: string
+          arrematante_nome: string
+          created_at?: string | null
+          data_envio: string
+          email_destinatario: string
+          erro?: string | null
+          id?: string
+          sucesso: boolean
+          tipo_email: string
+        }
+        Update: {
+          auction_id?: string
+          arrematante_nome?: string
+          created_at?: string | null
+          data_envio?: string
+          email_destinatario?: string
+          erro?: string | null
+          id?: string
+          sucesso?: boolean
+          tipo_email?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_logs_auction_id_fkey"
+            columns: ["auction_id"]
+            isOneToOne: false
+            referencedRelation: "auctions"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       invoices: {
         Row: {
           arquivado: boolean | null
