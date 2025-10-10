@@ -128,13 +128,6 @@ export function useEmailNotifications() {
       valorJuros = valorTotal - valorOriginal;
     }
 
-    // Limitar juros a no máximo 1000% do valor original (proteção contra erros de cálculo extremos)
-    const limiteJuros = valorOriginal * 10;
-    if (valorJuros > limiteJuros) {
-      console.warn(`⚠️ Juros calculados muito altos (R$ ${valorJuros.toFixed(2)}), limitando a 1000% do valor original (R$ ${limiteJuros.toFixed(2)})`);
-      valorJuros = limiteJuros;
-    }
-
     return {
       valorJuros: Math.round(valorJuros * 100) / 100,
       valorTotal: Math.round((valorOriginal + valorJuros) * 100) / 100,

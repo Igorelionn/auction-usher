@@ -1874,8 +1874,10 @@ function Arrematantes() {
           year: 'numeric' 
         }).slice(1)}`;
         
-        // Parcela paga se (parcelasPagas - 1) > i (descontando a entrada)
-        const isPaid = parcelasPagas > 0 && (parcelasPagas - 1) > i;
+        // Parcela paga: parcelasPagas conta entrada como 1
+        // Exemplo: parcelasPagas = 1 (só entrada), = 2 (entrada + 1ª parcela), = 3 (entrada + 2ª parcela)
+        // Para parcela i (começando de 0), está paga se parcelasPagas >= i + 2
+        const isPaid = parcelasPagas >= (i + 2);
         
         months.push({
           month: monthString,
@@ -1903,6 +1905,8 @@ function Arrematantes() {
           month: 'long', 
           year: 'numeric' 
         }).slice(1);
+        // Parcela i (começando de 0) está paga se i < parcelasPagas
+        // Exemplo: parcelasPagas = 3 → parcelas 0, 1, 2 estão pagas
         const isPaid = i < (arrematante.parcelasPagas || 0);
         
         months.push({
@@ -2062,7 +2066,14 @@ function Arrematantes() {
     try {
       // Encontrar o leilão correspondente
       const auction = auctions.find(a => a.id === arrematante.leilaoId);
-      if (!auction || !auction.arrematante) return;
+      if (!auction || !auction.arrematante) {
+        toast({
+          title: "Erro",
+          description: "Leilão não encontrado.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       // Buscar o lote para preservar as datas de pagamento
       const loteArrematado = auction?.lotes?.find(lote => lote.id === arrematante.loteId);
@@ -2079,8 +2090,8 @@ function Arrematantes() {
         diaVencimentoMensal: auction.arrematante.diaVencimentoMensal || loteArrematado?.diaVencimentoPadrao
       };
 
-      // Atualização otimista: não aguardar resposta
-      const updatePromise = updateAuction({
+      // Atualizar no banco de dados
+      await updateAuction({
         id: arrematante.leilaoId,
         data: { arrematante: updatedArrematante }
       });
@@ -2089,15 +2100,12 @@ function Arrematantes() {
         title: "Pagamento desconfirmado",
         description: `Pagamento de ${arrematante.nome} foi desconfirmado com sucesso.`,
       });
-      
-      // Aguardar em background
-      await updatePromise;
 
     } catch (error) {
       console.error('Erro ao desconfirmar pagamento:', error);
       toast({
         title: "Erro",
-        description: "Não foi possível desconfirmar o pagamento.",
+        description: "Não foi possível desconfirmar o pagamento. Tente novamente.",
         variant: "destructive",
       });
     }
