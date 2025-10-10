@@ -153,39 +153,7 @@ export function useEmailNotifications() {
       const edgeFunctionUrl = `${supabaseUrl}/functions/v1/send-email`;
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vb2p1cXBodmhyaGFzeGhhYWhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwNDExMzEsImV4cCI6MjA3MjYxNzEzMX0.GR3YIs0QWsZP3Rdvw_-vCOPVtH2KCaoVO2pKeo1-WPs';
 
-      // Email verificado (único que funciona enquanto domínio não é verificado)
-      const emailVerificado = 'lireleiloesgestoes@gmail.com';
-      const usarModoTeste = destinatario !== emailVerificado;
-
-      let destinatarioFinal = destinatario;
-      let assuntoFinal = assunto;
-      let htmlFinal = htmlContent;
-
-      // Se destinatário diferente do verificado, preparar para modo teste
-      if (usarModoTeste) {
-        destinatarioFinal = emailVerificado;
-        assuntoFinal = `[PARA: ${destinatario}] ${assunto}`;
-        
-        // Adicionar banner de teste no email
-        htmlFinal = `
-<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"></head>
-<body style="margin:0;padding:0;">
-  <div style="background:#fff3cd;padding:15px;text-align:center;border-bottom:3px solid #ffc107;">
-    <p style="margin:0;color:#856404;font-size:14px;font-weight:bold;">
-      ⚠️ MODO TESTE - Aguardando Verificação do Domínio
-    </p>
-    <p style="margin:5px 0 0 0;color:#856404;font-size:13px;">
-      📧 Destinatário: <strong>${destinatario}</strong> | 
-      Redirecionado para: <strong>${emailVerificado}</strong>
-    </p>
-  </div>
-  ${htmlContent}
-</body>
-</html>`;
-      }
-
+      // Enviar diretamente para o destinatário (domínio verificado)
       const response = await fetch(edgeFunctionUrl, {
         method: 'POST',
         headers: {
@@ -194,9 +162,9 @@ export function useEmailNotifications() {
           'Authorization': `Bearer ${supabaseAnonKey}`,
         },
         body: JSON.stringify({
-          to: destinatarioFinal,
-          subject: assuntoFinal,
-          html: htmlFinal,
+          to: destinatario,
+          subject: assunto,
+          html: htmlContent,
           from: `Arthur Lira Leilões <${config.emailRemetente}>`,
           resendApiKey: config.resendApiKey,
         }),
@@ -205,44 +173,10 @@ export function useEmailNotifications() {
       const responseData = await response.json();
 
       if (!response.ok) {
-        // Se erro de sandbox/domínio, tentar com email verificado
-        if (responseData.error && responseData.error.includes('testing emails')) {
-          console.warn('⚠️ Domínio não verificado, enviando para email verificado...');
-          
-          const retryResponse = await fetch(edgeFunctionUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'apikey': supabaseAnonKey,
-              'Authorization': `Bearer ${supabaseAnonKey}`,
-            },
-            body: JSON.stringify({
-              to: emailVerificado,
-              subject: `[PARA: ${destinatario}] ${assunto}`,
-              html: htmlFinal,
-              from: `Arthur Lira Leilões <${config.emailRemetente}>`,
-              resendApiKey: config.resendApiKey,
-            }),
-          });
-          
-          const retryData = await retryResponse.json();
-          
-          if (!retryResponse.ok) {
-            throw new Error(retryData.error || 'Erro ao enviar email');
-          }
-          
-          console.log(`✅ Email enviado (modo teste) para: ${emailVerificado} | Original: ${destinatario}`);
-          return { success: true };
-        }
-        
         throw new Error(responseData.error || 'Erro ao enviar email');
       }
 
-      if (usarModoTeste) {
-        console.log(`✅ Email enviado (modo teste) para: ${emailVerificado} | Destinatário original: ${destinatario}`);
-      } else {
-        console.log('✅ Email enviado com sucesso para:', destinatario);
-      }
+      console.log('✅ Email enviado com sucesso para:', destinatario);
 
       return { success: true };
     } catch (error) {
