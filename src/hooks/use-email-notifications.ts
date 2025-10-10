@@ -149,9 +149,9 @@ export function useEmailNotifications() {
 
     try {
       // URL da Edge Function do Supabase
-      const supabaseClientUrl = import.meta.env.VITE_SUPABASE_URL || 'https://moojuqphvhrhasxhaahd.supabaseClient.co';
-      const edgeFunctionUrl = `${supabaseClientUrl}/functions/v1/send-email`;
-      const supabaseClientAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vb2p1cXBodmhyaGFzeGhhYWhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwNDExMzEsImV4cCI6MjA3MjYxNzEzMX0.GR3YIs0QWsZP3Rdvw_-vCOPVtH2KCaoVO2pKeo1-WPs';
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://moojuqphvhrhasxhaahd.supabase.co';
+      const edgeFunctionUrl = `${supabaseUrl}/functions/v1/send-email`;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vb2p1cXBodmhyaGFzeGhhYWhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwNDExMzEsImV4cCI6MjA3MjYxNzEzMX0.GR3YIs0QWsZP3Rdvw_-vCOPVtH2KCaoVO2pKeo1-WPs';
 
       // Email verificado (único que funciona enquanto domínio não é verificado)
       const emailVerificado = 'lireleiloesgestoes@gmail.com';
@@ -190,8 +190,8 @@ export function useEmailNotifications() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'apikey': supabaseClientAnonKey,
-          'Authorization': `Bearer ${supabaseClientAnonKey}`,
+          'apikey': supabaseAnonKey,
+          'Authorization': `Bearer ${supabaseAnonKey}`,
         },
         body: JSON.stringify({
           to: destinatarioFinal,
@@ -213,8 +213,8 @@ export function useEmailNotifications() {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'apikey': supabaseClientAnonKey,
-              'Authorization': `Bearer ${supabaseClientAnonKey}`,
+              'apikey': supabaseAnonKey,
+              'Authorization': `Bearer ${supabaseAnonKey}`,
             },
             body: JSON.stringify({
               to: emailVerificado,
