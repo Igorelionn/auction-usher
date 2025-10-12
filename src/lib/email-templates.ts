@@ -27,7 +27,7 @@ export function getLembreteEmailTemplate(data: EmailTemplateData): { subject: st
   } else if (tipoPagamento === 'entrada_parcelamento') {
     tipoPagamentoTexto = parcelaAtual === 1 
       ? 'Entrada' 
-      : `Parcela ${parcelaAtual - 1}/${totalParcelas ? totalParcelas - 1 : '?'}`;
+      : `Parcela ${parcelaAtual - 1}/${totalParcelas || '?'}`;
   } else {
     tipoPagamentoTexto = `Parcela ${parcelaAtual}/${totalParcelas}`;
   }
@@ -201,7 +201,7 @@ export function getCobrancaEmailTemplate(data: EmailTemplateData): { subject: st
   } else if (tipoPagamento === 'entrada_parcelamento') {
     tipoPagamentoTexto = parcelaAtual === 1 
       ? 'Entrada' 
-      : `Parcela ${parcelaAtual - 1}/${totalParcelas ? totalParcelas - 1 : '?'}`;
+      : `Parcela ${parcelaAtual - 1}/${totalParcelas || '?'}`;
   } else {
     tipoPagamentoTexto = `Parcela ${parcelaAtual}/${totalParcelas}`;
   }
@@ -387,20 +387,29 @@ export function getCobrancaEmailTemplate(data: EmailTemplateData): { subject: st
 export function getConfirmacaoPagamentoEmailTemplate(data: EmailTemplateData): { subject: string; html: string } {
   const { arrematanteNome, leilaoNome, loteNumero, valorPagar, tipoPagamento, parcelaAtual, totalParcelas } = data;
   
-  // Determinar tipo de pagamento humanizado
+  // Determinar tipo de pagamento humanizado e assunto personalizado
   let tipoPagamentoTexto = '';
+  let assuntoEmail = '';
+  
   if (tipoPagamento === 'a_vista') {
     tipoPagamentoTexto = 'Pagamento à Vista';
+    assuntoEmail = 'Confirmação de Pagamento à Vista';
   } else if (tipoPagamento === 'entrada_parcelamento') {
-    tipoPagamentoTexto = parcelaAtual === 1 
-      ? 'Entrada' 
-      : `Parcela ${parcelaAtual - 1}/${totalParcelas ? totalParcelas - 1 : '?'}`;
+    if (parcelaAtual === 1) {
+      tipoPagamentoTexto = 'Entrada';
+      assuntoEmail = 'Confirmação da Entrada';
+    } else {
+      const numParcela = parcelaAtual - 1;
+      tipoPagamentoTexto = `Parcela ${numParcela}/${totalParcelas || '?'}`;
+      assuntoEmail = `Confirmação da ${numParcela}ª Parcela`;
+    }
   } else {
     tipoPagamentoTexto = `Parcela ${parcelaAtual}/${totalParcelas}`;
+    assuntoEmail = `Confirmação da ${parcelaAtual}ª Parcela`;
   }
   
   return {
-    subject: `Confirmação de Pagamento - ${leilaoNome}`,
+    subject: `${assuntoEmail} - ${leilaoNome}`,
     html: `
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -500,6 +509,195 @@ export function getConfirmacaoPagamentoEmailTemplate(data: EmailTemplateData): {
 
               <p style="color: #4a5568; font-size: 15px; line-height: 1.7; margin: 0 0 24px 0;">
                 Para informações adicionais, permanecemos à disposição através dos nossos canais de atendimento.
+              </p>
+
+              <!-- Informações de Contato -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f7fafc; border-radius: 4px; padding: 16px; margin: 0;">
+                <tr>
+                  <td style="text-align: center;">
+                    <p style="margin: 0; color: #4a5568; font-size: 14px; line-height: 1.6;">
+                      <strong style="color: #2d3748;">Contato:</strong> lireleiloesgestoes@gmail.com
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer Corporativo -->
+          <tr>
+            <td style="background-color: #f7fafc; padding: 32px 40px; border-top: 1px solid #e2e8f0;">
+              <p style="color: #718096; font-size: 15px; margin: 0 0 24px 0; line-height: 1.6;">
+                Atenciosamente,<br/>
+                <strong style="color: #2d3748; font-size: 16px;">Arthur Lira Leilões</strong>
+              </p>
+              
+              <!-- Logos -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-top: 24px;">
+                <tr>
+                  <td align="center">
+                    <table cellpadding="0" cellspacing="0" style="border-spacing: 0; border-collapse: collapse; margin-left: -20px;">
+                      <tr>
+                        <td style="padding: 0 10px 0 0; margin: 0; vertical-align: middle; line-height: 0;">
+                          <img src="https://moojuqphvhrhasxhaahd.supabase.co/storage/v1/object/public/documents/Elionsoftwaress.png" alt="Elion Softwares" style="height: 48px; width: auto; display: block; vertical-align: middle; border: none; outline: none; text-decoration: none; pointer-events: none; -webkit-user-select: none; -moz-user-select: none; user-select: none; position: relative; z-index: 1; margin-top: 5px;" draggable="false" />
+                        </td>
+                        <td style="padding: 0 0 0 10px; margin: 0; vertical-align: middle; line-height: 0;">
+                          <img src="https://moojuqphvhrhasxhaahd.supabase.co/storage/v1/object/public/documents/arthur-lira-logo.png" alt="Arthur Lira" style="height: 50px; width: auto; display: block; vertical-align: middle; border: none; outline: none; text-decoration: none; pointer-events: none; -webkit-user-select: none; -moz-user-select: none; user-select: none; position: relative; z-index: 2;" draggable="false" />
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              
+              <p style="color: #a0aec0; font-size: 11px; margin: 24px 0 0 0; text-align: center; line-height: 1.5;">
+                © ${new Date().getFullYear()} Arthur Lira Leilões. Todos os direitos reservados.<br/>
+                Desenvolvido por Elion Softwares.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+    `
+  };
+}
+
+export function getQuitacaoCompletaEmailTemplate(data: EmailTemplateData): { subject: string; html: string } {
+  const { arrematanteNome, leilaoNome, loteNumero, valorTotal, totalParcelas, tipoPagamento } = data;
+  
+  // Determinar mensagem personalizada por tipo de pagamento
+  let mensagemTipo = '';
+  if (tipoPagamento === 'a_vista') {
+    mensagemTipo = 'pagamento à vista';
+  } else if (tipoPagamento === 'entrada_parcelamento') {
+    mensagemTipo = `entrada + ${totalParcelas ? totalParcelas : ''} parcelas`;
+  } else {
+    mensagemTipo = `${totalParcelas} parcelas`;
+  }
+  
+  return {
+    subject: `Comprovante de Quitação - ${leilaoNome}`,
+    html: `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Comprovante de Quitação</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Arial', 'Helvetica', sans-serif; background-color: #f5f7fa;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f7fa; padding: 40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 2px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
+          
+          <!-- Header Corporativo -->
+          <tr>
+            <td style="background-color: #1a365d; padding: 30px 40px; border-bottom: 3px solid #c49b63;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;">
+                Comprovante de Quitação
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Logo Arthur Lira -->
+          <tr>
+            <td align="center" style="padding: 30px 40px 0 40px;">
+              <img src="https://moojuqphvhrhasxhaahd.supabase.co/storage/v1/object/public/documents/arthur-lira-logo.png" alt="Arthur Lira Leilões" style="height: 60px; width: auto; display: block; margin: 0 auto;" />
+            </td>
+          </tr>
+
+          <!-- Corpo -->
+          <tr>
+            <td style="padding: 40px;">
+              <p style="color: #2d3748; font-size: 15px; line-height: 1.7; margin: 0 0 24px 0;">
+                Prezado(a) <strong>${arrematanteNome}</strong>,
+              </p>
+              
+              <p style="color: #4a5568; font-size: 15px; line-height: 1.7; margin: 0 0 32px 0;">
+                Confirmamos a quitação integral do compromisso financeiro referente ao leilão discriminado abaixo. Todas as obrigações contratuais foram exitosamente adimplidas.
+              </p>
+
+              <!-- Confirmação de Quitação -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f0fff4; border-left: 4px solid #38a169; padding: 16px; margin-bottom: 32px;">
+                <tr>
+                  <td>
+                    <p style="margin: 0; color: #22543d; font-size: 14px; font-weight: 600;">
+                      COMPROMISSO INTEGRALMENTE QUITADO
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Box de Informações -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="border: 1px solid #e2e8f0; border-radius: 4px; margin-bottom: 32px;">
+                <tr>
+                  <td style="background-color: #f7fafc; padding: 20px; border-bottom: 1px solid #e2e8f0;">
+                    <p style="margin: 0; color: #1a365d; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                      Dados do Compromisso Quitado
+                    </p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 24px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding: 8px 0; color: #718096; font-size: 14px; width: 140px;">Leilão:</td>
+                        <td style="padding: 8px 0; color: #2d3748; font-size: 14px; font-weight: 600;">${leilaoNome}</td>
+                      </tr>
+                      ${loteNumero ? `
+                      <tr>
+                        <td style="padding: 8px 0; color: #718096; font-size: 14px;">Lote:</td>
+                        <td style="padding: 8px 0; color: #2d3748; font-size: 14px; font-weight: 600;">${loteNumero}</td>
+                      </tr>
+                      ` : ''}
+                      <tr>
+                        <td style="padding: 8px 0; color: #718096; font-size: 14px;">Forma de Pagamento:</td>
+                        <td style="padding: 8px 0; color: #2d3748; font-size: 14px; font-weight: 600; text-transform: capitalize;">${mensagemTipo}</td>
+                      </tr>
+                      ${totalParcelas && tipoPagamento !== 'a_vista' ? `
+                      <tr>
+                        <td style="padding: 8px 0; color: #718096; font-size: 14px;">Total de Parcelas:</td>
+                        <td style="padding: 8px 0; color: #2d3748; font-size: 14px; font-weight: 600;">${tipoPagamento === 'entrada_parcelamento' ? `${totalParcelas} parcelas + entrada quitadas` : `${totalParcelas} parcelas integralmente quitadas`}</td>
+                      </tr>
+                      ` : ''}
+                      ${valorTotal ? `
+                      <tr style="background-color: #f0fff4;">
+                        <td style="padding: 12px 0; color: #22543d; font-size: 14px; font-weight: 600; border-top: 2px solid #9ae6b4;">Valor Total Quitado:</td>
+                        <td style="padding: 12px 0; color: #22543d; font-size: 16px; font-weight: 700; border-top: 2px solid #9ae6b4;">${valorTotal}</td>
+                      </tr>
+                      ` : ''}
+                      <tr>
+                        <td style="padding: 8px 0; color: #718096; font-size: 14px;">Data da Quitação:</td>
+                        <td style="padding: 8px 0; color: #2d3748; font-size: 14px; font-weight: 600;">${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 8px 0; color: #718096; font-size: 14px;">Situação:</td>
+                        <td style="padding: 8px 0;">
+                          <span style="background-color: #38a169; color: #ffffff; padding: 5px 14px; border-radius: 3px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                            QUITADO
+                          </span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="color: #4a5568; font-size: 15px; line-height: 1.7; margin: 0 0 24px 0;">
+                Agradecemos pela confiança depositada em nossos serviços. Seu comprometimento e pontualidade são muito importantes para nós.
+              </p>
+
+              <p style="color: #4a5568; font-size: 15px; line-height: 1.7; margin: 0 0 24px 0;">
+                Permanecemos à disposição para atendê-lo em futuras oportunidades.
+              </p>
+
+              <p style="color: #4a5568; font-size: 15px; line-height: 1.7; margin: 0 0 24px 0;">
+                Para quaisquer dúvidas ou esclarecimentos adicionais, nossa equipe permanece à sua inteira disposição.
               </p>
 
               <!-- Informações de Contato -->

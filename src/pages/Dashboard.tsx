@@ -193,24 +193,36 @@ export default function Dashboard() {
     }
   };
 
-  // Calcular total recebido localmente (valores parciais e totais)
+  // Calcular total recebido localmente (valores parciais e totais) incluindo juros
   const localTotalRecebido = activeAuctions
     .filter(auction => auction.arrematante)
     .reduce((total, auction) => {
       const arrematante = auction.arrematante;
       const parcelasPagas = arrematante?.parcelasPagas || 0;
+      const now = new Date();
       
-      // Se totalmente pago, contar valor total
-      if (arrematante?.pago) {
-        const valorTotal = arrematante?.valorPagarNumerico || 0;
-        return total + valorTotal;
-      }
+      // ⚠️ REMOVIDO: Não usar valorPagarNumerico direto quando pago === true
+      // Sempre calcular parcela por parcela para considerar juros corretamente
       
-      // Se parcialmente pago, calcular valor das parcelas pagas
+      // Se parcialmente pago OU totalmente pago, calcular valor das parcelas pagas com juros
       if (parcelasPagas > 0) {
         const loteArrematado = auction.lotes?.find(lote => lote.id === arrematante.loteId);
         const tipoPagamento = loteArrematado?.tipoPagamento || auction.tipoPagamento;
         const valorTotal = arrematante?.valorPagarNumerico || 0;
+        
+        // Função helper para calcular juros progressivos
+        const calcularJurosProgressivos = (valorOriginal: number, percentualJuros: number, mesesAtraso: number) => {
+          if (mesesAtraso < 1 || !percentualJuros) {
+            return valorOriginal;
+          }
+          let valorAtual = valorOriginal;
+          const taxaMensal = percentualJuros / 100;
+          for (let mes = 1; mes <= mesesAtraso; mes++) {
+            const jurosMes = valorAtual * taxaMensal;
+            valorAtual = valorAtual + jurosMes;
+          }
+          return Math.round(valorAtual * 100) / 100;
+        };
         
         if (tipoPagamento === 'entrada_parcelamento') {
           // Para entrada + parcelamento
@@ -221,22 +233,95 @@ export default function Dashboard() {
             valorTotal * 0.3;
           const quantidadeParcelas = arrematante?.quantidadeParcelas || 12;
           const valorRestante = valorTotal - valorEntrada;
-          const valorPorParcela = valorRestante / quantidadeParcelas;
+          const valorPorParcela = Math.round((valorRestante / quantidadeParcelas) * 100) / 100;
           
-          // Calcular valor recebido: entrada + parcelas pagas
+          let valorRecebido = 0;
+          
+          // Calcular valor recebido: entrada + parcelas pagas (com juros se atrasadas)
           if (parcelasPagas >= 1) {
-            // Entrada foi paga
+            // Entrada foi paga - calcular com juros se estava atrasada
+            if (loteArrematado?.dataEntrada && arrematante?.percentualJurosAtraso) {
+              const dataEntrada = new Date(loteArrematado.dataEntrada + 'T23:59:59');
+              if (now > dataEntrada) {
+                const mesesAtraso = Math.max(0, Math.floor((now.getTime() - dataEntrada.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                if (mesesAtraso >= 1) {
+                  valorRecebido += calcularJurosProgressivos(valorEntrada, arrematante.percentualJurosAtraso, mesesAtraso);
+                } else {
+                  valorRecebido += valorEntrada;
+                }
+              } else {
+                valorRecebido += valorEntrada;
+              }
+            } else {
+              valorRecebido += valorEntrada;
+            }
+            
+            // Parcelas mensais pagas - calcular cada uma com juros se estava atrasada
             const parcelasEfetivasPagas = Math.max(0, parcelasPagas - 1);
-            return total + valorEntrada + (parcelasEfetivasPagas * valorPorParcela);
+            if (parcelasEfetivasPagas > 0 && arrematante?.mesInicioPagamento && arrematante?.diaVencimentoMensal) {
+              const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+              
+              for (let i = 0; i < parcelasEfetivasPagas; i++) {
+                const parcelaDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal, 23, 59, 59);
+                if (now > parcelaDate && arrematante?.percentualJurosAtraso) {
+                  const mesesAtraso = Math.max(0, Math.floor((now.getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                  if (mesesAtraso >= 1) {
+                    valorRecebido += calcularJurosProgressivos(valorPorParcela, arrematante.percentualJurosAtraso, mesesAtraso);
+                  } else {
+                    valorRecebido += valorPorParcela;
+                  }
+                } else {
+                  valorRecebido += valorPorParcela;
+                }
+              }
+            } else {
+              valorRecebido += parcelasEfetivasPagas * valorPorParcela;
+            }
+            
+            return total + valorRecebido;
           }
         } else if (tipoPagamento === 'parcelamento' || !tipoPagamento) {
-          // Para parcelamento simples
+          // Para parcelamento simples - calcular parcelas pagas com juros
           const quantidadeParcelas = arrematante?.quantidadeParcelas || 1;
           const valorPorParcela = valorTotal / quantidadeParcelas;
-          return total + (parcelasPagas * valorPorParcela);
+          
+          let valorRecebido = 0;
+          if (arrematante?.mesInicioPagamento && arrematante?.diaVencimentoMensal && arrematante?.percentualJurosAtraso) {
+            const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+            
+            for (let i = 0; i < parcelasPagas; i++) {
+              const parcelaDate = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal, 23, 59, 59);
+              if (now > parcelaDate) {
+                const mesesAtraso = Math.max(0, Math.floor((now.getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                if (mesesAtraso >= 1) {
+                  valorRecebido += calcularJurosProgressivos(valorPorParcela, arrematante.percentualJurosAtraso, mesesAtraso);
+                } else {
+                  valorRecebido += valorPorParcela;
+                }
+              } else {
+                valorRecebido += valorPorParcela;
+              }
+            }
+          } else {
+            valorRecebido = parcelasPagas * valorPorParcela;
+          }
+          
+          return total + valorRecebido;
         } else if (tipoPagamento === 'a_vista') {
-          // Para à vista, se parcelasPagas > 0, foi pago
-          return total + (parcelasPagas > 0 ? valorTotal : 0);
+          // Para à vista, se parcelasPagas > 0, foi pago - calcular com juros se estava atrasado
+          if (parcelasPagas > 0) {
+            const dataVencimento = loteArrematado?.dataVencimentoVista || auction?.dataVencimentoVista;
+            if (dataVencimento && arrematante?.percentualJurosAtraso) {
+              const vencimento = new Date(dataVencimento + 'T23:59:59');
+              if (now > vencimento) {
+                const mesesAtraso = Math.max(0, Math.floor((now.getTime() - vencimento.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                if (mesesAtraso >= 1) {
+                  return total + calcularJurosProgressivos(valorTotal, arrematante.percentualJurosAtraso, mesesAtraso);
+                }
+              }
+            }
+            return total + valorTotal;
+          }
         }
       }
       

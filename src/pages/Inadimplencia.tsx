@@ -1875,7 +1875,7 @@ Arthur Lira Leilões`;
               <div className="h-px w-20 bg-gray-300 mx-auto mb-4"></div>
             </div>
             <p className="text-3xl font-extralight text-gray-900 mb-2 tracking-tight">{currency.format(stats.totalAmount)}</p>
-            <p className="text-sm text-gray-600 font-medium">em pagamentos pendentes</p>
+            <p className="text-sm text-gray-600 font-medium">em pagamentos atrasados</p>
           </div>
         </div>
 

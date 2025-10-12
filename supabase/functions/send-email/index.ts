@@ -68,7 +68,7 @@ serve(async (req) => {
 
     const apiKey = resendApiKey
 
-    // Email remetente padrão (usando domínio verificado)
+    // Email remetente padrão (domínio verificado)
     const fromEmail = from || 'Arthur Lira Leilões <notificacoes@grupoliraleiloes.com>'
 
     console.log('Enviando email para:', to)

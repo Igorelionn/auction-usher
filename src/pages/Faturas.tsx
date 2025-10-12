@@ -2680,3 +2680,4 @@ const FaturaPreview = ({ fatura, auctions }: { fatura: FaturaExtendida, auctions
 };
 
 export default Faturas;
+

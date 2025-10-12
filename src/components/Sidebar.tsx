@@ -56,14 +56,14 @@ export function Sidebar() {
           onClick={toggleSidebar}
           className={cn(
             "group absolute -right-4 top-[280px] z-10 h-8 w-8 rounded-full bg-card border border-border shadow-md",
-            "hover:bg-primary/10 hover:border-primary/30 hover:shadow-lg hover:scale-110 transition-all duration-200",
+            "hover:bg-primary/10 hover:border-primary/30 transition-colors duration-200",
             "flex items-center justify-center"
           )}
         >
           {isCollapsed ? (
-            <ChevronsRight className="h-4 w-4 text-foreground/70 group-hover:translate-x-0.5 transition-transform duration-200" />
+            <ChevronsRight className="h-4 w-4 text-foreground/70" />
           ) : (
-            <ChevronsLeft className="h-4 w-4 text-foreground/70 group-hover:-translate-x-0.5 transition-transform duration-200" />
+            <ChevronsLeft className="h-4 w-4 text-foreground/70" />
           )}
         </Button>
         

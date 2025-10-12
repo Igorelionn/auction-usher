@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react';
-import { supabaseClient } from '@/lib/supabase-client';
+import { supabase } from '@/lib/supabase';
 import { Auction } from '@/lib/types';
-import { getLembreteEmailTemplate, getCobrancaEmailTemplate, getConfirmacaoPagamentoEmailTemplate } from '@/lib/email-templates';
-import { format, parseISO, differenceInDays, addDays } from 'date-fns';
+import { getLembreteEmailTemplate, getCobrancaEmailTemplate, getConfirmacaoPagamentoEmailTemplate, getQuitacaoCompletaEmailTemplate } from '@/lib/email-templates';
+import { format, parseISO, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 interface EmailConfig {
   resendApiKey?: string;
   emailRemetente: string;
-  diasAntesLembrete: number; // dias antes do vencimento para enviar lembrete
-  diasDepoisCobranca: number; // dias depois do vencimento para enviar cobrança
-  enviarAutomatico: boolean; // se deve enviar automaticamente ou apenas manual
+  diasAntesLembrete: number;
+  diasDepoisCobranca: number;
+  enviarAutomatico: boolean;
 }
 
 interface EmailLog {
@@ -25,7 +25,7 @@ interface EmailLog {
 }
 
 const DEFAULT_CONFIG: EmailConfig = {
-  resendApiKey: 're_5s8gu2qB_AaRSuTA5DWf5RbgyrfwC2oby',
+  resendApiKey: 're_HVRGMxM1_D2T7xwKk96YKRfH7fczu847P',
   emailRemetente: 'notificacoes@grupoliraleiloes.com',
   diasAntesLembrete: 3,
   diasDepoisCobranca: 1,
@@ -37,7 +37,6 @@ export function useEmailNotifications() {
   const [loading, setLoading] = useState(false);
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
 
-  // Carregar configurações do localStorage
   useEffect(() => {
     const savedConfig = localStorage.getItem('email_config');
     if (savedConfig) {
@@ -50,21 +49,19 @@ export function useEmailNotifications() {
     }
   }, []);
 
-  // Salvar configurações
   const saveConfig = (newConfig: Partial<EmailConfig>) => {
     const updated = { ...config, ...newConfig };
     setConfig(updated);
     localStorage.setItem('email_config', JSON.stringify(updated));
   };
 
-  // Verificar se email já foi enviado
   const jaEnviouEmail = async (
     auctionId: string,
     tipoEmail: 'lembrete' | 'cobranca' | 'confirmacao'
   ): Promise<boolean> => {
     const hoje = new Date().toISOString().split('T')[0];
     
-    const { data, error } = await supabaseClient
+    const { data, error } = await supabase
       .from('email_logs')
       .select('id')
       .eq('auction_id', auctionId)
@@ -81,9 +78,8 @@ export function useEmailNotifications() {
     return (data?.length ?? 0) > 0;
   };
 
-  // Registrar log de email
   const registrarLog = async (log: Omit<EmailLog, 'id'>) => {
-    const { error } = await supabaseClient
+    const { error } = await supabase
       .from('email_logs')
       .insert([log]);
 
@@ -92,27 +88,19 @@ export function useEmailNotifications() {
     }
   };
 
-  // Calcular valor com juros
   const calcularValorComJuros = (
     valorOriginal: number,
     diasAtraso: number,
     percentualJuros: number = 0,
     tipoJuros: 'simples' | 'composto' = 'simples'
   ): { valorJuros: number; valorTotal: number } => {
-    // Validações de segurança
     if (diasAtraso <= 0 || percentualJuros <= 0 || valorOriginal <= 0) {
       return { valorJuros: 0, valorTotal: valorOriginal };
     }
 
-    // Limitar dias de atraso a um máximo razoável (10 anos = 3650 dias)
-    if (diasAtraso > 3650) {
-      console.warn(`⚠️ Dias de atraso muito alto (${diasAtraso}), limitando a 3650 dias (10 anos)`);
-      diasAtraso = 3650;
-    }
-
-    // Sem limite de percentual de juros - usar o valor configurado pelo usuário
-    if (percentualJuros > 100) {
-      console.warn(`⚠️ Percentual de juros muito alto: ${percentualJuros}% ao mês`);
+    if (diasAtraso > 1825) {
+      console.warn(`⚠️ Dias de atraso muito alto (${diasAtraso}), limitando a 1825 dias (5 anos)`);
+      diasAtraso = 1825;
     }
 
     const taxaMensal = percentualJuros / 100;
@@ -123,7 +111,6 @@ export function useEmailNotifications() {
     if (tipoJuros === 'simples') {
       valorJuros = valorOriginal * taxaMensal * mesesAtraso;
     } else {
-      // Juros compostos
       const valorTotal = valorOriginal * Math.pow(1 + taxaMensal, mesesAtraso);
       valorJuros = valorTotal - valorOriginal;
     }
@@ -134,7 +121,6 @@ export function useEmailNotifications() {
     };
   };
 
-  // Enviar email usando Supabase Edge Function (intermediário seguro)
   const enviarEmail = async (
     destinatario: string,
     assunto: string,
@@ -148,12 +134,10 @@ export function useEmailNotifications() {
     }
 
     try {
-      // URL da Edge Function do Supabase
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://moojuqphvhrhasxhaahd.supabase.co';
       const edgeFunctionUrl = `${supabaseUrl}/functions/v1/send-email`;
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vb2p1cXBodmhyaGFzeGhhYWhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwNDExMzEsImV4cCI6MjA3MjYxNzEzMX0.GR3YIs0QWsZP3Rdvw_-vCOPVtH2KCaoVO2pKeo1-WPs';
 
-      // Enviar diretamente para o destinatário (domínio verificado)
       const response = await fetch(edgeFunctionUrl, {
         method: 'POST',
         headers: {
@@ -176,11 +160,9 @@ export function useEmailNotifications() {
         throw new Error(responseData.error || 'Erro ao enviar email');
       }
 
-      console.log('✅ Email enviado com sucesso para:', destinatario);
-
       return { success: true };
     } catch (error) {
-      console.error('❌ Erro ao enviar email:', error);
+      console.error('Erro ao enviar email:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Erro desconhecido',
@@ -188,19 +170,16 @@ export function useEmailNotifications() {
     }
   };
 
-  // Enviar lembrete de pagamento
   const enviarLembrete = async (auction: Auction): Promise<{ success: boolean; message: string }> => {
     if (!auction.arrematante?.email) {
       return { success: false, message: 'Arrematante não possui email cadastrado' };
     }
 
-    // Verificar se já enviou hoje
     const jaEnviou = await jaEnviouEmail(auction.id, 'lembrete');
     if (jaEnviou) {
       return { success: false, message: 'Lembrete já foi enviado hoje para este arrematante' };
     }
 
-    // Determinar data de vencimento
     let dataVencimento: Date;
     if (auction.tipoPagamento === 'a_vista' && auction.dataVencimentoVista) {
       dataVencimento = parseISO(auction.dataVencimentoVista);
@@ -216,7 +195,6 @@ export function useEmailNotifications() {
     const hoje = new Date();
     const diasRestantes = differenceInDays(dataVencimento, hoje);
 
-    // Determinar informações de parcela
     const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
     const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
     const parcelaAtual = (auction.arrematante.parcelasPagas || 0) + 1;
@@ -237,7 +215,6 @@ export function useEmailNotifications() {
     const { subject, html } = getLembreteEmailTemplate(templateData);
     const result = await enviarEmail(auction.arrematante.email, subject, html);
 
-    // Registrar log
     await registrarLog({
       auction_id: auction.id,
       arrematante_nome: auction.arrematante.nome,
@@ -256,19 +233,16 @@ export function useEmailNotifications() {
     };
   };
 
-  // Enviar cobrança de atraso
   const enviarCobranca = async (auction: Auction): Promise<{ success: boolean; message: string }> => {
     if (!auction.arrematante?.email) {
       return { success: false, message: 'Arrematante não possui email cadastrado' };
     }
 
-    // Verificar se já enviou hoje
     const jaEnviou = await jaEnviouEmail(auction.id, 'cobranca');
     if (jaEnviou) {
       return { success: false, message: 'Cobrança já foi enviada hoje para este arrematante' };
     }
 
-    // Determinar data de vencimento
     let dataVencimento: Date;
     if (auction.tipoPagamento === 'a_vista' && auction.dataVencimentoVista) {
       dataVencimento = parseISO(auction.dataVencimentoVista);
@@ -288,7 +262,6 @@ export function useEmailNotifications() {
       return { success: false, message: 'Pagamento ainda não está em atraso' };
     }
 
-    // Calcular juros se configurado
     const valorOriginal = auction.arrematante.valorPagarNumerico;
     const percentualJuros = auction.arrematante.percentualJurosAtraso || 0;
     const tipoJuros = auction.arrematante.tipoJurosAtraso || 'simples';
@@ -299,7 +272,6 @@ export function useEmailNotifications() {
       tipoJuros
     );
 
-    // Determinar informações de parcela
     const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
     const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
     const parcelaAtual = (auction.arrematante.parcelasPagas || 0) + 1;
@@ -322,7 +294,6 @@ export function useEmailNotifications() {
     const { subject, html } = getCobrancaEmailTemplate(templateData);
     const result = await enviarEmail(auction.arrematante.email, subject, html);
 
-    // Registrar log
     await registrarLog({
       auction_id: auction.id,
       arrematante_nome: auction.arrematante.nome,
@@ -341,44 +312,30 @@ export function useEmailNotifications() {
     };
   };
 
-  // Enviar confirmação de pagamento
-  const enviarConfirmacao = async (auction: Auction, parcelaId?: string): Promise<{ success: boolean; message: string }> => {
+  const enviarConfirmacao = async (
+    auction: Auction, 
+    parcelaEspecifica?: number,
+    valorEspecifico?: number
+  ): Promise<{ success: boolean; message: string }> => {
     if (!auction.arrematante?.email) {
       return { success: false, message: 'Arrematante não possui email cadastrado' };
     }
 
-    // Determinar informações de parcela
     const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
     const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
-    const parcelaAtual = auction.arrematante.parcelasPagas || 0;
+    const parcelaAtual = parcelaEspecifica !== undefined ? parcelaEspecifica : (auction.arrematante.parcelasPagas || 0);
     const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
-
-    // Calcular valor da parcela (se for parcelamento)
-    let valorParcela = auction.arrematante.valorPagar || `R$ ${auction.arrematante.valorPagarNumerico.toFixed(2)}`;
     
-    // Se é parcelamento ou entrada+parcelamento, calcular valor da parcela
-    if (tipoPagamento === 'parcelamento' && totalParcelas > 0) {
-      const valorTotal = auction.arrematante.valorPagarNumerico;
-      const valorPorParcela = valorTotal / totalParcelas;
-      valorParcela = `R$ ${valorPorParcela.toFixed(2)}`;
-    } else if (tipoPagamento === 'entrada_parcelamento' && parcelaAtual > 1) {
-      // Para entrada+parcelamento, descontar a entrada das parcelas restantes
-      const valorTotal = auction.arrematante.valorPagarNumerico;
-      const valorEntrada = auction.arrematante.valorEntrada 
-        ? parseFloat(auction.arrematante.valorEntrada.replace(/[^0-9,]/g, '').replace(',', '.'))
-        : 0;
-      const valorRestante = valorTotal - valorEntrada;
-      const valorPorParcela = valorRestante / (totalParcelas || 1);
-      valorParcela = `R$ ${valorPorParcela.toFixed(2)}`;
-    }
+    let valorFinal = valorEspecifico 
+      ? `R$ ${valorEspecifico.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : (auction.arrematante.valorPagar || `R$ ${auction.arrematante.valorPagarNumerico.toFixed(2)}`);
 
     const templateData = {
       arrematanteNome: auction.arrematante.nome,
       leilaoNome: auction.nome,
-      loteNumero: lote?.numero || auction.lotes?.[0]?.numero,
-      valorPagar: valorParcela,
-      valorEntrada: auction.arrematante.valorEntrada,
-      dataVencimento: '', // não é usado no template de confirmação
+      loteNumero: auction.lotes?.[0]?.numero,
+      valorPagar: valorFinal,
+      dataVencimento: '',
       tipoPagamento,
       parcelaAtual,
       totalParcelas,
@@ -387,10 +344,8 @@ export function useEmailNotifications() {
     const { subject, html } = getConfirmacaoPagamentoEmailTemplate(templateData);
     const result = await enviarEmail(auction.arrematante.email, subject, html);
 
-    // Registrar log (usar parcelaId se fornecido, caso contrário usar auction.id)
-    const logId = parcelaId || auction.id;
     await registrarLog({
-      auction_id: logId,
+      auction_id: auction.id,
       arrematante_nome: auction.arrematante.nome,
       tipo_email: 'confirmacao',
       email_destinatario: auction.arrematante.email,
@@ -399,19 +354,64 @@ export function useEmailNotifications() {
       erro: result.error,
     });
 
-    const tipoDescricao = tipoPagamento === 'a_vista' 
-      ? 'pagamento à vista' 
-      : `parcela ${parcelaAtual}/${totalParcelas}`;
-
     return {
       success: result.success,
       message: result.success
-        ? `Confirmação de ${tipoDescricao} enviada com sucesso para ${auction.arrematante.email}`
+        ? `Confirmação enviada com sucesso para ${auction.arrematante.email}`
         : `Erro ao enviar confirmação: ${result.error}`,
     };
   };
 
-  // Verificar e enviar automaticamente (chamado periodicamente)
+  const enviarQuitacao = async (
+    auction: Auction,
+    valorTotalPago?: number
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!auction.arrematante?.email) {
+      return { success: false, message: 'Arrematante não possui email cadastrado' };
+    }
+
+    const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
+    const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
+    const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
+    
+    let valorTotal = valorTotalPago 
+      ? `R$ ${valorTotalPago.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : (auction.arrematante.valorPagar || `R$ ${auction.arrematante.valorPagarNumerico.toFixed(2)}`);
+
+    const templateData = {
+      arrematanteNome: auction.arrematante.nome,
+      leilaoNome: auction.nome,
+      loteNumero: auction.lotes?.[0]?.numero,
+      valorTotal: valorTotal,
+      valorPagar: '', // Não usado no template de quitação
+      dataVencimento: '', // Não usado no template de quitação
+      tipoPagamento,
+      totalParcelas: tipoPagamento === 'a_vista' ? undefined : totalParcelas,
+    };
+
+    const { subject, html } = getQuitacaoCompletaEmailTemplate(templateData);
+    const result = await enviarEmail(auction.arrematante.email, subject, html);
+
+    await registrarLog({
+      auction_id: auction.id,
+      arrematante_nome: auction.arrematante.nome,
+      tipo_email: 'confirmacao', // Usar 'confirmacao' para quitação também
+      email_destinatario: auction.arrematante.email,
+      data_envio: new Date().toISOString(),
+      sucesso: result.success,
+      erro: result.error,
+    });
+
+    console.log(`🎉 Email de quitação completa ${result.success ? 'enviado' : 'falhou'} para ${auction.arrematante.email}`);
+
+    return {
+      success: result.success,
+      message: result.success
+        ? `Email de quitação enviado com sucesso para ${auction.arrematante.email}`
+        : `Erro ao enviar email de quitação: ${result.error}`,
+    };
+  };
+
   const verificarEEnviarAutomatico = async (auctions: Auction[]) => {
     if (!config.enviarAutomatico) return;
 
@@ -429,7 +429,6 @@ export function useEmailNotifications() {
         continue;
       }
 
-      // Determinar data de vencimento
       let dataVencimento: Date | null = null;
       if (auction.tipoPagamento === 'a_vista' && auction.dataVencimentoVista) {
         dataVencimento = parseISO(auction.dataVencimentoVista);
@@ -444,7 +443,6 @@ export function useEmailNotifications() {
 
       const diasDiferenca = differenceInDays(dataVencimento, hoje);
 
-      // Enviar lembrete se estiver próximo do vencimento
       if (diasDiferenca > 0 && diasDiferenca <= config.diasAntesLembrete) {
         const jaEnviou = await jaEnviouEmail(auction.id, 'lembrete');
         if (!jaEnviou) {
@@ -457,7 +455,6 @@ export function useEmailNotifications() {
         }
       }
 
-      // Enviar cobrança se estiver atrasado
       if (diasDiferenca < 0 && Math.abs(diasDiferenca) >= config.diasDepoisCobranca) {
         const jaEnviou = await jaEnviouEmail(auction.id, 'cobranca');
         if (!jaEnviou) {
@@ -475,12 +472,11 @@ export function useEmailNotifications() {
     return resultados;
   };
 
-  // Carregar logs de email (apenas os enviados com sucesso)
   const carregarLogs = async (limit: number = 50) => {
-    const { data, error } = await supabaseClient
+    const { data, error } = await supabase
       .from('email_logs')
       .select('*')
-      .eq('sucesso', true) // Filtrar apenas emails enviados com sucesso
+      .eq('sucesso', true)
       .order('data_envio', { ascending: false })
       .limit(limit);
 
@@ -489,17 +485,15 @@ export function useEmailNotifications() {
       return;
     }
 
-    // @ts-ignore
     setEmailLogs(data || []);
   };
 
-  // Limpar histórico de emails (apenas para admins)
   const limparHistorico = async (): Promise<{ success: boolean; message: string }> => {
     try {
-        const { error } = await supabaseClient
+      const { error } = await supabase
         .from('email_logs')
         .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000'); // Deletar todos os registros
+        .neq('id', '00000000-0000-0000-0000-000000000000');
 
       if (error) {
         console.error('Erro ao limpar histórico:', error);
@@ -509,7 +503,6 @@ export function useEmailNotifications() {
         };
       }
 
-      // Atualizar estado local
       setEmailLogs([]);
 
       return {
@@ -533,10 +526,11 @@ export function useEmailNotifications() {
     enviarLembrete,
     enviarCobranca,
     enviarConfirmacao,
+    enviarQuitacao,
     verificarEEnviarAutomatico,
     carregarLogs,
     limparHistorico,
-    jaEnviouEmail, // Exportar para uso externo
+    jaEnviouEmail,
   };
 }
 
