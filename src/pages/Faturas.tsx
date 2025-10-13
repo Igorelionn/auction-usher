@@ -125,6 +125,24 @@ function Faturas() {
     return "em_aberto";
   };
 
+  // Função para calcular juros progressivos mês a mês
+  const calcularJurosProgressivos = (valorOriginal: number, percentualJuros: number, mesesAtraso: number) => {
+    if (mesesAtraso < 1 || !percentualJuros) {
+      return valorOriginal;
+    }
+
+    let valorAtual = valorOriginal;
+    const taxaMensal = percentualJuros / 100;
+    
+    // Aplicar juros mês a mês de forma progressiva
+    for (let mes = 1; mes <= mesesAtraso; mes++) {
+      const jurosMes = valorAtual * taxaMensal;
+      valorAtual = valorAtual + jurosMes;
+    }
+    
+    return Math.round(valorAtual * 100) / 100;
+  };
+
   // Gerar faturas automaticamente baseadas nos arrematantes dos leilões - considera tipos de pagamento específicos por lote
   const generateFaturasFromLeiloes = (): FaturaExtendida[] => {
     const faturas: FaturaExtendida[] = [];
@@ -176,13 +194,23 @@ function Faturas() {
               break; // Sair do case
             }
             
+            // Calcular valor com juros se atrasado
+            const now = new Date();
+            let valorComJuros = valorTotal;
+            if (now > dueDateObj && arrematante.percentualJurosAtraso) {
+              const mesesAtraso = Math.max(0, Math.floor((now.getTime() - dueDateObj.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+              if (mesesAtraso >= 1) {
+                valorComJuros = calcularJurosProgressivos(valorTotal, arrematante.percentualJurosAtraso, mesesAtraso);
+              }
+            }
+            
             faturas.push({
               id: `${auction.id}-avista`,
               auctionId: auction.id,
               lotId: loteArrematado.id || '',
               arrematanteId: arrematante.documento || `${auction.id}-${arrematante.nome}`,
               valorArremate: valorTotal,
-              valorLiquido: valorTotal,
+              valorLiquido: valorComJuros,
               vencimento: dateStr,
               parcela: 1,
               totalParcelas: 1,
@@ -205,7 +233,7 @@ function Faturas() {
           }
           
           case 'entrada_parcelamento': {
-            // Entrada + Parcelamento: gerar todas as parcelas (entrada + parcelas mensais)
+            // Entrada + Parcelamento: gerar APENAS a próxima parcela pendente (uma por vez)
             const quantidadeParcelasTotal = arrematante.quantidadeParcelas || loteArrematado.parcelasPadrao || 12;
             const quantidadeParcelas = quantidadeParcelasTotal + 1; // Total incluindo entrada
             const valorEntrada = arrematante.valorEntrada ? parseCurrencyToNumber(arrematante.valorEntrada) : valorTotal * 0.3;
@@ -213,68 +241,81 @@ function Faturas() {
             const valorParcela = valorRestante / quantidadeParcelasTotal;
             const parcelasPagas = arrematante.parcelasPagas || 0;
             
-            // Gerar fatura da entrada
-            const dataEntrada = loteArrematado.dataEntrada || new Date().toISOString().split('T')[0];
-            const dueDateObjEntrada = new Date(dataEntrada);
-            
-            // Validar se a data de entrada é válida
-            if (isNaN(dueDateObjEntrada.getTime())) {
-              console.error('Data de entrada inválida:', {
-                dataEntrada,
-                loteId: loteArrematado.id
-              });
-              break; // Sair do case
-            }
-            
-            faturas.push({
-              id: `${auction.id}-entrada`,
-              auctionId: auction.id,
-              lotId: loteArrematado.id || '',
-              arrematanteId: arrematante.documento || `${auction.id}-${arrematante.nome}`,
-              valorArremate: valorTotal,
-              valorLiquido: valorTotal,
-              vencimento: dataEntrada,
-              parcela: 1,
-              totalParcelas: quantidadeParcelas,
-              valorTotal: valorTotal,
-              dataVencimento: dataEntrada,
-              dataPagamento: parcelasPagas > 0 ? dataEntrada : undefined,
-              status: parcelasPagas > 0 ? 'pago' : getInvoiceStatus(arrematante, 0, dueDateObjEntrada),
-              observacoes: `Entrada - ${auction.identificacao || auction.nome}`,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              leilaoNome: auction.nome || auction.identificacao || 'Leilão sem nome',
-              loteNumero: loteArrematado.numero || 'Sem número',
-              arrematanteNome: arrematante.nome,
-              diasVencimento: Math.ceil((dueDateObjEntrada.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
-              statusFatura: parcelasPagas > 0 ? 'pago' : getInvoiceStatus(arrematante, 0, dueDateObjEntrada),
-              arquivado: archivedFaturas.has(`${auction.id}-entrada`),
-              tipoPagamento: 'entrada_parcelamento'
-            });
-            
-            // Gerar todas as parcelas mensais
-            const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
-            const diaVencimento = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
-            
-            if (mesInicioPagamento && diaVencimento) {
-              const mesInicioPagamentoNormalizado = normalizarMesInicioPagamento(mesInicioPagamento);
-              const [startYear, startMonth] = mesInicioPagamentoNormalizado.split('-').map(Number);
+             // Se ainda não pagou a entrada (parcelasPagas === 0), exibir apenas a entrada
+            if (parcelasPagas === 0) {
+              const dataEntrada = loteArrematado.dataEntrada || new Date().toISOString().split('T')[0];
+              const dueDateObjEntrada = new Date(dataEntrada);
               
-              // Validar se os valores de data são válidos
-              if (isNaN(startYear) || isNaN(startMonth) || isNaN(diaVencimento)) {
-                console.error('Valores de data inválidos para entrada+parcelamento:', {
-                  startYear,
-                  startMonth,
-                  diaVencimento,
-                  mesInicioPagamento,
-                  mesInicioPagamentoNormalizado
+              // Validar se a data de entrada é válida
+              if (isNaN(dueDateObjEntrada.getTime())) {
+                console.error('Data de entrada inválida:', {
+                  dataEntrada,
+                  loteId: loteArrematado.id
                 });
                 break; // Sair do case
               }
               
-              for (let i = 0; i < quantidadeParcelasTotal; i++) {
-                const parcelaNumero = i + 1; // Número da parcela (1, 2, 3...)
-                const dueDate = new Date(startYear, startMonth - 1 + i, diaVencimento);
+              // Calcular valor da entrada com juros se atrasado
+              const now = new Date();
+              let valorEntradaComJuros = valorEntrada;
+              if (now > dueDateObjEntrada && arrematante.percentualJurosAtraso) {
+                const mesesAtraso = Math.max(0, Math.floor((now.getTime() - dueDateObjEntrada.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                if (mesesAtraso >= 1) {
+                  valorEntradaComJuros = calcularJurosProgressivos(valorEntrada, arrematante.percentualJurosAtraso, mesesAtraso);
+                }
+              }
+              
+              faturas.push({
+                id: `${auction.id}-entrada`,
+                auctionId: auction.id,
+                lotId: loteArrematado.id || '',
+                arrematanteId: arrematante.documento || `${auction.id}-${arrematante.nome}`,
+                valorArremate: valorTotal,
+                valorLiquido: valorEntradaComJuros,
+                vencimento: dataEntrada,
+                parcela: 1,
+                totalParcelas: quantidadeParcelas,
+                valorTotal: valorTotal,
+                dataVencimento: dataEntrada,
+                dataPagamento: undefined,
+                status: getInvoiceStatus(arrematante, 0, dueDateObjEntrada),
+                observacoes: `Entrada - ${auction.identificacao || auction.nome}`,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                leilaoNome: auction.nome || auction.identificacao || 'Leilão sem nome',
+                loteNumero: loteArrematado.numero || 'Sem número',
+                arrematanteNome: arrematante.nome,
+                diasVencimento: Math.ceil((dueDateObjEntrada.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
+                statusFatura: getInvoiceStatus(arrematante, 0, dueDateObjEntrada),
+                arquivado: archivedFaturas.has(`${auction.id}-entrada`),
+                tipoPagamento: 'entrada_parcelamento'
+              });
+            }
+            // Se já pagou a entrada, exibir a próxima parcela mensal pendente
+            else if (parcelasPagas > 0 && parcelasPagas <= quantidadeParcelasTotal) {
+              const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
+              const diaVencimento = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
+              
+              if (mesInicioPagamento && diaVencimento) {
+                const mesInicioPagamentoNormalizado = normalizarMesInicioPagamento(mesInicioPagamento);
+                const [startYear, startMonth] = mesInicioPagamentoNormalizado.split('-').map(Number);
+                
+                // Validar se os valores de data são válidos
+                if (isNaN(startYear) || isNaN(startMonth) || isNaN(diaVencimento)) {
+                  console.error('Valores de data inválidos para entrada+parcelamento:', {
+                    startYear,
+                    startMonth,
+                    diaVencimento,
+                    mesInicioPagamento,
+                    mesInicioPagamentoNormalizado
+                  });
+                  break; // Sair do case
+                }
+                
+                // Gerar apenas a próxima parcela mensal não paga
+                const i = parcelasPagas - 1; // Índice da próxima parcela mensal (0-based, considerando que entrada já foi paga)
+                const parcelaNumero = parcelasPagas; // Número da próxima parcela mensal (1, 2, 3...)
+                const dueDate = new Date(startYear, startMonth - 1 + i, diaVencimento, 23, 59, 59);
                 
                 // Validar se a data criada é válida
                 if (isNaN(dueDate.getTime())) {
@@ -284,10 +325,18 @@ function Faturas() {
                     i,
                     diaVencimento
                   });
-                  continue; // Pular esta parcela
+                  break; // Sair do case
                 }
                 
-                const jaPaga = parcelasPagas > parcelaNumero; // Se já pagou essa parcela
+                // Calcular valor da parcela com juros se atrasado
+                const now = new Date();
+                let valorParcelaComJuros = valorParcela;
+                if (now > dueDate && arrematante.percentualJurosAtraso) {
+                  const mesesAtraso = Math.max(0, Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                  if (mesesAtraso >= 1) {
+                    valorParcelaComJuros = calcularJurosProgressivos(valorParcela, arrematante.percentualJurosAtraso, mesesAtraso);
+                  }
+                }
                 
                 faturas.push({
                   id: `${auction.id}-parcela-${parcelaNumero}`,
@@ -295,14 +344,14 @@ function Faturas() {
                   lotId: loteArrematado.id || '',
                   arrematanteId: arrematante.documento || `${auction.id}-${arrematante.nome}`,
                   valorArremate: valorTotal,
-                  valorLiquido: valorTotal,
+                  valorLiquido: valorParcelaComJuros,
                   vencimento: dueDate.toISOString().split('T')[0],
                   parcela: parcelaNumero + 1, // +1 porque a entrada é a parcela 1
                   totalParcelas: quantidadeParcelas,
                   valorTotal: valorTotal,
                   dataVencimento: dueDate.toISOString().split('T')[0],
-                  dataPagamento: jaPaga ? dueDate.toISOString().split('T')[0] : undefined,
-                  status: jaPaga ? 'pago' : getInvoiceStatus(arrematante, parcelaNumero, dueDate),
+                  dataPagamento: undefined,
+                  status: getInvoiceStatus(arrematante, parcelaNumero, dueDate),
                   observacoes: `Parcela ${parcelaNumero + 1} de ${quantidadeParcelas} - ${auction.identificacao || auction.nome}`,
                   createdAt: new Date().toISOString(),
                   updatedAt: new Date().toISOString(),
@@ -310,37 +359,42 @@ function Faturas() {
                   loteNumero: loteArrematado.numero || 'Sem número',
                   arrematanteNome: arrematante.nome,
                   diasVencimento: Math.ceil((dueDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
-                  statusFatura: jaPaga ? 'pago' : getInvoiceStatus(arrematante, parcelaNumero, dueDate),
+                  statusFatura: getInvoiceStatus(arrematante, parcelaNumero, dueDate),
                   arquivado: archivedFaturas.has(`${auction.id}-parcela-${parcelaNumero}`),
                   tipoPagamento: 'entrada_parcelamento'
                 });
               }
             }
+            // Se já pagou todas as parcelas (incluindo entrada), não gerar nenhuma fatura
             break;
           }
           
           case 'parcelamento':
           default: {
             // Parcelamento tradicional: gerar APENAS a próxima parcela pendente (uma por vez)
-            if (!loteArrematado.parcelasPadrao || !loteArrematado.mesInicioPagamento || !loteArrematado.diaVencimentoPadrao) return;
+            // PRIORIZAR dados do arrematante (mais específicos) sobre dados do lote
+            const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
+            const diaVencimento = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
+            const quantidadeParcelas = arrematante.quantidadeParcelas || loteArrematado.parcelasPadrao;
             
-            const quantidadeParcelas = loteArrematado.parcelasPadrao;
+            if (!quantidadeParcelas || !mesInicioPagamento || !diaVencimento) return;
+            
             const valorParcela = valorTotal / quantidadeParcelas;
             const parcelasPagas = arrematante.parcelasPagas || 0;
             
             // Se já pagou todas as parcelas, não gerar nenhuma fatura
             if (parcelasPagas >= quantidadeParcelas) return;
             
-            const mesInicioPagamentoNormalizado = normalizarMesInicioPagamento(loteArrematado.mesInicioPagamento);
+            const mesInicioPagamentoNormalizado = normalizarMesInicioPagamento(mesInicioPagamento);
             const [startYear, startMonth] = mesInicioPagamentoNormalizado.split('-').map(Number);
             
             // Validar se os valores de data são válidos
-            if (isNaN(startYear) || isNaN(startMonth) || isNaN(loteArrematado.diaVencimentoPadrao)) {
+            if (isNaN(startYear) || isNaN(startMonth) || isNaN(diaVencimento)) {
               console.error('Valores de data inválidos no lote:', {
                 startYear,
                 startMonth,
-                diaVencimentoPadrao: loteArrematado.diaVencimentoPadrao,
-                mesInicioPagamento: loteArrematado.mesInicioPagamento,
+                diaVencimento,
+                mesInicioPagamento,
                 mesInicioPagamentoNormalizado
               });
               return;
@@ -349,7 +403,7 @@ function Faturas() {
             // Gerar apenas a próxima parcela não paga
             const i = parcelasPagas; // Índice da próxima parcela (0-based)
             const parcelaNumero = parcelasPagas + 1; // Número da próxima parcela (1-based)
-            const dueDate = new Date(startYear, startMonth - 1 + i, loteArrematado.diaVencimentoPadrao);
+            const dueDate = new Date(startYear, startMonth - 1 + i, diaVencimento, 23, 59, 59);
             
             // Validar se a data criada é válida
             if (isNaN(dueDate.getTime())) {
@@ -357,9 +411,31 @@ function Faturas() {
                 startYear,
                 startMonth,
                 i,
-                diaVencimentoPadrao: loteArrematado.diaVencimentoPadrao
+                diaVencimento
               });
               return;
+            }
+            
+            // Calcular valor da parcela com juros se atrasado
+            const now = new Date();
+            let valorParcelaComJuros = valorParcela;
+            if (now > dueDate && arrematante.percentualJurosAtraso) {
+              const mesesAtraso = Math.max(0, Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+              console.log('🔍 DEBUG FATURAS - Parcelamento Simples:', {
+                arrematanteNome: arrematante.nome,
+                valorTotal: arrematante.valorPagarNumerico,
+                quantidadeParcelas,
+                valorParcela,
+                dueDate: dueDate.toISOString(),
+                dataHoje: now.toISOString(),
+                mesesAtraso,
+                percentualJuros: arrematante.percentualJurosAtraso,
+                valorSemJuros: valorParcela,
+                valorComJuros: mesesAtraso >= 1 ? calcularJurosProgressivos(valorParcela, arrematante.percentualJurosAtraso, mesesAtraso) : valorParcela
+              });
+              if (mesesAtraso >= 1) {
+                valorParcelaComJuros = calcularJurosProgressivos(valorParcela, arrematante.percentualJurosAtraso, mesesAtraso);
+              }
             }
             
             // Gerar apenas esta parcela
@@ -369,7 +445,7 @@ function Faturas() {
               lotId: loteArrematado.id || '',
               arrematanteId: arrematante.documento || `${auction.id}-${arrematante.nome}`,
               valorArremate: valorTotal,
-              valorLiquido: valorParcela,
+              valorLiquido: valorParcelaComJuros,
               vencimento: dueDate.toISOString().split('T')[0],
               parcela: parcelaNumero,
               totalParcelas: quantidadeParcelas,
@@ -442,24 +518,6 @@ function Faturas() {
       // Se ambas têm o mesmo status, ordenar por data de vencimento
       return new Date(a.dataVencimento).getTime() - new Date(b.dataVencimento).getTime();
     });
-
-  // Função para calcular juros progressivos mês a mês
-  const calcularJurosProgressivos = (valorOriginal: number, percentualJuros: number, mesesAtraso: number) => {
-    if (mesesAtraso < 1 || !percentualJuros) {
-      return valorOriginal;
-    }
-
-    let valorAtual = valorOriginal;
-    const taxaMensal = percentualJuros / 100;
-    
-    // Aplicar juros mês a mês de forma progressiva
-    for (let mes = 1; mes <= mesesAtraso; mes++) {
-      const jurosMes = valorAtual * taxaMensal;
-      valorAtual = valorAtual + jurosMes;
-    }
-    
-    return Math.round(valorAtual * 100) / 100;
-  };
 
   // Função para calcular valor TOTAL do leilão (entrada + todas as parcelas) com juros se houver atraso
   const calcularValorTotalLeilaoComJuros = (fatura: FaturaExtendida) => {
@@ -1384,9 +1442,9 @@ function Faturas() {
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center">
                   <Label className="text-sm font-medium text-gray-700">Valor Total do Arrematação</Label>
                   <p className="mt-2 text-3xl font-bold text-gray-900">
-                    {formatCurrency(selectedFatura.valorTotal || selectedFatura.valorLiquido)}
+                    {formatCurrency(calcularValorTotalLeilaoComJuros(selectedFatura))}
                   </p>
-                  <p className="mt-1 text-sm text-gray-600">Valor total arrematado no leilão</p>
+                  <p className="mt-1 text-sm text-gray-600">Valor total arrematado no leilão (com juros se houver atraso)</p>
                 </div>
 
                 {/* Detalhes Específicos do Pagamento */}
@@ -1407,16 +1465,41 @@ function Faturas() {
                                 const valorTotal = Number(selectedFatura.valorTotal || selectedFatura.valorLiquido);
                                 const valorEntradaConfig = arrematante?.valorEntrada;
                                 
-                                // Se há valor configurado, usa ele (convertendo de string se necessário)
+                                // Calcular valor base da entrada
+                                let valorEntradaBase;
                                 if (valorEntradaConfig) {
-                                  const valorConvertido = typeof valorEntradaConfig === 'string' ? 
+                                  valorEntradaBase = typeof valorEntradaConfig === 'string' ? 
                                     parseCurrencyToNumber(valorEntradaConfig) : 
                                     Number(valorEntradaConfig);
-                                  return formatCurrency(valorConvertido);
+                                } else {
+                                  valorEntradaBase = valorTotal * 0.3;
                                 }
                                 
-                                // Senão, usa 30% do total
-                                return formatCurrency(valorTotal * 0.3);
+                                // Se a entrada ainda não foi paga, calcular juros se atrasada
+                                if (arrematante?.parcelasPagas === 0 && loteArrematado?.dataEntrada) {
+                                  const dataEntrada = new Date(loteArrematado.dataEntrada);
+                                  const now = new Date();
+                                  
+                                  if (now > dataEntrada && arrematante?.percentualJurosAtraso) {
+                                    const mesesAtraso = Math.max(0, Math.floor((now.getTime() - dataEntrada.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                                    if (mesesAtraso >= 1) {
+                                      const valorComJuros = calcularJurosProgressivos(valorEntradaBase, arrematante.percentualJurosAtraso, mesesAtraso);
+                                      const juros = valorComJuros - valorEntradaBase;
+                                      return (
+                                        <>
+                                          {formatCurrency(valorComJuros)}
+                                          {juros > 0 && (
+                                            <span className="text-xs text-red-600 ml-2">
+                                              ({formatCurrency(juros)} juros)
+                                            </span>
+                                          )}
+                                        </>
+                                      );
+                                    }
+                                  }
+                                }
+                                
+                                return formatCurrency(valorEntradaBase);
                               })()}
                             </p>
                           </div>
@@ -1434,8 +1517,29 @@ function Faturas() {
                           <div>
                             <Label className="text-xs font-medium text-gray-700">Status</Label>
                             <p className="text-sm font-semibold text-gray-800">
-                              {selectedFatura.parcela === 1 ? getStatusText(selectedFatura.status) : 
-                               (arrematante?.parcelasPagas && arrematante.parcelasPagas > 0 ? 'Pago' : 'Pendente')}
+                              {(() => {
+                                // Se é a parcela 1 (entrada), pegar o status da fatura atual
+                                if (selectedFatura.parcela === 1) {
+                                  return getStatusText(selectedFatura.status);
+                                }
+                                
+                                // Se não é a parcela 1, verificar se entrada foi paga
+                                if (arrematante?.parcelasPagas && arrematante.parcelasPagas > 0) {
+                                  return 'Pago';
+                                }
+                                
+                                // Se não foi paga, verificar se está atrasada
+                                if (loteArrematado?.dataEntrada) {
+                                  const dataEntrada = new Date(loteArrematado.dataEntrada);
+                                  const now = new Date();
+                                  
+                                  if (now > dataEntrada) {
+                                    return 'Atrasado';
+                                  }
+                                }
+                                
+                                return 'Pendente';
+                              })()}
                             </p>
                           </div>
                         </div>

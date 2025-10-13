@@ -2838,6 +2838,18 @@ function Arrematantes() {
                                 
                                 if (now > parcelaDate && arrematante.percentualJurosAtraso) {
                                   const mesesAtraso = Math.max(0, Math.floor((now.getTime() - parcelaDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+                                  console.log('🔍 DEBUG ARREMATANTES - Parcelamento Simples:', {
+                                    arrematanteNome: arrematante.nome,
+                                    valorTotal: arrematante.valorPagarNumerico,
+                                    quantidadeParcelas,
+                                    valorParcelaBase,
+                                    parcelaDate: parcelaDate.toISOString(),
+                                    dataHoje: now.toISOString(),
+                                    mesesAtraso,
+                                    percentualJuros: arrematante.percentualJurosAtraso,
+                                    valorSemJuros: valorParcelaBase,
+                                    valorComJuros: mesesAtraso >= 1 ? calcularJurosProgressivos(valorParcelaBase, arrematante.percentualJurosAtraso, mesesAtraso) : valorParcelaBase
+                                  });
                                   if (mesesAtraso >= 1) {
                                     valorParcelaExibir = calcularJurosProgressivos(valorParcelaBase, arrematante.percentualJurosAtraso, mesesAtraso);
                                   } else {
