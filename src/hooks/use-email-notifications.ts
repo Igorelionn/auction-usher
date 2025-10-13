@@ -180,10 +180,15 @@ export function useEmailNotifications() {
       return { success: false, message: 'Lembrete já foi enviado hoje para este arrematante' };
     }
 
+    const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
+    const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
+    const parcelaAtual = (auction.arrematante.parcelasPagas || 0) + 1;
+    const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
+
     let dataVencimento: Date;
     if (auction.tipoPagamento === 'a_vista' && auction.dataVencimentoVista) {
       dataVencimento = parseISO(auction.dataVencimentoVista);
-    } else if (auction.arrematante.dataEntrada) {
+    } else if (tipoPagamento === 'entrada_parcelamento' && parcelaAtual === 1 && auction.arrematante.dataEntrada) {
       dataVencimento = parseISO(auction.arrematante.dataEntrada);
     } else if (auction.arrematante.mesInicioPagamento && auction.arrematante.diaVencimentoMensal) {
       const [ano, mes] = auction.arrematante.mesInicioPagamento.split('-');
@@ -195,16 +200,42 @@ export function useEmailNotifications() {
     const hoje = new Date();
     const diasRestantes = differenceInDays(dataVencimento, hoje);
 
-    const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
-    const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
-    const parcelaAtual = (auction.arrematante.parcelasPagas || 0) + 1;
-    const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
+    // 🔧 CALCULAR VALOR CORRETO DA PARCELA baseado no tipo de pagamento
+    const valorTotalLeilao = auction.arrematante.valorPagarNumerico;
+    let valorParcela = valorTotalLeilao;
+
+    if (tipoPagamento === 'a_vista') {
+      // À vista: valor total
+      valorParcela = valorTotalLeilao;
+    } else if (tipoPagamento === 'entrada_parcelamento') {
+      if (parcelaAtual === 1) {
+        // Primeira parcela é a entrada
+        const valorEntrada = auction.arrematante.valorEntrada 
+          ? (typeof auction.arrematante.valorEntrada === 'string' 
+              ? parseFloat(auction.arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) 
+              : auction.arrematante.valorEntrada)
+          : valorTotalLeilao * 0.3;
+        valorParcela = valorEntrada;
+      } else {
+        // Parcelas após entrada
+        const valorEntrada = auction.arrematante.valorEntrada 
+          ? (typeof auction.arrematante.valorEntrada === 'string' 
+              ? parseFloat(auction.arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) 
+              : auction.arrematante.valorEntrada)
+          : valorTotalLeilao * 0.3;
+        const valorRestante = valorTotalLeilao - valorEntrada;
+        valorParcela = valorRestante / totalParcelas;
+      }
+    } else if (tipoPagamento === 'parcelamento') {
+      // Parcelamento simples: dividir valor total pelas parcelas
+      valorParcela = valorTotalLeilao / totalParcelas;
+    }
 
     const templateData = {
       arrematanteNome: auction.arrematante.nome,
       leilaoNome: auction.nome,
-      loteNumero: auction.lotes?.[0]?.numero,
-      valorPagar: auction.arrematante.valorPagar || `R$ ${auction.arrematante.valorPagarNumerico.toFixed(2)}`,
+      loteNumero: lote?.numero || auction.lotes?.[0]?.numero,
+      valorPagar: `R$ ${valorParcela.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       dataVencimento: format(dataVencimento, "dd 'de' MMMM 'de' yyyy", { locale: ptBR }),
       diasRestantes,
       tipoPagamento,
@@ -243,10 +274,15 @@ export function useEmailNotifications() {
       return { success: false, message: 'Cobrança já foi enviada hoje para este arrematante' };
     }
 
+    const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
+    const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
+    const parcelaAtual = (auction.arrematante.parcelasPagas || 0) + 1;
+    const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
+
     let dataVencimento: Date;
     if (auction.tipoPagamento === 'a_vista' && auction.dataVencimentoVista) {
       dataVencimento = parseISO(auction.dataVencimentoVista);
-    } else if (auction.arrematante.dataEntrada) {
+    } else if (tipoPagamento === 'entrada_parcelamento' && parcelaAtual === 1 && auction.arrematante.dataEntrada) {
       dataVencimento = parseISO(auction.arrematante.dataEntrada);
     } else if (auction.arrematante.mesInicioPagamento && auction.arrematante.diaVencimentoMensal) {
       const [ano, mes] = auction.arrematante.mesInicioPagamento.split('-');
@@ -262,30 +298,66 @@ export function useEmailNotifications() {
       return { success: false, message: 'Pagamento ainda não está em atraso' };
     }
 
-    const valorOriginal = auction.arrematante.valorPagarNumerico;
+    // 🔧 CALCULAR VALOR CORRETO DA PARCELA baseado no tipo de pagamento
+    const valorTotalLeilao = auction.arrematante.valorPagarNumerico;
+    let valorParcela = valorTotalLeilao;
+
+    if (tipoPagamento === 'a_vista') {
+      // À vista: valor total
+      valorParcela = valorTotalLeilao;
+    } else if (tipoPagamento === 'entrada_parcelamento') {
+      if (parcelaAtual === 1) {
+        // Primeira parcela é a entrada
+        const valorEntrada = auction.arrematante.valorEntrada 
+          ? (typeof auction.arrematante.valorEntrada === 'string' 
+              ? parseFloat(auction.arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) 
+              : auction.arrematante.valorEntrada)
+          : valorTotalLeilao * 0.3;
+        valorParcela = valorEntrada;
+      } else {
+        // Parcelas após entrada
+        const valorEntrada = auction.arrematante.valorEntrada 
+          ? (typeof auction.arrematante.valorEntrada === 'string' 
+              ? parseFloat(auction.arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) 
+              : auction.arrematante.valorEntrada)
+          : valorTotalLeilao * 0.3;
+        const valorRestante = valorTotalLeilao - valorEntrada;
+        valorParcela = valorRestante / totalParcelas;
+      }
+    } else if (tipoPagamento === 'parcelamento') {
+      // Parcelamento simples: dividir valor total pelas parcelas
+      valorParcela = valorTotalLeilao / totalParcelas;
+    }
+
+    console.log(`💰 DEBUG Email Cobrança:`);
+    console.log(`   - Valor Total Leilão: R$ ${valorTotalLeilao.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+    console.log(`   - Tipo Pagamento: ${tipoPagamento}`);
+    console.log(`   - Parcela ${parcelaAtual}/${totalParcelas}`);
+    console.log(`   - Valor da Parcela: R$ ${valorParcela.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+    console.log(`   - Dias em Atraso: ${diasAtraso}`);
+
     const percentualJuros = auction.arrematante.percentualJurosAtraso || 0;
     const tipoJuros = auction.arrematante.tipoJurosAtraso || 'simples';
     const { valorJuros, valorTotal } = calcularValorComJuros(
-      valorOriginal,
+      valorParcela,
       diasAtraso,
       percentualJuros,
       tipoJuros
     );
 
-    const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
-    const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
-    const parcelaAtual = (auction.arrematante.parcelasPagas || 0) + 1;
-    const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
+    console.log(`   - Percentual Juros: ${percentualJuros}% ao mês`);
+    console.log(`   - Valor Juros: R$ ${valorJuros.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+    console.log(`   - Valor Total com Juros: R$ ${valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
 
     const templateData = {
       arrematanteNome: auction.arrematante.nome,
       leilaoNome: auction.nome,
-      loteNumero: auction.lotes?.[0]?.numero,
-      valorPagar: auction.arrematante.valorPagar || `R$ ${valorOriginal.toFixed(2)}`,
+      loteNumero: lote?.numero || auction.lotes?.[0]?.numero,
+      valorPagar: `R$ ${valorParcela.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       dataVencimento: format(dataVencimento, "dd 'de' MMMM 'de' yyyy", { locale: ptBR }),
       diasAtraso,
-      valorJuros: valorJuros > 0 ? `R$ ${valorJuros.toFixed(2)}` : undefined,
-      valorTotal: valorJuros > 0 ? `R$ ${valorTotal.toFixed(2)}` : undefined,
+      valorJuros: valorJuros > 0 ? `R$ ${valorJuros.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined,
+      valorTotal: valorJuros > 0 ? `R$ ${valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined,
       tipoPagamento,
       parcelaAtual,
       totalParcelas,
