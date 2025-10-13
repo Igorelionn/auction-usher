@@ -280,6 +280,10 @@ export default function Inadimplencia() {
   const [selectedArrematanteForExport, setSelectedArrematanteForExport] = useState<string>("");
   const [isExportSelectOpen, setIsExportSelectOpen] = useState(false);
 
+  // Estados para envio em massa de notificações
+  const [isSendingBulkNotifications, setIsSendingBulkNotifications] = useState(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+
 
   // Função para abrir histórico do arrematante
   const handleOpenHistory = (auction: any) => {
@@ -1780,6 +1784,81 @@ Arthur Lira Leilões`;
     }
   };
 
+  // Função para enviar notificações em massa
+  const handleSendBulkNotifications = async () => {
+    if (overdueAuctions.length === 0) {
+      toast({
+        title: "ℹ️ Nenhum Inadimplente",
+        description: "Não há arrematantes em atraso no momento.",
+        variant: "default",
+      });
+      return;
+    }
+
+    setIsNotificationModalOpen(true);
+  };
+
+  const confirmSendBulkNotifications = async () => {
+    setIsSendingBulkNotifications(true);
+    setIsNotificationModalOpen(false);
+
+    let successCount = 0;
+    let errorCount = 0;
+    const errors: string[] = [];
+
+    for (const auction of overdueAuctions) {
+      if (!auction.arrematante?.email) {
+        errorCount++;
+        errors.push(`${auction.arrematante?.nome || 'Sem nome'}: Email não cadastrado`);
+        continue;
+      }
+
+      try {
+        const result = await enviarCobranca(auction);
+        
+        if (result.success) {
+          successCount++;
+          console.log(`✅ Notificação enviada: ${auction.arrematante.nome}`);
+        } else {
+          errorCount++;
+          errors.push(`${auction.arrematante.nome}: ${result.message}`);
+          console.log(`❌ Erro ao enviar: ${result.message}`);
+        }
+
+        // Aguardar 1 segundo entre cada envio para não sobrecarregar
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (error) {
+        errorCount++;
+        errors.push(`${auction.arrematante.nome}: Erro desconhecido`);
+        console.error(`❌ Erro ao enviar notificação:`, error);
+      }
+    }
+
+    setIsSendingBulkNotifications(false);
+
+    // Mostrar resultado
+    if (successCount > 0 && errorCount === 0) {
+      toast({
+        title: "✅ Notificações Enviadas",
+        description: `${successCount} notificação(ões) de débito enviada(s) com sucesso!`,
+      });
+    } else if (successCount > 0 && errorCount > 0) {
+      toast({
+        title: "⚠️ Envio Parcial",
+        description: `${successCount} enviada(s) com sucesso, ${errorCount} com erro. Verifique o console para detalhes.`,
+        variant: "default",
+      });
+      console.log("❌ Erros encontrados:", errors);
+    } else {
+      toast({
+        title: "❌ Erro no Envio",
+        description: `Não foi possível enviar nenhuma notificação. Verifique o console.`,
+        variant: "destructive",
+      });
+      console.log("❌ Erros encontrados:", errors);
+    }
+  };
+
   const getSeverityBadge = (severity: string, daysOverdue: number) => {
       const daysText = daysOverdue === 1 ? '1 dia' : `${daysOverdue} dias`;
       
@@ -1844,6 +1923,24 @@ Arthur Lira Leilões`;
           </p>
         </div>
         <div className="flex gap-3">
+          <Button 
+            variant="default" 
+            className="bg-red-600 text-white hover:bg-red-700"
+            onClick={handleSendBulkNotifications}
+            disabled={isSendingBulkNotifications || overdueAuctions.length === 0}
+          >
+            {isSendingBulkNotifications ? (
+              <>
+                <Timer className="h-4 w-4 mr-2 animate-spin" />
+                Enviando...
+              </>
+            ) : (
+              <>
+                <Send className="h-4 w-4 mr-2" />
+                Enviar Notificações ({overdueAuctions.length})
+              </>
+            )}
+          </Button>
           <Button 
             variant="outline" 
             className="bg-white text-black border-gray-300 hover:bg-gray-100 hover:text-black"
@@ -2795,6 +2892,72 @@ Arthur Lira Leilões`;
 
 
       {/* Modal de Envio de Cobrança */}
+      {/* Modal de Confirmação de Envio em Massa */}
+      <Dialog open={isNotificationModalOpen} onOpenChange={setIsNotificationModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-orange-500" />
+              Confirmar Envio de Notificações
+            </DialogTitle>
+            <DialogDescription>
+              Você está prestes a enviar notificações de débito em aberto para todos os inadimplentes.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-orange-500 mt-0.5" />
+                <div>
+                  <h4 className="font-semibold text-gray-900 mb-2">Detalhes do Envio:</h4>
+                  <ul className="space-y-1 text-sm text-gray-700">
+                    <li>• <strong>{overdueAuctions.length}</strong> arrematante(s) em atraso</li>
+                    <li>• Notificações serão enviadas por email</li>
+                    <li>• Apenas arrematantes com email cadastrado receberão</li>
+                    <li>• O sistema já verifica envios duplicados no mesmo dia</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-800">
+                💡 <strong>Dica:</strong> Você pode acompanhar o progresso no console do navegador (F12).
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-3 justify-end mt-4">
+            <Button 
+              variant="outline" 
+              onClick={() => setIsNotificationModalOpen(false)}
+              disabled={isSendingBulkNotifications}
+            >
+              Cancelar
+            </Button>
+            <Button 
+              variant="default"
+              className="bg-red-600 text-white hover:bg-red-700"
+              onClick={confirmSendBulkNotifications}
+              disabled={isSendingBulkNotifications}
+            >
+              {isSendingBulkNotifications ? (
+                <>
+                  <Timer className="h-4 w-4 mr-2 animate-spin" />
+                  Enviando...
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-2" />
+                  Confirmar e Enviar
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isChargeModalOpen} onOpenChange={setIsChargeModalOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
