@@ -127,6 +127,7 @@ export function useEmailNotifications() {
     htmlContent: string
   ): Promise<{ success: boolean; error?: string }> => {
     if (!config.resendApiKey) {
+      console.error('❌ Chave API do Resend não configurada');
       return {
         success: false,
         error: 'Chave API do Resend não configurada. Configure em Configurações > Notificações por Email.',
@@ -138,6 +139,28 @@ export function useEmailNotifications() {
       const edgeFunctionUrl = `${supabaseUrl}/functions/v1/send-email`;
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vb2p1cXBodmhyaGFzeGhhYWhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwNDExMzEsImV4cCI6MjA3MjYxNzEzMX0.GR3YIs0QWsZP3Rdvw_-vCOPVtH2KCaoVO2pKeo1-WPs';
 
+      console.log('📧 Iniciando envio de email...');
+      console.log(`   Para: ${destinatario}`);
+      console.log(`   Assunto: ${assunto}`);
+      console.log(`   URL da Edge Function: ${edgeFunctionUrl}`);
+      console.log(`   Email Remetente: ${config.emailRemetente}`);
+
+      const requestBody = {
+        to: destinatario,
+        subject: assunto,
+        html: htmlContent,
+        from: `Arthur Lira Leilões <${config.emailRemetente}>`,
+        resendApiKey: config.resendApiKey,
+      };
+
+      console.log('📦 Request Body:', JSON.stringify({
+        to: requestBody.to,
+        subject: requestBody.subject,
+        from: requestBody.from,
+        resendApiKey: requestBody.resendApiKey ? '***configurada***' : '❌ não configurada',
+        htmlLength: requestBody.html.length
+      }, null, 2));
+
       const response = await fetch(edgeFunctionUrl, {
         method: 'POST',
         headers: {
@@ -145,24 +168,30 @@ export function useEmailNotifications() {
           'apikey': supabaseAnonKey,
           'Authorization': `Bearer ${supabaseAnonKey}`,
         },
-        body: JSON.stringify({
-          to: destinatario,
-          subject: assunto,
-          html: htmlContent,
-          from: `Arthur Lira Leilões <${config.emailRemetente}>`,
-          resendApiKey: config.resendApiKey,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
+      console.log(`📨 Response Status: ${response.status} ${response.statusText}`);
+
       const responseData = await response.json();
+      console.log('📥 Response Data:', responseData);
 
       if (!response.ok) {
-        throw new Error(responseData.error || 'Erro ao enviar email');
+        const errorMsg = responseData.error || responseData.message || 'Erro ao enviar email';
+        console.error('❌ Erro na resposta:', errorMsg);
+        console.error('   Status:', response.status);
+        console.error('   Data completo:', JSON.stringify(responseData, null, 2));
+        throw new Error(errorMsg);
       }
 
+      console.log('✅ Email enviado com sucesso!');
       return { success: true };
     } catch (error) {
-      console.error('Erro ao enviar email:', error);
+      console.error('❌ Erro ao enviar email:', error);
+      if (error instanceof Error) {
+        console.error('   Mensagem:', error.message);
+        console.error('   Stack:', error.stack);
+      }
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Erro desconhecido',
