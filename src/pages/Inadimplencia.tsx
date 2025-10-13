@@ -280,9 +280,11 @@ export default function Inadimplencia() {
   const [selectedArrematanteForExport, setSelectedArrematanteForExport] = useState<string>("");
   const [isExportSelectOpen, setIsExportSelectOpen] = useState(false);
 
-  // Estados para envio em massa de notificações
-  const [isSendingBulkNotifications, setIsSendingBulkNotifications] = useState(false);
-  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  // Estados para envio em massa
+  const [isMassEmailModalOpen, setIsMassEmailModalOpen] = useState(false);
+  const [isSendingMassEmail, setIsSendingMassEmail] = useState(false);
+  const [massEmailProgress, setMassEmailProgress] = useState({ sent: 0, total: 0, errors: 0 });
+  const [massEmailResults, setMassEmailResults] = useState<Array<{ nome: string; email: string; success: boolean; message: string }>>([]);
 
 
   // Função para abrir histórico do arrematante
@@ -1784,80 +1786,90 @@ Arthur Lira Leilões`;
     }
   };
 
-  // Função para enviar notificações em massa
-  const handleSendBulkNotifications = async () => {
-    if (overdueAuctions.length === 0) {
+  // Função para enviar emails em massa para todos os inadimplentes
+  const handleMassEmailSend = async () => {
+    const inadimplentesComEmail = overdueAuctions.filter(auction => auction.arrematante?.email);
+    
+    if (inadimplentesComEmail.length === 0) {
       toast({
-        title: "ℹ️ Nenhum Inadimplente",
-        description: "Não há arrematantes em atraso no momento.",
-        variant: "default",
+        title: "⚠️ Nenhum Email",
+        description: "Não há inadimplentes com email cadastrado.",
+        variant: "destructive",
       });
       return;
     }
 
-    setIsNotificationModalOpen(true);
-  };
+    setMassEmailProgress({ sent: 0, total: inadimplentesComEmail.length, errors: 0 });
+    setMassEmailResults([]);
+    setIsSendingMassEmail(true);
 
-  const confirmSendBulkNotifications = async () => {
-    setIsSendingBulkNotifications(true);
-    setIsNotificationModalOpen(false);
+    const results: Array<{ nome: string; email: string; success: boolean; message: string }> = [];
+    let enviados = 0;
+    let erros = 0;
 
-    let successCount = 0;
-    let errorCount = 0;
-    const errors: string[] = [];
-
-    for (const auction of overdueAuctions) {
-      if (!auction.arrematante?.email) {
-        errorCount++;
-        errors.push(`${auction.arrematante?.nome || 'Sem nome'}: Email não cadastrado`);
-        continue;
-      }
-
+    for (const auction of inadimplentesComEmail) {
       try {
-        // 🔄 Passar true para ignorar verificação de duplicatas no envio em massa
-        const result = await enviarCobranca(auction, true);
+        console.log(`📧 Enviando email para: ${auction.arrematante.nome} (${auction.arrematante.email})`);
         
+        const result = await enviarCobranca(auction);
+        
+        results.push({
+          nome: auction.arrematante.nome,
+          email: auction.arrematante.email,
+          success: result.success,
+          message: result.message
+        });
+
         if (result.success) {
-          successCount++;
-          console.log(`✅ Notificação enviada: ${auction.arrematante.nome}`);
+          enviados++;
         } else {
-          errorCount++;
-          errors.push(`${auction.arrematante.nome}: ${result.message}`);
-          console.log(`❌ Erro ao enviar: ${result.message}`);
+          erros++;
         }
 
-        // Aguardar 1 segundo entre cada envio para não sobrecarregar
+        setMassEmailProgress({ sent: enviados, total: inadimplentesComEmail.length, errors: erros });
+        setMassEmailResults([...results]);
+
+        // Aguardar 1 segundo entre cada envio para evitar sobrecarga
         await new Promise(resolve => setTimeout(resolve, 1000));
+
       } catch (error) {
-        errorCount++;
-        errors.push(`${auction.arrematante.nome}: Erro desconhecido`);
-        console.error(`❌ Erro ao enviar notificação:`, error);
+        console.error(`❌ Erro ao enviar para ${auction.arrematante.nome}:`, error);
+        
+        results.push({
+          nome: auction.arrematante.nome,
+          email: auction.arrematante.email,
+          success: false,
+          message: 'Erro ao enviar email'
+        });
+        
+        erros++;
+        setMassEmailProgress({ sent: enviados, total: inadimplentesComEmail.length, errors: erros });
+        setMassEmailResults([...results]);
       }
     }
 
-    setIsSendingBulkNotifications(false);
+    setIsSendingMassEmail(false);
 
-    // Mostrar resultado
-    if (successCount > 0 && errorCount === 0) {
+    toast({
+      title: "✅ Envio Concluído",
+      description: `${enviados} emails enviados com sucesso. ${erros > 0 ? `${erros} erro(s).` : ''}`,
+    });
+  };
+
+  // Função para abrir modal de confirmação de envio em massa
+  const handleOpenMassEmailModal = () => {
+    const inadimplentesComEmail = overdueAuctions.filter(auction => auction.arrematante?.email);
+    
+    if (inadimplentesComEmail.length === 0) {
       toast({
-        title: "✅ Notificações Enviadas",
-        description: `${successCount} notificação(ões) de débito enviada(s) com sucesso!`,
-      });
-    } else if (successCount > 0 && errorCount > 0) {
-      toast({
-        title: "⚠️ Envio Parcial",
-        description: `${successCount} enviada(s) com sucesso, ${errorCount} com erro. Verifique o console para detalhes.`,
-        variant: "default",
-      });
-      console.log("❌ Erros encontrados:", errors);
-    } else {
-      toast({
-        title: "❌ Erro no Envio",
-        description: `Não foi possível enviar nenhuma notificação. Verifique o console.`,
+        title: "⚠️ Nenhum Email",
+        description: "Não há inadimplentes com email cadastrado.",
         variant: "destructive",
       });
-      console.log("❌ Erros encontrados:", errors);
+      return;
     }
+
+    setIsMassEmailModalOpen(true);
   };
 
   const getSeverityBadge = (severity: string, daysOverdue: number) => {
@@ -1925,22 +1937,13 @@ Arthur Lira Leilões`;
         </div>
         <div className="flex gap-3">
           <Button 
-            variant="default" 
-            className="bg-red-600 text-white hover:bg-red-700"
-            onClick={handleSendBulkNotifications}
-            disabled={isSendingBulkNotifications || overdueAuctions.length === 0}
+            variant="outline" 
+            className="bg-orange-600 text-white border-orange-600 hover:bg-orange-700 hover:text-white"
+            onClick={handleOpenMassEmailModal}
+            disabled={isLoading || overdueAuctions.length === 0}
           >
-            {isSendingBulkNotifications ? (
-              <>
-                <Timer className="h-4 w-4 mr-2 animate-spin" />
-                Enviando...
-              </>
-            ) : (
-              <>
-                <Send className="h-4 w-4 mr-2" />
-                Enviar Notificações ({overdueAuctions.length})
-              </>
-            )}
+            <Send className="h-4 w-4 mr-2" />
+            Enviar Notificações em Massa
           </Button>
           <Button 
             variant="outline" 
@@ -2893,72 +2896,6 @@ Arthur Lira Leilões`;
 
 
       {/* Modal de Envio de Cobrança */}
-      {/* Modal de Confirmação de Envio em Massa */}
-      <Dialog open={isNotificationModalOpen} onOpenChange={setIsNotificationModalOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-orange-500" />
-              Confirmar Envio de Notificações
-            </DialogTitle>
-            <DialogDescription>
-              Você está prestes a enviar notificações de débito em aberto para todos os inadimplentes.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 text-orange-500 mt-0.5" />
-                <div>
-                  <h4 className="font-semibold text-gray-900 mb-2">Detalhes do Envio:</h4>
-                  <ul className="space-y-1 text-sm text-gray-700">
-                    <li>• <strong>{overdueAuctions.length}</strong> arrematante(s) em atraso</li>
-                    <li>• Notificações serão enviadas por email</li>
-                    <li>• Apenas arrematantes com email cadastrado receberão</li>
-                    <li>• <strong className="text-orange-600">⚠️ Enviará mesmo se já foi enviado hoje</strong></li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <p className="text-sm text-blue-800">
-                💡 <strong>Dica:</strong> Você pode acompanhar o progresso no console do navegador (F12).
-              </p>
-            </div>
-          </div>
-
-          <div className="flex gap-3 justify-end mt-4">
-            <Button 
-              variant="outline" 
-              onClick={() => setIsNotificationModalOpen(false)}
-              disabled={isSendingBulkNotifications}
-            >
-              Cancelar
-            </Button>
-            <Button 
-              variant="default"
-              className="bg-red-600 text-white hover:bg-red-700"
-              onClick={confirmSendBulkNotifications}
-              disabled={isSendingBulkNotifications}
-            >
-              {isSendingBulkNotifications ? (
-                <>
-                  <Timer className="h-4 w-4 mr-2 animate-spin" />
-                  Enviando...
-                </>
-              ) : (
-                <>
-                  <Send className="h-4 w-4 mr-2" />
-                  Confirmar e Enviar
-                </>
-              )}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={isChargeModalOpen} onOpenChange={setIsChargeModalOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -3100,6 +3037,165 @@ Arthur Lira Leilões`;
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Envio em Massa */}
+      <Dialog open={isMassEmailModalOpen} onOpenChange={setIsMassEmailModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5 text-orange-600" />
+              Enviar Notificações em Massa
+            </DialogTitle>
+            <DialogDescription>
+              Enviar email de cobrança para todos os inadimplentes
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Resumo */}
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-orange-600 mt-0.5" />
+                <div className="flex-1">
+                  <h4 className="font-semibold text-orange-900 mb-2">Atenção</h4>
+                  <p className="text-sm text-orange-800 mb-3">
+                    Você está prestes a enviar emails de cobrança para{" "}
+                    <strong>{overdueAuctions.filter(a => a.arrematante?.email).length}</strong>{" "}
+                    inadimplente(s).
+                  </p>
+                  <p className="text-xs text-orange-700">
+                    • Emails que já foram enviados hoje serão ignorados automaticamente<br />
+                    • Haverá um intervalo de 1 segundo entre cada envio<br />
+                    • Você pode acompanhar o progresso em tempo real
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Lista de Inadimplentes */}
+            {!isSendingMassEmail && (
+              <div className="space-y-2">
+                <h4 className="font-semibold text-gray-900">Inadimplentes com Email:</h4>
+                <div className="max-h-60 overflow-y-auto border rounded-lg">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Nome</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Dias em Atraso</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {overdueAuctions
+                        .filter(auction => auction.arrematante?.email)
+                        .map((auction, index) => (
+                          <TableRow key={index}>
+                            <TableCell className="font-medium">{auction.arrematante.nome}</TableCell>
+                            <TableCell className="text-sm text-gray-600">{auction.arrematante.email}</TableCell>
+                            <TableCell>
+                              <Badge variant="destructive">
+                                {auction.daysOverdue} dias
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {/* Barra de Progresso */}
+            {isSendingMassEmail && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="font-medium">Progresso do Envio</span>
+                    <span className="text-gray-600">
+                      {massEmailProgress.sent} de {massEmailProgress.total}
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-3">
+                    <div
+                      className="bg-orange-600 h-3 rounded-full transition-all duration-300"
+                      style={{
+                        width: `${(massEmailProgress.sent / massEmailProgress.total) * 100}%`,
+                      }}
+                    />
+                  </div>
+                  {massEmailProgress.errors > 0 && (
+                    <p className="text-sm text-red-600">
+                      {massEmailProgress.errors} erro(s) encontrado(s)
+                    </p>
+                  )}
+                </div>
+
+                {/* Resultados em Tempo Real */}
+                <div className="max-h-60 overflow-y-auto border rounded-lg">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Nome</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Mensagem</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {massEmailResults.map((result, index) => (
+                        <TableRow key={index}>
+                          <TableCell className="font-medium">{result.nome}</TableCell>
+                          <TableCell>
+                            {result.success ? (
+                              <CheckCircle className="h-5 w-5 text-green-600" />
+                            ) : (
+                              <XCircle className="h-5 w-5 text-red-600" />
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm text-gray-600">{result.message}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {/* Botões */}
+            <div className="flex justify-end gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setIsMassEmailModalOpen(false);
+                  setMassEmailResults([]);
+                  setMassEmailProgress({ sent: 0, total: 0, errors: 0 });
+                }}
+                disabled={isSendingMassEmail}
+              >
+                {isSendingMassEmail ? "Aguarde..." : "Cancelar"}
+              </Button>
+              <Button
+                type="button"
+                onClick={handleMassEmailSend}
+                disabled={isSendingMassEmail}
+                className="bg-orange-600 hover:bg-orange-700 text-white"
+              >
+                {isSendingMassEmail ? (
+                  <>
+                    <Timer className="h-4 w-4 mr-2 animate-spin" />
+                    Enviando...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4 mr-2" />
+                    Confirmar e Enviar
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

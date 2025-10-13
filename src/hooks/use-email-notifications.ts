@@ -264,19 +264,14 @@ export function useEmailNotifications() {
     };
   };
 
-  const enviarCobranca = async (auction: Auction, ignoreDuplicateCheck: boolean = false): Promise<{ success: boolean; message: string }> => {
+  const enviarCobranca = async (auction: Auction): Promise<{ success: boolean; message: string }> => {
     if (!auction.arrematante?.email) {
       return { success: false, message: 'Arrematante não possui email cadastrado' };
     }
 
-    // 🔧 Verificar duplicatas APENAS se não for envio forçado
-    if (!ignoreDuplicateCheck) {
-      const jaEnviou = await jaEnviouEmail(auction.id, 'cobranca');
-      if (jaEnviou) {
-        return { success: false, message: 'Cobrança já foi enviada hoje para este arrematante' };
-      }
-    } else {
-      console.log(`🔄 Envio forçado (ignorando verificação de duplicatas)`);
+    const jaEnviou = await jaEnviouEmail(auction.id, 'cobranca');
+    if (jaEnviou) {
+      return { success: false, message: 'Cobrança já foi enviada hoje para este arrematante' };
     }
 
     const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
