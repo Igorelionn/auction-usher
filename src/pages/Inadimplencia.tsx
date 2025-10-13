@@ -1814,7 +1814,8 @@ Arthur Lira Leilões`;
       }
 
       try {
-        const result = await enviarCobranca(auction);
+        // 🔄 Passar true para ignorar verificação de duplicatas no envio em massa
+        const result = await enviarCobranca(auction, true);
         
         if (result.success) {
           successCount++;
@@ -2915,7 +2916,7 @@ Arthur Lira Leilões`;
                     <li>• <strong>{overdueAuctions.length}</strong> arrematante(s) em atraso</li>
                     <li>• Notificações serão enviadas por email</li>
                     <li>• Apenas arrematantes com email cadastrado receberão</li>
-                    <li>• O sistema já verifica envios duplicados no mesmo dia</li>
+                    <li>• <strong className="text-orange-600">⚠️ Enviará mesmo se já foi enviado hoje</strong></li>
                   </ul>
                 </div>
               </div>
