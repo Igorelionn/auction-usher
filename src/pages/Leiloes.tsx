@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { useSupabaseAuctions } from "@/hooks/use-supabase-auctions";
 import { useToast } from "@/hooks/use-toast";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { AuctionForm, AuctionFormValues, createEmptyAuctionForm } from "@/components/AuctionForm";
+import { AuctionWizard } from "@/components/AuctionWizard";
+import { ArrematanteWizard } from "@/components/ArrematanteWizard";
 import { AuctionDetails } from "@/components/AuctionDetails";
 import { PdfReport } from "@/components/PdfReport";
 import { Auction, AuctionStatus, ArrematanteInfo, DocumentoInfo } from "@/lib/types";
@@ -55,6 +58,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Calendar as CalendarIcon, CreditCard } from "lucide-react";
 
 function Leiloes() {
+  const location = useLocation();
   const { auctions, isLoading, createAuction, updateAuction, deleteAuction, archiveAuction, unarchiveAuction, duplicateAuction } = useSupabaseAuctions();
   const { toast } = useToast();
   const { logAuctionAction, logBidderAction, logLotAction, logMerchandiseAction, logDocumentAction, logReportAction } = useActivityLogger();
@@ -81,6 +85,8 @@ function Leiloes() {
   const [selectedAuctionForPayment, setSelectedAuctionForPayment] = useState<Auction | null>(null);
   const [isFormBeingEdited, setIsFormBeingEdited] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [initialStep, setInitialStep] = useState<number | undefined>(undefined);
+  const [initialLoteIndex, setInitialLoteIndex] = useState<number | undefined>(undefined);
   
   // Estados para o modal de exportação
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -89,6 +95,29 @@ function Leiloes() {
   
   // Estado para sincronização bidirecional entre leilão e arrematante
   const [auctionFormChanges, setAuctionFormChanges] = useState<Partial<AuctionFormValues>>({});
+  
+  // 🔄 Detectar navegação da página de Lotes para editar lote específico
+  useEffect(() => {
+    const state = location.state as { editAuctionId?: string; editLoteIndex?: number; openStep?: number } | null;
+    if (state?.editAuctionId && auctions) {
+      const auction = auctions.find(a => a.id === state.editAuctionId);
+      if (auction) {
+        console.log("📍 Abrindo formulário do leilão para editar lote:", {
+          auctionId: state.editAuctionId,
+          loteIndex: state.editLoteIndex,
+          step: state.openStep
+        });
+        
+        setEditingAuction(auction);
+        setInitialStep(state.openStep);
+        setInitialLoteIndex(state.editLoteIndex);
+        setIsCreateModalOpen(true);
+        
+        // Limpar o estado de navegação
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, [location.state, auctions]);
   
   // 🔄 SINCRONIZAÇÃO BIDIRECIONAL: Escutar mudanças do formulário do leilão para atualizar arrematante
   useEffect(() => {
@@ -171,7 +200,8 @@ function Leiloes() {
     return () => {
       window.removeEventListener('auctionFormChanged', handleGlobalAuctionFormChanged as EventListener);
     };
-  }, []); // Sem dependências - sempre ativo
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // addingArrematanteFor é intencionalmen te acessado via closure - incluí-lo causaria recriação do listener
   
   const [arrematanteForm, setArrematanteForm] = useState({
     nome: "",
@@ -342,7 +372,9 @@ function Leiloes() {
         }
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auctions, addingArrematanteFor?.id, viewingAuction?.id, selectedAuctionForPayment?.id, isFormBeingEdited]);
+  // Estados completos não incluídos para evitar loops - apenas IDs são suficientes para sincronização
 
   // Carregar dados do arrematante quando abrir modal
   useEffect(() => {
@@ -408,7 +440,9 @@ function Leiloes() {
       setDocumentType('CPF'); // Resetar para CPF como padrão
       setArrematanteMode('edit');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addingArrematanteFor]);
+  // detectDocumentType não é memoizado - incluí-lo causaria recriação do effect
 
   // Função para transição suave
   const handleSmoothTransition = (callback: () => void) => {
@@ -462,11 +496,13 @@ function Leiloes() {
       if (debounceTimeoutRef.current) {
         clearTimeout(debounceTimeoutRef.current);
       }
-      // Limpar todas as URLs blob temporárias
-      tempBlobUrlsRef.current.forEach(url => {
+      // Limpar todas as URLs blob temporárias - copiado para variável local conforme best practice
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      const urlsToRevoke = tempBlobUrlsRef.current;
+      urlsToRevoke.forEach(url => {
         URL.revokeObjectURL(url);
       });
-      tempBlobUrlsRef.current.clear();
+      urlsToRevoke.clear();
     };
   }, []);
 
@@ -925,7 +961,8 @@ function Leiloes() {
           if (changedField === 'lotes') {
             updatedAuction.lotes = values.lotes;
           } else {
-            (updatedAuction as any)[changedField] = values[changedField];
+            // Atualização dinâmica de propriedade baseada no campo alterado
+            (updatedAuction as unknown as Record<string, unknown>)[changedField] = values[changedField];
           }
 
           return updatedAuction;
@@ -1245,7 +1282,7 @@ function Leiloes() {
     const colors = {
       agendado: "text-gray-700 bg-gray-100 hover:bg-gray-100",
       em_andamento: "text-green-700 bg-green-100 hover:bg-green-100",
-      finalizado: "text-blue-700 bg-blue-100 hover:bg-blue-100"
+      finalizado: "text-gray-800 bg-gray-200 hover:bg-gray-200"
     };
 
     return (
@@ -1316,27 +1353,22 @@ function Leiloes() {
              {isRefreshing ? 'Atualizando...' : 'Atualizar'}
           </Button>
           
-          <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
-            <DialogTrigger asChild>
-              <Button className="gap-2 bg-black hover:bg-gray-800">
+          <Button 
+            className="gap-2 bg-black hover:bg-gray-800"
+            onClick={() => setIsCreateModalOpen(true)}
+          >
                 <Plus className="h-4 w-4" />
                 Novo Leilão
               </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto scrollbar-thin scrollbar-track-gray-100 scrollbar-thumb-gray-300">
-              <DialogHeader>
-                <DialogTitle className="text-xl font-semibold">Criar Novo Leilão</DialogTitle>
-                <DialogDescription>
-                  Preencha as informações para criar um novo leilão
-                </DialogDescription>
-              </DialogHeader>
-              <AuctionForm
+
+          {/* Wizard de Criação em Tela Cheia */}
+          {isCreateModalOpen && (
+            <AuctionWizard
                 initial={createEmptyAuctionForm()}
                 onSubmit={handleCreateAuction}
                 onCancel={() => setIsCreateModalOpen(false)}
               />
-            </DialogContent>
-          </Dialog>
+          )}
         </div>
       </div>
 
@@ -1786,17 +1818,9 @@ function Leiloes() {
         </CardContent>
       </Card>
 
-      {/* Modal de Edição */}
-      <Dialog open={!!editingAuction} onOpenChange={(open) => !open && handleCancelEdit()}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto scrollbar-thin scrollbar-track-gray-100 scrollbar-thumb-gray-300">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-semibold">Editar Leilão</DialogTitle>
-            <DialogDescription>
-              Edite as informações do leilão
-            </DialogDescription>
-          </DialogHeader>
+      {/* Wizard de Edição */}
           {editingAuction && (
-            <AuctionForm
+        <AuctionWizard
               initial={{
                 nome: editingAuction.nome,
                 identificacao: editingAuction.identificacao,
@@ -1817,18 +1841,17 @@ function Leiloes() {
                 detalhePatrocinios: editingAuction.detalhePatrocinios || [],
                 patrociniosTotal: editingAuction.patrociniosTotal,
                 lotes: editingAuction.lotes || [],
-                fotosMercadoria: editingAuction.fotosMercadoria || [], // Mantido no formulário
-                documentos: editingAuction.documentos || [], // Mantido no formulário
+            fotosMercadoria: editingAuction.fotosMercadoria || [],
+            documentos: editingAuction.documentos || [],
                 historicoNotas: editingAuction.historicoNotas || [],
                 arquivado: editingAuction.arquivado || false
               }}
+              initialStep={initialStep}
+              initialLoteIndex={initialLoteIndex}
               onSubmit={handleEditAuction}
               onCancel={handleCancelEdit}
-              onChange={handleAuctionFormChange}
             />
           )}
-        </DialogContent>
-      </Dialog>
 
       {/* Modal de Visualização de Detalhes */}
       <Dialog open={!!viewingAuction} onOpenChange={(open) => !open && setViewingAuction(null)}>
@@ -1864,8 +1887,97 @@ function Leiloes() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal de Adicionar Arrematante */}
-      <Dialog open={!!addingArrematanteFor} onOpenChange={(open) => !open && handleCancelArrematante()}>
+      {/* Wizard de Arrematante */}
+      {addingArrematanteFor && (
+        <ArrematanteWizard
+          initial={{
+            arrematante: addingArrematanteFor.arrematante,
+            lotes: addingArrematanteFor.lotes || [],
+            auctionName: addingArrematanteFor.nome,
+            auctionId: addingArrematanteFor.id,
+            auction: addingArrematanteFor, // Passar objeto completo para validações
+            defaultDiaVencimento: addingArrematanteFor.diaVencimentoPadrao,
+            defaultQuantidadeParcelas: addingArrematanteFor.parcelasPadrao,
+            defaultMesInicio: addingArrematanteFor.mesInicioPagamento,
+          }}
+          onSubmit={async (data) => {
+            if (!addingArrematanteFor) return;
+            
+            try {
+              setIsSavingArrematante(true);
+              
+              const arrematanteData: ArrematanteInfo = {
+                ...data,
+                nome: data.nome || "",
+                valorPagar: data.valorPagar || "",
+                valorPagarNumerico: parseCurrencyToNumber(data.valorPagar || ""),
+                diaVencimentoMensal: data.diaVencimentoMensal || 15,
+                quantidadeParcelas: data.quantidadeParcelas || 1,
+                mesInicioPagamento: data.mesInicioPagamento || "",
+              };
+              
+              // Obter arrematantes existentes
+              const arrematantesExistentes = addingArrematanteFor.arrematantes || 
+                (addingArrematanteFor.arrematante ? [addingArrematanteFor.arrematante] : []);
+              
+              // Se está editando, atualizar; se não, adicionar novo
+              const isEditing = !!addingArrematanteFor.arrematante && arrematantesExistentes.some(a => a.id === data.id || a.nome === data.nome);
+              
+              const arrematantesAtualizados = isEditing
+                ? arrematantesExistentes.map(a => 
+                    a.id === data.id || a.nome === data.nome 
+                      ? arrematanteData
+                      : a
+                  )
+                : [...arrematantesExistentes, arrematanteData];
+              
+              const lotesAtualizados = (addingArrematanteFor.lotes || []).map(lote => 
+                lote.id === data.loteId 
+                  ? { ...lote, status: 'arrematado' as const }
+                  : lote
+              );
+              
+              await updateAuction({
+                id: addingArrematanteFor.id,
+                data: {
+                  arrematantes: arrematantesAtualizados,
+                  lotes: lotesAtualizados,
+                },
+              });
+              
+              await logBidderAction(
+                isEditing ? 'update' : 'create', 
+                data.nome || '', 
+                addingArrematanteFor.nome, 
+                addingArrematanteFor.id,
+                {
+                  metadata: {
+                    lote_id: data.loteId,
+                    valor_total: arrematanteData.valorPagarNumerico,
+                    parcelas: data.quantidadeParcelas,
+                    mes_inicio: data.mesInicioPagamento,
+                    dia_vencimento: data.diaVencimentoMensal,
+                    percentual_juros: data.percentualJurosAtraso,
+                    tipo_juros: data.tipoJurosAtraso,
+                    has_documents: (data.documentos?.length || 0) > 0
+                  }
+                }
+              );
+            } catch (error) {
+              console.error('Erro ao salvar arrematante:', error);
+              throw error;
+            } finally {
+              setIsSavingArrematante(false);
+            }
+          }}
+          onCancel={() => setAddingArrematanteFor(null)}
+        />
+      )}
+
+      {/* Nota: O formulário de arrematante agora usa o ArrematanteWizard (renderizado acima) */}
+
+      {/* Modal de Pagamento Mensal - REMOVIDO DIALOG ANTIGO */}
+      <Dialog open={false}>
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold">
@@ -3064,7 +3176,9 @@ function PaymentMonthsSelector({
     const paidMonthsCount = arrematante.parcelasPagas || 0;
     const initialPaidMonths = months.slice(0, paidMonthsCount).map(m => m.key);
     setSelectedMonths(initialPaidMonths);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Executa apenas uma vez na montagem - arrematante.parcelasPagas e months são estáveis
   
   const toggleMonth = (monthKey: string) => {
     setSelectedMonths(prev => 
@@ -3194,7 +3308,7 @@ if (typeof document !== 'undefined') {
     scrollContainers.forEach(container => {
       if (container instanceof HTMLElement) {
         container.style.scrollbarWidth = 'none';
-        container.offsetHeight; // Trigger reflow
+        void container.offsetHeight; // Trigger reflow
       }
     });
   }, 100);

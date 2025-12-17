@@ -1,34 +1,12 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Auction } from '@/lib/types';
-import { Calendar, MapPin, DollarSign, FileText, Clock, Building, Globe, Users, CreditCard, User, Package, Image, Edit, Save, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+import { Calendar, MapPin, DollarSign, FileText, Clock, Building, Globe, Users, CreditCard, User, Package, Image } from 'lucide-react';
 
 interface PdfReportProps {
   auction: Auction;
 }
 
 export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [editableData, setEditableData] = useState({
-    nome: auction.nome || '',
-    endereco: auction.endereco || '',
-    observacoes: auction.historicoNotas?.join('; ') || '',
-    identificacao: auction.identificacao || '',
-    custos: auction.custosNumerico ? auction.custosNumerico.toString() : (auction.custos || ''),
-    // Arrematante
-    arrematanteNome: auction.arrematante?.nome || '',
-    arrematanteDocumento: auction.arrematante?.documento || '',
-    arrematanteEmail: auction.arrematante?.email || '',
-    arrematanteTelefone: auction.arrematante?.telefone || '',
-    arrematanteEndereco: auction.arrematante?.endereco || '',
-    arrematanteValorPagar: auction.arrematante?.valorPagar || '',
-    // Configurações
-    diaVencimentoPadrao: auction.diaVencimentoPadrao?.toString() || '',
-    parcelasPadrao: auction.parcelasPadrao?.toString() || '',
-    mesInicioPagamento: auction.mesInicioPagamento || '',
-  });
   // Função para converter string de moeda para número
   const parseCurrencyToNumber = (currencyString: string): number => {
     if (!currencyString) return 0;
@@ -203,62 +181,6 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
 
   return (
     <div>
-      {/* Botões de Controle de Edição */}
-      <div className="flex justify-end gap-2 mb-4 print:hidden">
-        {!isEditMode ? (
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => setIsEditMode(true)}
-            className="gap-2 hover:bg-gray-100 hover:text-gray-900"
-          >
-            <Edit className="h-4 w-4" />
-            Editar PDF
-          </Button>
-        ) : (
-          <div className="flex gap-2">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => setIsEditMode(false)}
-              className="gap-2 hover:bg-gray-100 hover:text-gray-900"
-            >
-              <Save className="h-4 w-4" />
-              Salvar
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => {
-                setEditableData({
-                  nome: auction.nome || '',
-                  endereco: auction.endereco || '',
-                  observacoes: auction.historicoNotas?.join('; ') || '',
-                  identificacao: auction.identificacao || '',
-                  custos: auction.custosNumerico ? auction.custosNumerico.toString() : (auction.custos || ''),
-                  // Arrematante
-                  arrematanteNome: auction.arrematante?.nome || '',
-                  arrematanteDocumento: auction.arrematante?.documento || '',
-                  arrematanteEmail: auction.arrematante?.email || '',
-                  arrematanteTelefone: auction.arrematante?.telefone || '',
-                  arrematanteEndereco: auction.arrematante?.endereco || '',
-                  arrematanteValorPagar: auction.arrematante?.valorPagar || '',
-                  // Configurações
-                  diaVencimentoPadrao: auction.diaVencimentoPadrao?.toString() || '',
-                  parcelasPadrao: auction.parcelasPadrao?.toString() || '',
-                  mesInicioPagamento: auction.mesInicioPagamento || '',
-                });
-                setIsEditMode(false);
-              }}
-              className="gap-2 hover:bg-gray-100 hover:text-gray-900"
-            >
-              <X className="h-4 w-4" />
-              Cancelar
-            </Button>
-          </div>
-        )}
-      </div>
-
       <div id="pdf-content" className="bg-white text-black" style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif", padding: '48px 40px', maxWidth: '800px', margin: '0 auto', pageBreakInside: 'avoid' }}>
         {/* Header Corporativo */}
         <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid', pageBreakAfter: 'avoid' }}>
@@ -271,11 +193,11 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
                 Data: {new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })} • Horário: {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>
-            {(editableData.identificacao || editableData.nome) && (
+            {(auction.identificacao || auction.nome) && (
               <div className="text-right">
                 <div className="text-xs text-slate-400 uppercase tracking-wider mb-1" style={{ fontSize: '10px', letterSpacing: '0.1em' }}>Processo</div>
                 <div className="text-xl font-medium text-slate-900">
-                  {editableData.identificacao || 'N/A'}
+                  {auction.identificacao || 'N/A'}
                 </div>
               </div>
             )}
@@ -295,22 +217,13 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
              <div className="grid grid-cols-2 gap-6">
                <div>
                  <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Código de Identificação</div>
-                 {isEditMode ? (
-                   <Input
-                     value={editableData.identificacao}
-                     onChange={(e) => setEditableData({ ...editableData, identificacao: e.target.value })}
-                     className="inline-block w-full h-8 text-sm border-gray-300"
-                     placeholder="Código do leilão"
-                   />
-                 ) : (
-                   <div className="text-base font-medium text-slate-900">{editableData.identificacao || auction.identificacao || 'Não informado'}</div>
-                 )}
+                 <div className="text-base font-medium text-slate-900">{auction.identificacao || 'Não informado'}</div>
                </div>
                <div>
                  <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Status do Leilão</div>
                  <div className={`inline-flex items-center px-3 py-1 rounded text-sm font-medium ${
-                   auction.status === 'finalizado' ? 'bg-green-50 text-green-700 border border-green-200' :
-                   auction.status === 'em_andamento' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                   auction.status === 'finalizado' ? 'bg-red-600 text-white border border-red-700' :
+                   auction.status === 'em_andamento' ? 'bg-green-50 text-green-700 border border-green-200' :
                    'bg-slate-100 text-slate-700 border border-slate-200'
                  }`}>
                    {getStatusLabel(auction.status)}
@@ -319,16 +232,7 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
              </div>
              <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
                <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Nome do Evento</div>
-               {isEditMode ? (
-                 <Input
-                   value={editableData.nome}
-                   onChange={(e) => setEditableData({ ...editableData, nome: e.target.value })}
-                   className="w-full h-8 text-sm border-gray-300"
-                   placeholder="Nome do evento"
-                 />
-               ) : (
-                 <div className="text-lg font-medium text-slate-900">{editableData.nome || auction.nome || 'Não informado'}</div>
-               )}
+               <div className="text-lg font-medium text-slate-900">{auction.nome || 'Não informado'}</div>
              </div>
            </div>
          </div>
@@ -356,32 +260,14 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
           </div>
           <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
             <div className="text-xs text-slate-500 uppercase tracking-wider mb-2" style={{ fontWeight: 500 }}>Endereço do Evento</div>
-            {isEditMode ? (
-              <Input
-                value={editableData.endereco}
-                onChange={(e) => setEditableData({ ...editableData, endereco: e.target.value })}
-                className="w-full h-8 text-sm border-gray-300"
-                placeholder="Endereço do evento"
-              />
-            ) : (
-              <div className="text-sm text-slate-900">{editableData.endereco || auction.endereco || 'Não informado'}</div>
-            )}
+            <div className="text-sm text-slate-900">{auction.endereco || 'Não informado'}</div>
           </div>
-          {(editableData.observacoes || auction.historicoNotas?.join('; ')) && (
+          {auction.historicoNotas?.join('; ') && (
             <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px', marginTop: '16px' }}>
               <div className="text-xs text-slate-500 uppercase tracking-wider mb-2" style={{ fontWeight: 500 }}>Observações</div>
-              {isEditMode ? (
-                <Textarea
-                  value={editableData.observacoes}
-                  onChange={(e) => setEditableData({ ...editableData, observacoes: e.target.value })}
-                  className="w-full text-sm border-gray-300 min-h-[60px]"
-                  placeholder="Observações e notas do leilão"
-                />
-              ) : (
-                <div className="text-sm text-slate-900 p-3 rounded" style={{ backgroundColor: '#fafafa', border: '1px solid #e2e8f0' }}>
-                  {editableData.observacoes || auction.historicoNotas?.join('; ') || 'Não informado'}
-                </div>
-              )}
+              <div className="text-sm text-slate-900 p-3 rounded" style={{ backgroundColor: '#fafafa', border: '1px solid #e2e8f0' }}>
+                {auction.historicoNotas?.join('; ') || 'Não informado'}
+              </div>
             </div>
           )}
         </div>
@@ -395,33 +281,24 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
         <div className="p-5 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
           <div>
             <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Custos do Leilão</div>
-            {isEditMode ? (
-              <Input
-                value={editableData.custos}
-                onChange={(e) => setEditableData({ ...editableData, custos: e.target.value })}
-                className="inline-block w-auto min-w-[160px] h-8 text-sm border-gray-300"
-                placeholder="R$ 0,00"
-              />
-            ) : (
-              <div className="text-lg font-medium text-slate-900">
-                {(() => {
-                  if (auction.custosNumerico && auction.custosNumerico > 0) {
-                    return formatCurrency(auction.custosNumerico);
+            <div className="text-lg font-medium text-slate-900">
+              {(() => {
+                if (auction.custosNumerico && auction.custosNumerico > 0) {
+                  return formatCurrency(auction.custosNumerico);
+                }
+
+                const custosValue = auction.custos;
+                if (custosValue && custosValue.toString().trim() !== "") {
+                  if (typeof custosValue === 'string') {
+                    return custosValue.startsWith('R$') ? custosValue : `R$ ${custosValue}`;
+                  } else {
+                    return `R$ ${(custosValue as number).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                   }
-                  
-                  const custosValue = editableData.custos || auction.custos;
-                  if (custosValue && custosValue.toString().trim() !== "") {
-                    if (typeof custosValue === 'string') {
-                      return custosValue.startsWith('R$') ? custosValue : `R$ ${custosValue}`;
-                    } else {
-                      return `R$ ${(custosValue as number).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                    }
-                  }
-                  
-                  return "R$ 0,00";
-                })()}
-              </div>
-            )}
+                }
+
+                return "R$ 0,00";
+              })()}
+            </div>
           </div>
         </div>
       </div>
@@ -493,175 +370,160 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
               </div>
             </div>
 
-            {/* Resumo Financeiro */}
-            {auction.custosNumerico && (
-              <div className="mt-4 p-4 bg-gray-50 rounded border border-gray-200">
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-600">Custos Totais:</span>
-                    <span className="font-medium text-gray-900">
-                      {formatCurrency(auction.custosNumerico)}
-                    </span>
-                  </div>
-                  
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-600">Patrocínios:</span>
-                    <span className="font-medium text-gray-700">
-                      - {formatCurrency(auction.patrociniosTotal || 0)}
-                    </span>
-                  </div>
-                  
-                  <div className="border-t border-gray-300 pt-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-semibold text-gray-900">
-                        {(auction.patrociniosTotal || 0) > auction.custosNumerico ? 'Superávit:' : 'Saldo Líquido:'}
-                      </span>
-                      <span className="text-base font-medium text-gray-900">
-                        {(() => {
-                          const saldo = auction.custosNumerico - (auction.patrociniosTotal || 0);
-                          return formatCurrency(Math.abs(saldo));
-                        })()}
-                      </span>
-                    </div>
-                    {(auction.patrociniosTotal || 0) > auction.custosNumerico && (
-                      <p className="text-xs text-gray-500 mt-1 text-right">
-                        Superávit de patrocínios
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}
 
-       {/* Configurações de Pagamento por Lote */}
-       <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-         <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
-           Configurações de Pagamento por Lote
-         </h2>
-         
-         {auction.lotes && auction.lotes.length > 0 ? (
-           <div className="space-y-4">
-             {auction.lotes.map((lote, index) => {
-               // Calcular valor total das mercadorias do lote
-               const valorTotal = lote.mercadorias?.reduce((sum, mercadoria) => sum + (mercadoria.valorNumerico || 0), 0) || 0;
-               
-               return (
-                 <div key={lote.id || index} className="p-4 bg-gray-50 rounded border border-gray-200">
-                   <div className="flex justify-between items-start mb-3">
-                     <h3 className="font-semibold text-gray-800">Lote {lote.numero}</h3>
-                    {valorTotal > 0 && (
-                      <span className="text-gray-600 font-medium text-lg">R$ {valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+      {/* Configurações de Pagamento por Mercadoria */}
+      <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+        <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
+          Configurações de Pagamento por Mercadoria
+        </h2>
+        
+        {auction.lotes && auction.lotes.length > 0 ? (
+          <div className="space-y-4">
+            {auction.lotes.map((lote, loteIndex) => {
+              // Verificar se o lote tem mercadorias
+              if (!lote.mercadorias || lote.mercadorias.length === 0) {
+                return (
+                  <div key={lote.id || loteIndex} className="p-4 bg-gray-50 rounded border border-gray-200">
+                    <div className="flex justify-between items-start mb-2">
+                      <h3 className="font-semibold text-gray-800">Lote {lote.numero}</h3>
+                    </div>
+                    {lote.descricao && (
+                      <p className="text-gray-600 mb-3 text-sm">{lote.descricao}</p>
                     )}
-                   </div>
-                   
-                   {lote.descricao && (
-                     <p className="text-gray-600 mb-3 text-sm">{lote.descricao}</p>
-                   )}
+                    <div className="bg-gray-100 border border-gray-300 p-3 rounded">
+                      <p className="text-gray-600 text-xs text-center">
+                        Nenhuma mercadoria cadastrada neste lote
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
 
-                   {/* Configurações de pagamento específicas do lote */}
-                   {lote.tipoPagamento ? (
-                     <div className="bg-gray-50 border border-gray-300 p-3 rounded">
-                       <h4 className="text-sm font-medium text-gray-700 mb-2">Configurações Específicas de Pagamento:</h4>
-                       
-                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                         {/* Tipo de Pagamento */}
-                         <div>
-                           <strong className="text-gray-600">Tipo:</strong> {getTipoPagamentoLabel(lote.tipoPagamento)}
-                         </div>
+              return (
+                <div key={lote.id || loteIndex} className="p-4 bg-gray-50 rounded border border-gray-200">
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="font-semibold text-gray-800">Lote {lote.numero}</h3>
+                  </div>
+                  
+                  {lote.descricao && (
+                    <p className="text-gray-600 mb-3 text-sm">{lote.descricao}</p>
+                  )}
 
-                         {/* Configurações por tipo de pagamento */}
-                         {lote.tipoPagamento === 'a_vista' && lote.dataVencimentoVista && (
-                           <div>
-                             <strong className="text-gray-600">Data de Pagamento:</strong> {formatDate(lote.dataVencimentoVista)}
-                           </div>
-                         )}
+                  {/* Mercadorias e suas configurações de pagamento */}
+                  <div className="space-y-3 mt-3">
+                    {lote.mercadorias.map((mercadoria, mercIndex) => {
+                      // Buscar arrematante associado a esta mercadoria específica
+                      const arrematante = auction.arrematantes?.find(
+                        arr => arr.mercadoriaId === mercadoria.id
+                      );
 
-                         {lote.tipoPagamento === 'entrada_parcelamento' && lote.dataEntrada && (
-                           <div>
-                             <strong className="text-gray-600">Data da Entrada:</strong> {formatDate(lote.dataEntrada)}
-                           </div>
-                         )}
+                      return (
+                        <div key={mercadoria.id || mercIndex} className="bg-white border border-gray-300 p-3 rounded">
+                          {/* Título da Mercadoria */}
+                          <div className="mb-2 pb-2 border-b border-gray-200">
+                            <h4 className="text-sm font-medium text-gray-800">
+                              {mercadoria.titulo || mercadoria.tipo || 'Mercadoria'} 
+                              {mercadoria.quantidade && (
+                                <span className="text-xs text-gray-500 ml-2">(Qtd: {mercadoria.quantidade})</span>
+                              )}
+                            </h4>
+                            {mercadoria.descricao && (
+                              <p className="text-xs text-gray-600 mt-1">{mercadoria.descricao}</p>
+                            )}
+                          </div>
 
-                         {(lote.tipoPagamento === 'parcelamento' || lote.tipoPagamento === 'entrada_parcelamento') && (
-                           <>
-                             {lote.mesInicioPagamento && (
-                               <div>
-                                 <strong className="text-gray-600">Mês de Início:</strong> {(() => {
-                                   const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-                                                 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-                                   return meses[parseInt(lote.mesInicioPagamento) - 1] || lote.mesInicioPagamento;
-                                 })()}
-                               </div>
-                             )}
-                             
-                             {lote.diaVencimentoPadrao && (
-                               <div>
-                                 <strong className="text-gray-600">Dia do Vencimento:</strong> Dia {lote.diaVencimentoPadrao}
-                               </div>
-                             )}
-                             
-                             {lote.parcelasPadrao && (
-                               <div>
-                                 <strong className="text-gray-600">Parcelas:</strong> {lote.parcelasPadrao}x{lote.tipoPagamento === 'entrada_parcelamento' ? ' (após entrada)' : ''}
-                               </div>
-                             )}
-                           </>
-                         )}
-                       </div>
-                     </div>
-                   ) : (
-                     <div className="bg-gray-100 border border-gray-300 p-3 rounded">
-                       <p className="text-gray-600 text-xs">
-                         ⚠️ Configurações de pagamento não definidas para este lote
-                       </p>
-                     </div>
-                   )}
+                          {/* Configurações de pagamento da mercadoria */}
+                          {arrematante && arrematante.tipoPagamento ? (
+                            <div>
+                              <p className="text-xs font-medium text-gray-700 mb-2">
+                                Arrematante: {arrematante.nome || 'Não informado'}
+                              </p>
+                              <div className="bg-blue-50 border border-blue-200 p-2 rounded">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                                  {/* Tipo de Pagamento */}
+                                  <div>
+                                    <strong className="text-gray-700">Tipo:</strong>{' '}
+                                    <span className="text-gray-900">{getTipoPagamentoLabel(arrematante.tipoPagamento)}</span>
+                                  </div>
 
-                   {/* Mercadorias do lote */}
-                   {lote.mercadorias && lote.mercadorias.length > 0 && (
-                     <div className="mt-3 pt-3 border-t border-gray-200">
-                       <h4 className="text-xs font-medium text-gray-700 mb-2">Mercadorias:</h4>
-                       <div className="space-y-1">
-                         {lote.mercadorias.map((mercadoria, mercIndex) => (
-                           <div key={mercadoria.id || mercIndex} className="text-xs text-gray-600 flex justify-between">
-                             <span>
-                               • {mercadoria.nome || mercadoria.tipo} - {mercadoria.descricao}
-                               {mercadoria.quantidade && ` (Qtd: ${mercadoria.quantidade})`}
-                             </span>
-                            <span className="text-gray-500 font-medium">
-                              {(() => {
-                                // Priorizar valorNumerico se disponível e maior que 0
-                                if (mercadoria.valorNumerico && mercadoria.valorNumerico > 0) {
-                                  return formatCurrency(mercadoria.valorNumerico);
-                                }
-                                
-                                // Fallback para valor (que pode estar como string formatada)
-                                if (mercadoria.valor) {
-                                  return formatCurrency(mercadoria.valor);
-                                }
-                                
-                                return 'R$ 0,00';
-                              })()}
-                            </span>
-                           </div>
-                         ))}
-                       </div>
-                     </div>
-                   )}
-                 </div>
-               );
-             })}
-           </div>
-         ) : (
-           <div className="p-4 bg-gray-50 rounded border border-gray-200">
-             <p className="text-gray-600 text-center">Nenhum lote cadastrado neste leilão</p>
-           </div>
-         )}
+                                  {/* Configurações À Vista */}
+                                  {arrematante.tipoPagamento === 'a_vista' && arrematante.dataVencimentoVista && (
+                                    <div>
+                                      <strong className="text-gray-700">Data de Pagamento:</strong>{' '}
+                                      <span className="text-gray-900">{formatDate(arrematante.dataVencimentoVista)}</span>
+                                    </div>
+                                  )}
 
-       </div>
+                                  {/* Configurações Entrada + Parcelamento */}
+                                  {arrematante.tipoPagamento === 'entrada_parcelamento' && arrematante.dataEntrada && (
+                                    <div>
+                                      <strong className="text-gray-700">Data da Entrada:</strong>{' '}
+                                      <span className="text-gray-900">{formatDate(arrematante.dataEntrada)}</span>
+                                    </div>
+                                  )}
+
+                                  {/* Configurações Parcelamento */}
+                                  {(arrematante.tipoPagamento === 'parcelamento' || arrematante.tipoPagamento === 'entrada_parcelamento') && (
+                                    <>
+                                      {arrematante.mesInicioPagamento && (
+                                        <div>
+                                          <strong className="text-gray-700">Mês de Início:</strong>{' '}
+                                          <span className="text-gray-900">
+                                            {(() => {
+                                              const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                                                            'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+                                              return meses[parseInt(arrematante.mesInicioPagamento) - 1] || arrematante.mesInicioPagamento;
+                                            })()}
+                                          </span>
+                                        </div>
+                                      )}
+                                      
+                                      {arrematante.diaVencimentoMensal && (
+                                        <div>
+                                          <strong className="text-gray-700">Dia do Vencimento:</strong>{' '}
+                                          <span className="text-gray-900">Dia {arrematante.diaVencimentoMensal}</span>
+                                        </div>
+                                      )}
+                                      
+                                      {arrematante.quantidadeParcelas && (
+                                        <div>
+                                          <strong className="text-gray-700">Parcelas:</strong>{' '}
+                                          <span className="text-gray-900">
+                                            {arrematante.quantidadeParcelas}x
+                                            {arrematante.tipoPagamento === 'entrada_parcelamento' ? ' (após entrada)' : ''}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="bg-white border border-gray-300 p-2 rounded">
+                              <p className="text-gray-600 text-xs text-center">
+                                Configurações de pagamento não definidas para esta mercadoria
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="p-4 bg-gray-50 rounded border border-gray-200">
+            <p className="text-gray-600 text-center">Nenhum lote cadastrado neste leilão</p>
+          </div>
+        )}
+
+      </div>
 
        {/* Arrematante */}
        {auction.arrematante && (
@@ -676,68 +538,23 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
              <div className="grid grid-cols-2 gap-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
                <div>
                  <strong>Nome Completo:</strong>{' '}
-                 {isEditMode ? (
-                   <Input
-                     value={editableData.arrematanteNome}
-                     onChange={(e) => setEditableData({ ...editableData, arrematanteNome: e.target.value })}
-                     className="inline-block w-full max-w-xs h-6 text-sm border-gray-300 mt-1"
-                     placeholder="Nome completo"
-                   />
-                 ) : (
-                   editableData.arrematanteNome || auction.arrematante.nome || 'Não informado'
-                 )}
+                 {auction.arrematante.nome || 'Não informado'}
                </div>
                <div>
                  <strong>CPF/CNPJ:</strong>{' '}
-                 {isEditMode ? (
-                   <Input
-                     value={editableData.arrematanteDocumento}
-                     onChange={(e) => setEditableData({ ...editableData, arrematanteDocumento: e.target.value })}
-                     className="inline-block w-full max-w-xs h-6 text-sm border-gray-300 mt-1"
-                     placeholder="000.000.000-00"
-                   />
-                 ) : (
-                   editableData.arrematanteDocumento || auction.arrematante.documento || 'Não informado'
-                 )}
+                 {auction.arrematante.documento || 'Não informado'}
                </div>
                <div>
                  <strong>Email:</strong>{' '}
-                 {isEditMode ? (
-                   <Input
-                     value={editableData.arrematanteEmail}
-                     onChange={(e) => setEditableData({ ...editableData, arrematanteEmail: e.target.value })}
-                     className="inline-block w-full max-w-xs h-6 text-sm border-gray-300 mt-1"
-                     placeholder="email@exemplo.com"
-                   />
-                 ) : (
-                   editableData.arrematanteEmail || auction.arrematante.email || 'Não informado'
-                 )}
+                 {auction.arrematante.email || 'Não informado'}
                </div>
                <div>
                  <strong>Telefone:</strong>{' '}
-                 {isEditMode ? (
-                   <Input
-                     value={editableData.arrematanteTelefone}
-                     onChange={(e) => setEditableData({ ...editableData, arrematanteTelefone: e.target.value })}
-                     className="inline-block w-full max-w-xs h-6 text-sm border-gray-300 mt-1"
-                     placeholder="(00) 00000-0000"
-                   />
-                 ) : (
-                   editableData.arrematanteTelefone || auction.arrematante.telefone || 'Não informado'
-                 )}
+                 {auction.arrematante.telefone || 'Não informado'}
                </div>
                <div className="col-span-2">
                  <strong>Endereço Completo:</strong>{' '}
-                 {isEditMode ? (
-                   <Input
-                     value={editableData.arrematanteEndereco}
-                     onChange={(e) => setEditableData({ ...editableData, arrematanteEndereco: e.target.value })}
-                     className="w-full h-8 text-sm border-gray-300 mt-1"
-                     placeholder="Endereço completo"
-                   />
-                 ) : (
-                   editableData.arrematanteEndereco || auction.arrematante.endereco || 'Não informado'
-                 )}
+                 {auction.arrematante.endereco || 'Não informado'}
                </div>
              </div>
            </div>
@@ -748,16 +565,7 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
              <div className="grid grid-cols-2 gap-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
                <div>
                  <strong>Valor Total a Pagar:</strong>{' '}
-                 {isEditMode ? (
-                   <Input
-                     value={editableData.arrematanteValorPagar}
-                     onChange={(e) => setEditableData({ ...editableData, arrematanteValorPagar: e.target.value })}
-                     className="inline-block w-auto min-w-[120px] h-6 text-sm border-gray-300"
-                     placeholder="R$ 0,00"
-                   />
-                 ) : (
-                   formatCurrency(editableData.arrematanteValorPagar || auction.arrematante.valorPagar)
-                 )}
+                 {formatCurrency(auction.arrematante.valorPagar)}
                </div>
                <div>
                  <strong>Status Pagamento:</strong> {getPaymentStatus()}
@@ -866,17 +674,7 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
               return (
                 <div className="grid grid-cols-2 gap-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
                   <div>
-                    <strong>Modalidade:</strong> {(() => {
-                      switch (tipoPagamento) {
-                        case 'a_vista':
-                          return 'Pagamento à Vista';
-                        case 'entrada_parcelamento':
-                          return 'Entrada + Parcelamento';
-                        case 'parcelamento':
-                        default:
-                          return 'Parcelamento';
-                      }
-                    })()}
+                    <strong>Modalidade:</strong> Parcelamento
                   </div>
                   <div></div>
                   <div>
@@ -1051,23 +849,6 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
                                  </h5>
                                  <p className="text-gray-700 font-medium">{mercadoria.tipo}</p>
                                </div>
-                               <div className="text-right">
-                                 <p className="text-lg font-semibold text-gray-900">
-                                  {(() => {
-                                    // Priorizar valorNumerico se disponível e maior que 0
-                                    if (mercadoria.valorNumerico && mercadoria.valorNumerico > 0) {
-                                      return formatCurrency(mercadoria.valorNumerico);
-                                    }
-                                    
-                                    // Fallback para valor (que pode estar como string formatada)
-                                    if (mercadoria.valor) {
-                                      return formatCurrency(mercadoria.valor);
-                                    }
-                                    
-                                    return 'R$ 0,00';
-                                  })()}
-                                </p>
-                               </div>
                              </div>
 
                              {/* Detalhes da Mercadoria */}
@@ -1089,22 +870,6 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
                          ))}
                        </div>
 
-                       {/* Resumo Financeiro do Lote */}
-                       <div className="mt-4 bg-gray-50 p-4 rounded-lg border border-gray-200">
-                         <h5 className="text-lg font-semibold text-gray-900 mb-3">Resumo Financeiro - Lote {lote.numero}</h5>
-                         <div className="grid grid-cols-2 gap-4">
-                           <div className="bg-white p-3 rounded border border-gray-200 text-center">
-                             <p className="text-2xl font-bold text-gray-800">{lote.mercadorias.length}</p>
-                             <p className="text-sm text-gray-600 uppercase tracking-wide">Total Mercadorias</p>
-                           </div>
-                           <div className="bg-white p-3 rounded border border-gray-200 text-center">
-                             <p className="text-xl font-semibold text-gray-900">
-                               {formatCurrency(lote.mercadorias.reduce((sum, m) => sum + (m.valorNumerico || 0), 0))}
-                             </p>
-                             <p className="text-sm text-gray-600 uppercase tracking-wide">Valor Total</p>
-                           </div>
-                         </div>
-                       </div>
                      </div>
                    )}
                  </div>

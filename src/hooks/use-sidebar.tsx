@@ -21,6 +21,7 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useSidebar() {
   const context = useContext(SidebarContext);
   if (context === undefined) {
@@ -28,3 +29,4 @@ export function useSidebar() {
   }
   return context;
 }
+// Nota: Provider e hook são exportados juntos intencionalmente (padrão React Context)

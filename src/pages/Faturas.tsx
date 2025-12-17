@@ -16,9 +16,10 @@ import {
   Calendar, DollarSign, FileText, Check, X, MoreHorizontal, 
   Archive, Download, ArrowLeft
 } from "lucide-react";
-import { Invoice, InvoiceStatus } from "@/lib/types";
+import { Invoice, InvoiceStatus, ArrematanteInfo, Auction, LoteInfo } from "@/lib/types";
 import { useSupabaseAuctions } from "@/hooks/use-supabase-auctions";
 import { useToast } from "@/hooks/use-toast";
+import { obterValorTotalArrematante } from "@/lib/parcelamento-calculator";
 
 interface FaturaExtendida extends Invoice {
   leilaoNome: string;
@@ -98,13 +99,13 @@ function Faturas() {
   });
 
   // Função para calcular próxima data de vencimento baseada no sistema de parcelas (DESABILITADA - usando lógica específica por lote)
-  const calculateNextPaymentDate = (arrematante: any) => {
+  const calculateNextPaymentDate = (arrematante: ArrematanteInfo) => {
     // Esta função foi desabilitada pois agora usamos configurações específicas por lote
     return null;
   };
 
   // Função para determinar status da fatura baseado na data atual e parcelas
-  const getInvoiceStatus = (arrematante: any, parcelaIndex: number, dueDate: Date): InvoiceStatus => {
+  const getInvoiceStatus = (arrematante: ArrematanteInfo, parcelaIndex: number, dueDate: Date): InvoiceStatus => {
     const parcelasPagas = arrematante.parcelasPagas || 0;
     const today = new Date();
     
@@ -160,7 +161,14 @@ function Faturas() {
         }
         
         const tipoPagamento = loteArrematado.tipoPagamento;
-        const valorTotal = arrematante.valorPagarNumerico || 0;
+        
+        // NOVO: Usar função que considera fator multiplicador se disponível
+        const valorTotal = obterValorTotalArrematante({
+          usaFatorMultiplicador: arrematante?.usaFatorMultiplicador,
+          valorLance: arrematante?.valorLance,
+          fatorMultiplicador: arrematante?.fatorMultiplicador || loteArrematado?.fatorMultiplicador,
+          valorPagarNumerico: arrematante.valorPagarNumerico || 0
+        });
         
         // Gerar faturas baseadas no tipo de pagamento do lote específico
         switch (tipoPagamento) {
@@ -531,7 +539,7 @@ function Faturas() {
       return fatura.valorTotal || fatura.valorLiquido;
     }
     
-    const loteArrematado = auction.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+    const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante.loteId);
     const tipoPagamento = loteArrematado?.tipoPagamento || auction.tipoPagamento || "parcelamento";
     let valorTotalComJuros = 0;
 
@@ -647,7 +655,7 @@ function Faturas() {
       .filter(auction => auction.arrematante && !auction.arrematante.pago && !auction.arquivado)
       .reduce((total, auction) => {
         const arrematante = auction.arrematante;
-        const loteArrematado = auction.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+        const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante.loteId);
         const tipoPagamento = loteArrematado?.tipoPagamento || auction.tipoPagamento || "parcelamento";
         let valorAReceber = 0;
 
@@ -1266,7 +1274,7 @@ function Faturas() {
                         </span>
                       </TableCell>
                       <TableCell>
-                        <div className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold font-medium ${getStatusBadgeColor(fatura.status)}`}>
+                        <div className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getStatusBadgeColor(fatura.status)}`}>
                           {getStatusText(fatura.status)}
                         </div>
                       </TableCell>
@@ -2302,7 +2310,7 @@ function Faturas() {
 }
 
 // Componente de Preview da Fatura (igual ao ReportPreview dos relatórios)
-const FaturaPreview = ({ fatura, auctions }: { fatura: FaturaExtendida, auctions: any[] }) => {
+const FaturaPreview = ({ fatura, auctions }: { fatura: FaturaExtendida, auctions: Auction[] }) => {
   // Função para calcular juros progressivos
   const calcularJurosProgressivos = (valorOriginal: number, dataVencimento: string, percentualJuros: number): number => {
     const hoje = new Date();

@@ -15,6 +15,11 @@ interface EmailTemplateData {
   parcelaAtual?: number;
   totalParcelas?: number;
   valorEntrada?: string;
+  avisoJurosFuturos?: {
+    diasRestantes: number;
+    percentualJuros: number;
+    valorJurosFuturo: string;
+  };
 }
 
 export function getLembreteEmailTemplate(data: EmailTemplateData): { subject: string; html: string } {
@@ -192,7 +197,7 @@ export function getLembreteEmailTemplate(data: EmailTemplateData): { subject: st
 }
 
 export function getCobrancaEmailTemplate(data: EmailTemplateData): { subject: string; html: string } {
-  const { arrematanteNome, leilaoNome, loteNumero, valorPagar, dataVencimento, diasAtraso, valorJuros, valorTotal, tipoPagamento, parcelaAtual, totalParcelas } = data;
+  const { arrematanteNome, leilaoNome, loteNumero, valorPagar, dataVencimento, diasAtraso, valorJuros, valorTotal, tipoPagamento, parcelaAtual, totalParcelas, avisoJurosFuturos } = data;
   
   // Determinar tipo de pagamento humanizado
   let tipoPagamentoTexto = '';
@@ -316,6 +321,29 @@ export function getCobrancaEmailTemplate(data: EmailTemplateData): { subject: st
                   </td>
                 </tr>
               </table>
+
+              ${avisoJurosFuturos ? `
+              <!-- Aviso de Juros Futuros -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="border: 2px solid #ed8936; border-radius: 4px; margin: 24px 0 32px 0; background-color: #fffaf0;">
+                <tr>
+                  <td style="background-color: #fed7aa; padding: 12px 20px; border-bottom: 2px solid #ed8936;">
+                    <p style="margin: 0; color: #7c2d12; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                      ⚠️ Aviso Importante - Aplicação de Juros
+                    </p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 20px;">
+                    <p style="margin: 0 0 12px 0; color: #7c2d12; font-size: 14px; line-height: 1.6; font-weight: 600;">
+                      Em <strong>${avisoJurosFuturos.diasRestantes} ${avisoJurosFuturos.diasRestantes === 1 ? 'dia' : 'dias'}</strong>, serão aplicados juros de <strong>${avisoJurosFuturos.percentualJuros}%</strong> sobre o valor em aberto.
+                    </p>
+                    <p style="margin: 0; color: #9c4221; font-size: 14px; line-height: 1.6;">
+                      Valor adicional estimado: <strong style="color: #c53030; font-size: 15px;">${avisoJurosFuturos.valorJurosFuturo}</strong>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+              ` : ''}
 
               <p style="color: #4a5568; font-size: 15px; line-height: 1.7; margin: 0 0 24px 0;">
                 <strong>É imprescindível</strong> que a regularização do débito seja efetuada com a maior brevidade possível, a fim de evitar o acúmulo de encargos adicionais e possíveis medidas administrativas cabíveis.

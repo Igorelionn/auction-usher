@@ -1,4 +1,4 @@
-import { Auction } from "@/lib/types";
+import { Auction, ArrematanteInfo } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -32,6 +32,7 @@ interface LoteDocument {
   tamanho: number;
   data_upload: string;
   url: string | null;
+  descricao?: string; // Descrição opcional do documento/imagem
 }
 
 function LoteImages({ loteId, loteNumero, auctionId }: { loteId: string; loteNumero: string; auctionId: string }) {
@@ -44,7 +45,7 @@ function LoteImages({ loteId, loteNumero, auctionId }: { loteId: string; loteNum
     return () => {
       console.log('🔥 LoteImages desmontado:', { loteId, loteNumero, auctionId });
     };
-  }, []);
+  }, [loteId, loteNumero, auctionId]);
 
   useEffect(() => {
     // Reset do estado quando os parâmetros mudam
@@ -71,7 +72,7 @@ function LoteImages({ loteId, loteNumero, auctionId }: { loteId: string; loteNum
 
         console.log('🔍 Tentando múltiplos padrões de busca:', searchPatterns);
 
-        let allData: any[] = [];
+        let allData: LoteDocument[] = [];
 
         // Tentar cada padrão sequencialmente
         for (const pattern of searchPatterns) {
@@ -194,10 +195,50 @@ function LoteImages({ loteId, loteNumero, auctionId }: { loteId: string; loteNum
       </h5>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {images.map((image) => (
-          <div key={image.id} className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div 
+            key={image.id} 
+            className="bg-white rounded-lg border border-gray-200 overflow-hidden cursor-pointer hover:shadow-lg hover:border-gray-300 transition-all"
+            onClick={() => {
+              if (image.url) {
+                // Abrir imagem em nova aba para visualização
+                const newWindow = window.open('', '_blank');
+                if (newWindow) {
+                  newWindow.document.write(`
+                    <html>
+                      <head>
+                        <title>${image.nome}</title>
+                        <style>
+                          body { 
+                            margin: 0; 
+                            padding: 0; 
+                            display: flex; 
+                            justify-content: center; 
+                            align-items: center; 
+                            min-height: 100vh; 
+                            background: #000;
+                          }
+                          img { 
+                            max-width: 100%; 
+                            max-height: 100vh; 
+                            object-fit: contain;
+                          }
+                        </style>
+                      </head>
+                      <body>
+                        <img src="${image.url}" alt="${image.nome}" />
+                      </body>
+                    </html>
+                  `);
+                  newWindow.document.close();
+                }
+              }
+            }}
+            title="Clique para visualizar"
+          >
             {/* Imagem ou Placeholder */}
-            <div className="h-32 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden">
+            <div className="h-32 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-hidden relative group">
               {image.url ? (
+                <>
                 <img 
                   src={image.url} 
                   alt={image.nome}
@@ -217,6 +258,15 @@ function LoteImages({ loteId, loteNumero, auctionId }: { loteId: string; loteNum
                     `;
                   }}
                 />
+                  {/* Overlay de hover */}
+                  <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all flex items-center justify-center">
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                      <svg className="h-8 w-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"></path>
+                      </svg>
+                    </div>
+                  </div>
+                </>
               ) : (
                 <div className="text-center">
                   <Image className="h-8 w-8 text-gray-400 mx-auto mb-2" />
@@ -304,8 +354,8 @@ export function AuctionDetails({ auction }: AuctionDetailsProps) {
   const getStatusBadgeColor = (status: string) => {
     const colors = {
       agendado: "text-gray-700 bg-gray-100 hover:bg-gray-100",
-      em_andamento: "text-gray-700 bg-gray-200 hover:bg-gray-200",
-      finalizado: "text-gray-800 bg-gray-100 hover:bg-gray-100"
+      em_andamento: "text-green-700 bg-green-100 hover:bg-green-100",
+      finalizado: "text-gray-800 bg-gray-200 hover:bg-gray-200"
     };
 
     return colors[status as keyof typeof colors] || "text-gray-700 bg-gray-100 hover:bg-gray-100";
@@ -505,98 +555,113 @@ export function AuctionDetails({ auction }: AuctionDetailsProps) {
         
         <div className="space-y-4">
           <div>
-            <p className="text-sm font-medium text-gray-700 mb-3">Configuração específica por lote</p>
-            {auction.lotes && auction.lotes.length > 0 ? (
+            <p className="text-sm font-medium text-gray-700 mb-3">Configuração específica por mercadoria</p>
+            {(() => {
+              // Verificar se há pelo menos um arrematante com configuração de pagamento
+              const temPagamentos = auction.arrematantes && auction.arrematantes.length > 0 && 
+                auction.arrematantes.some(arr => arr.tipoPagamento);
+              
+              if (!temPagamentos) {
+                return (
+                  <div className="py-8 text-center bg-gray-50 rounded-lg border border-gray-200">
+                    <CreditCard className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                    <p className="text-sm font-medium text-gray-700 mb-1">Nenhum pagamento configurado</p>
+                    <p className="text-xs text-gray-500">Ainda não há arrematantes com configuração de pagamento para este leilão</p>
+                  </div>
+                );
+              }
+              
+              // Mapear mercadorias com seus arrematantes
+              const mercadoriasComPagamento: Array<{
+                loteNumero: string;
+                mercadoriaTitulo: string;
+                arrematante: ArrematanteInfo;
+              }> = [];
+              
+              auction.lotes?.forEach(lote => {
+                lote.mercadorias?.forEach(mercadoria => {
+                  const arrematante = auction.arrematantes?.find(
+                    arr => arr.mercadoriaId === mercadoria.id && arr.tipoPagamento
+                  );
+                  if (arrematante) {
+                    mercadoriasComPagamento.push({
+                      loteNumero: lote.numero,
+                      mercadoriaTitulo: mercadoria.titulo || mercadoria.tipo || 'Mercadoria',
+                      arrematante
+                    });
+                  }
+                });
+              });
+              
+              if (mercadoriasComPagamento.length === 0) {
+                return (
+                  <div className="py-8 text-center bg-gray-50 rounded-lg border border-gray-200">
+                    <CreditCard className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                    <p className="text-sm font-medium text-gray-700 mb-1">Nenhum pagamento configurado</p>
+                    <p className="text-xs text-gray-500">Ainda não há arrematantes com configuração de pagamento para este leilão</p>
+                  </div>
+                );
+              }
+              
+              return (
               <div className="space-y-3">
-                {auction.lotes.map((lote, index) => {
-                  if (!lote.tipoPagamento) return null;
+                  {mercadoriasComPagamento.map((item, index) => {
+                    const arr = item.arrematante;
                   return (
-                    <div key={lote.id || index} className="flex items-start justify-between py-3 px-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <div key={arr.id || index} className="py-3 px-4 bg-gray-50 rounded-lg border border-gray-200">
                       <div className="flex-1">
-                        <p className="text-sm font-semibold text-gray-900 mb-1">Lote {lote.numero}</p>
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="text-sm font-semibold text-gray-900">Lote {item.loteNumero}</p>
+                            <span className="text-gray-400">•</span>
+                            <p className="text-sm text-gray-600">{item.mercadoriaTitulo}</p>
+                          </div>
+                          <p className="text-xs text-gray-500 mb-2">Arrematante: {arr.nome}</p>
+                          
                         <div className="text-sm text-gray-600">
-                          {lote.tipoPagamento === 'a_vista' && (
+                            {arr.tipoPagamento === 'a_vista' && (
                             <div>
                               <p className="font-medium">Pagamento à vista</p>
-                              {lote.dataVencimentoVista && (
-                                <p className="text-xs text-gray-500 mt-1">Vencimento: {formatDate(lote.dataVencimentoVista)}</p>
+                                {arr.dataVencimentoVista && (
+                                  <p className="text-xs text-gray-500 mt-1">Vencimento: {formatDate(arr.dataVencimentoVista)}</p>
                               )}
                             </div>
                           )}
-                          {lote.tipoPagamento === 'parcelamento' && (
+                            {arr.tipoPagamento === 'parcelamento' && (
                             <div>
-                              <p className="font-medium">Parcelamento em {lote.parcelasPadrao || lote.quantidadeParcelas || 12} parcelas</p>
-                              {(() => {
-                                // Se há arrematante, priorizar dados dele. Senão, usar dados do lote
-                                const mesInicio = auction.arrematante?.mesInicioPagamento || auction.mesInicioPagamento || lote.mesInicioPagamento;
-                                const diaVencimento = auction.arrematante?.diaVencimentoMensal || auction.diaVencimentoPadrao || lote.diaVencimentoMensal || lote.diaVencimentoPadrao;
-                                const totalParcelas = auction.arrematante?.quantidadeParcelas || auction.parcelasPadrao || lote.parcelasPadrao || lote.quantidadeParcelas || 12;
-                                
-                                if (mesInicio && diaVencimento) {
-                                  return (
+                                <p className="font-medium">Parcelamento em {arr.quantidadeParcelas || 12} parcelas</p>
+                                {arr.mesInicioPagamento && arr.diaVencimentoMensal && (
                                     <div className="text-xs text-gray-500 mt-1 space-y-0.5">
                                       <p>• Primeira parcela: {(() => {
                                         const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-                                        
-                                        // Verificar se está no formato YYYY-MM
-                                        if (mesInicio.includes('-')) {
-                                          const [ano, mes] = mesInicio.split('-');
+                                      const [ano, mes] = arr.mesInicioPagamento.split('-');
                                           const mesNumero = parseInt(mes);
                                           return `${meses[mesNumero - 1]}/${ano}`;
-                                        } else {
-                                          // Se for só o número do mês, usar ano atual
-                                          const mesNumero = parseInt(mesInicio);
-                                          const anoAtual = new Date().getFullYear();
-                                          return `${meses[mesNumero - 1]}/${anoAtual}`;
-                                        }
                                       })()}</p>
-                                      <p>• Vencimento mensal: todo dia {diaVencimento} de cada mês</p>
-                                      <p>• Total de parcelas: {totalParcelas}</p>
+                                    <p>• Vencimento mensal: todo dia {arr.diaVencimentoMensal} de cada mês</p>
+                                    <p>• Total de parcelas: {arr.quantidadeParcelas}</p>
                                     </div>
-                                  );
-                                }
-                                return null;
-                              })()}
+                                )}
                             </div>
                           )}
-                          {lote.tipoPagamento === 'entrada_parcelamento' && (
+                            {arr.tipoPagamento === 'entrada_parcelamento' && (
                             <div>
-                              <p className="font-medium">Entrada + Parcelamento em {lote.parcelasPadrao || lote.quantidadeParcelas || 12} parcelas</p>
+                                <p className="font-medium">Entrada + Parcelamento em {arr.quantidadeParcelas || 12} parcelas</p>
                               <div className="text-xs text-gray-500 mt-1 space-y-0.5">
-                                {(lote.dataEntrada || auction.dataEntrada || auction.arrematante?.dataEntrada) && (
-                                  <p>• Data da entrada: {formatDate(lote.dataEntrada || auction.dataEntrada || auction.arrematante?.dataEntrada)}</p>
+                                  {arr.dataEntrada && (
+                                    <p>• Data da entrada: {formatDate(arr.dataEntrada)}</p>
                                 )}
-                                {(() => {
-                                  // Se há arrematante, priorizar dados dele. Senão, usar dados do lote
-                                  const mesInicio = auction.arrematante?.mesInicioPagamento || auction.mesInicioPagamento || lote.mesInicioPagamento;
-                                  const diaVencimento = auction.arrematante?.diaVencimentoMensal || auction.diaVencimentoPadrao || lote.diaVencimentoMensal || lote.diaVencimentoPadrao;
-                                  const totalParcelas = auction.arrematante?.quantidadeParcelas || auction.parcelasPadrao || lote.parcelasPadrao || lote.quantidadeParcelas || 12;
-                                  
-                                  if (mesInicio && diaVencimento) {
-                                    return (
+                                  {arr.mesInicioPagamento && arr.diaVencimentoMensal && (
                                       <>
                                         <p>• Primeira parcela: {(() => {
                                           const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-                                          
-                                          // Verificar se está no formato YYYY-MM
-                                          if (mesInicio.includes('-')) {
-                                            const [ano, mes] = mesInicio.split('-');
+                                        const [ano, mes] = arr.mesInicioPagamento.split('-');
                                             const mesNumero = parseInt(mes);
                                             return `${meses[mesNumero - 1]}/${ano}`;
-                                          } else {
-                                            // Se for só o número do mês, usar ano atual
-                                            const mesNumero = parseInt(mesInicio);
-                                            const anoAtual = new Date().getFullYear();
-                                            return `${meses[mesNumero - 1]}/${anoAtual}`;
-                                          }
                                         })()}</p>
-                                        <p>• Vencimento mensal: todo dia {diaVencimento} de cada mês</p>
-                                        <p>• Total de parcelas: {totalParcelas}</p>
+                                      <p>• Vencimento mensal: todo dia {arr.diaVencimentoMensal} de cada mês</p>
+                                      <p>• Total de parcelas: {arr.quantidadeParcelas}</p>
                                       </>
-                                    );
-                                  }
-                                  return null;
-                                })()}
+                                  )}
                               </div>
                             </div>
                           )}
@@ -606,14 +671,86 @@ export function AuctionDetails({ auction }: AuctionDetailsProps) {
                   );
                 })}
               </div>
-            ) : (
-              <div className="py-8 text-center">
-                <p className="text-sm text-gray-500">Nenhum lote com configuração de pagamento definida</p>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       </div>
+
+      {/* ==================== CRONOGRAMA ==================== */}
+      <div className="bg-white border border-gray-200 rounded-lg p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-3 border-b border-gray-200 flex items-center gap-2">
+          <Calendar className="h-5 w-5" />
+          Cronograma do Evento
+        </h2>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div>
+            <p className="text-sm font-medium text-gray-700 mb-2">Data de Início</p>
+            <p className="text-gray-900 font-medium">{formatDate(auction.dataInicio)}</p>
+          </div>
+          
+          {auction.status === 'em_andamento' && (
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-2">Em Andamento</p>
+              <p className="text-gray-900 font-medium">{formatDate(auction.dataInicio)}</p>
+              </div>
+            )}
+          
+          {auction.dataEncerramento && (
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-2">Encerramento</p>
+              <p className="text-gray-900 font-medium">{formatDate(auction.dataEncerramento)}</p>
+          </div>
+          )}
+        </div>
+      </div>
+
+
+
+      {/* ==================== LOTES ==================== */}
+      {auction.lotes && auction.lotes.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-3 border-b border-gray-200">
+            Lotes do Leilão ({auction.lotes.length})
+          </h2>
+          
+          <div className="space-y-4">
+            {auction.lotes.map((lote, index) => {
+              return (
+                <div key={lote.id || index} className="p-4 border border-gray-200 rounded-lg">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <h4 className="font-semibold text-gray-900 mb-1">Lote {lote.numero}</h4>
+                      <p className="text-gray-700">{lote.descricao}</p>
+                    </div>
+                    {lote.status === 'arrematado' && (
+                      <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-medium">Arrematado</span>
+                    )}
+                  </div>
+
+                  {/* Mercadorias */}
+                  {lote.mercadorias && lote.mercadorias.length > 0 && (
+                    <div className="mb-4">
+                      <h5 className="text-sm font-medium text-gray-700 mb-2">Mercadorias:</h5>
+                      <div className="space-y-1">
+                        {lote.mercadorias.map((mercadoria, mercIndex) => (
+                          <div key={mercadoria.id || mercIndex} className="text-sm text-gray-600">
+                            • {mercadoria.titulo || mercadoria.tipo || 'Mercadoria'} - {mercadoria.descricao}
+                            {mercadoria.quantidade && (
+                              <span className="text-gray-500"> (Qtd: {mercadoria.quantidade})</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ==================== CRONOGRAMA ==================== */}
       <div className="bg-white border border-gray-200 rounded-lg p-6">
@@ -721,9 +858,6 @@ export function AuctionDetails({ auction }: AuctionDetailsProps) {
           
           <div className="space-y-4">
             {auction.lotes.map((lote, index) => {
-              // Calcular valor total das mercadorias
-              const valorTotal = lote.mercadorias?.reduce((sum, mercadoria) => sum + (mercadoria.valorNumerico || 0), 0) || 0;
-              
               return (
                 <div key={lote.id || index} className="p-4 border border-gray-200 rounded-lg">
                   <div className="flex justify-between items-start mb-3">
@@ -736,13 +870,6 @@ export function AuctionDetails({ auction }: AuctionDetailsProps) {
                     )}
                   </div>
 
-                  {/* Valor do Lote */}
-                  {valorTotal > 0 && (
-                    <div className="mb-3">
-                      <span className="text-gray-800 font-semibold text-lg">{formatCurrency(valorTotal)}</span>
-                    </div>
-                  )}
-
                   {/* Mercadorias */}
                   {lote.mercadorias && lote.mercadorias.length > 0 && (
                     <div className="mb-4">
@@ -750,11 +877,10 @@ export function AuctionDetails({ auction }: AuctionDetailsProps) {
                       <div className="space-y-1">
                         {lote.mercadorias.map((mercadoria, mercIndex) => (
                           <div key={mercadoria.id || mercIndex} className="text-sm text-gray-600">
-                            • {mercadoria.nome || `${mercadoria.tipo}`} - {mercadoria.descricao}
+                            • {mercadoria.titulo || mercadoria.tipo || 'Mercadoria'} - {mercadoria.descricao}
                             {mercadoria.quantidade && (
                               <span className="text-gray-500"> (Qtd: {mercadoria.quantidade})</span>
                             )}
-                            <span className="text-gray-700 font-medium ml-2">{formatCurrency(mercadoria.valorNumerico)}</span>
                           </div>
                         ))}
                       </div>

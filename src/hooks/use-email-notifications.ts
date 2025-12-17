@@ -4,6 +4,7 @@ import { Auction } from '@/lib/types';
 import { getLembreteEmailTemplate, getCobrancaEmailTemplate, getConfirmacaoPagamentoEmailTemplate, getQuitacaoCompletaEmailTemplate } from '@/lib/email-templates';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { obterValorTotalArrematante } from '@/lib/parcelamento-calculator';
 
 interface EmailConfig {
   resendApiKey?: string;
@@ -57,14 +58,21 @@ export function useEmailNotifications() {
 
   const jaEnviouEmail = async (
     auctionId: string,
-    tipoEmail: 'lembrete' | 'cobranca' | 'confirmacao'
+    tipoEmail: 'lembrete' | 'cobranca' | 'confirmacao',
+    parcelaNumero?: number
   ): Promise<boolean> => {
     const hoje = new Date().toISOString().split('T')[0];
+    
+    // Se foi especificada uma parcela, verificar se já enviou email para essa parcela específica hoje
+    // Caso contrário, verificar se já enviou qualquer email desse tipo hoje
+    const logIdentifier = parcelaNumero !== undefined 
+      ? `${auctionId}-${tipoEmail}-parcela-${parcelaNumero}`
+      : `${auctionId}-${tipoEmail}`;
     
     const { data, error } = await supabase
       .from('email_logs')
       .select('id')
-      .eq('auction_id', auctionId)
+      .eq('auction_id', logIdentifier)
       .eq('tipo_email', tipoEmail)
       .gte('data_envio', hoje)
       .eq('sucesso', true)
@@ -127,7 +135,6 @@ export function useEmailNotifications() {
     htmlContent: string
   ): Promise<{ success: boolean; error?: string }> => {
     if (!config.resendApiKey) {
-      console.error('❌ Chave API do Resend não configurada');
       return {
         success: false,
         error: 'Chave API do Resend não configurada. Configure em Configurações > Notificações por Email.',
@@ -139,28 +146,6 @@ export function useEmailNotifications() {
       const edgeFunctionUrl = `${supabaseUrl}/functions/v1/send-email`;
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vb2p1cXBodmhyaGFzeGhhYWhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwNDExMzEsImV4cCI6MjA3MjYxNzEzMX0.GR3YIs0QWsZP3Rdvw_-vCOPVtH2KCaoVO2pKeo1-WPs';
 
-      console.log('📧 Iniciando envio de email...');
-      console.log(`   Para: ${destinatario}`);
-      console.log(`   Assunto: ${assunto}`);
-      console.log(`   URL da Edge Function: ${edgeFunctionUrl}`);
-      console.log(`   Email Remetente: ${config.emailRemetente}`);
-
-      const requestBody = {
-        to: destinatario,
-        subject: assunto,
-        html: htmlContent,
-        from: `Arthur Lira Leilões <${config.emailRemetente}>`,
-        resendApiKey: config.resendApiKey,
-      };
-
-      console.log('📦 Request Body:', JSON.stringify({
-        to: requestBody.to,
-        subject: requestBody.subject,
-        from: requestBody.from,
-        resendApiKey: requestBody.resendApiKey ? '***configurada***' : '❌ não configurada',
-        htmlLength: requestBody.html.length
-      }, null, 2));
-
       const response = await fetch(edgeFunctionUrl, {
         method: 'POST',
         headers: {
@@ -168,33 +153,66 @@ export function useEmailNotifications() {
           'apikey': supabaseAnonKey,
           'Authorization': `Bearer ${supabaseAnonKey}`,
         },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({
+          to: destinatario,
+          subject: assunto,
+          html: htmlContent,
+          from: `Arthur Lira Leilões <${config.emailRemetente}>`,
+          resendApiKey: config.resendApiKey,
+        }),
       });
 
-      console.log(`📨 Response Status: ${response.status} ${response.statusText}`);
-
       const responseData = await response.json();
-      console.log('📥 Response Data:', responseData);
 
       if (!response.ok) {
-        const errorMsg = responseData.error || responseData.message || 'Erro ao enviar email';
-        console.error('❌ Erro na resposta:', errorMsg);
-        console.error('   Status:', response.status);
-        console.error('   Data completo:', JSON.stringify(responseData, null, 2));
-        throw new Error(errorMsg);
+        // Log detalhado do erro para debugging
+        console.error('❌ ERRO AO ENVIAR EMAIL:', {
+          status: response.status,
+          statusText: response.statusText,
+          erro: responseData.error,
+          detalhes: responseData.details,
+          destinatario: destinatario
+        });
+
+        // Mensagens de erro mais específicas
+        let mensagemErro = 'Erro ao enviar email';
+        
+        if (response.status === 401 || response.status === 403) {
+          mensagemErro = '🔑 Chave API do Resend inválida ou expirada. Verifique em Configurações.';
+        } else if (response.status === 400) {
+          mensagemErro = '📧 Email inválido ou dados incorretos';
+        } else if (response.status === 429) {
+          mensagemErro = '⏳ Limite de envios excedido. Aguarde alguns minutos.';
+        } else if (responseData.error) {
+          mensagemErro = responseData.error;
+        }
+        
+        throw new Error(mensagemErro);
       }
 
-      console.log('✅ Email enviado com sucesso!');
+      console.log('✅ Email enviado com sucesso:', {
+        destinatario,
+        id: responseData.id
+      });
+
       return { success: true };
     } catch (error) {
-      console.error('❌ Erro ao enviar email:', error);
+      console.error('❌ ERRO COMPLETO:', error);
+      
+      let mensagemErro = 'Erro ao enviar email';
+      
       if (error instanceof Error) {
-        console.error('   Mensagem:', error.message);
-        console.error('   Stack:', error.stack);
+        mensagemErro = error.message;
       }
+      
+      // Se o erro for de rede/conexão
+      if (mensagemErro.includes('Failed to fetch') || mensagemErro.includes('NetworkError')) {
+        mensagemErro = '🌐 Erro de conexão. Verifique sua internet ou se a Edge Function está deployada.';
+      }
+      
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Erro desconhecido',
+        error: mensagemErro,
       };
     }
   };
@@ -209,15 +227,10 @@ export function useEmailNotifications() {
       return { success: false, message: 'Lembrete já foi enviado hoje para este arrematante' };
     }
 
-    const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
-    const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
-    const parcelaAtual = (auction.arrematante.parcelasPagas || 0) + 1;
-    const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
-
     let dataVencimento: Date;
     if (auction.tipoPagamento === 'a_vista' && auction.dataVencimentoVista) {
       dataVencimento = parseISO(auction.dataVencimentoVista);
-    } else if (tipoPagamento === 'entrada_parcelamento' && parcelaAtual === 1 && auction.arrematante.dataEntrada) {
+    } else if (auction.arrematante.dataEntrada) {
       dataVencimento = parseISO(auction.arrematante.dataEntrada);
     } else if (auction.arrematante.mesInicioPagamento && auction.arrematante.diaVencimentoMensal) {
       const [ano, mes] = auction.arrematante.mesInicioPagamento.split('-');
@@ -229,42 +242,24 @@ export function useEmailNotifications() {
     const hoje = new Date();
     const diasRestantes = differenceInDays(dataVencimento, hoje);
 
-    // 🔧 CALCULAR VALOR CORRETO DA PARCELA baseado no tipo de pagamento
-    const valorTotalLeilao = auction.arrematante.valorPagarNumerico;
-    let valorParcela = valorTotalLeilao;
+    const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
+    const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
+    const parcelaAtual = (auction.arrematante.parcelasPagas || 0) + 1;
+    const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
 
-    if (tipoPagamento === 'a_vista') {
-      // À vista: valor total
-      valorParcela = valorTotalLeilao;
-    } else if (tipoPagamento === 'entrada_parcelamento') {
-      if (parcelaAtual === 1) {
-        // Primeira parcela é a entrada
-        const valorEntrada = auction.arrematante.valorEntrada 
-          ? (typeof auction.arrematante.valorEntrada === 'string' 
-              ? parseFloat(auction.arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) 
-              : auction.arrematante.valorEntrada)
-          : valorTotalLeilao * 0.3;
-        valorParcela = valorEntrada;
-      } else {
-        // Parcelas após entrada
-        const valorEntrada = auction.arrematante.valorEntrada 
-          ? (typeof auction.arrematante.valorEntrada === 'string' 
-              ? parseFloat(auction.arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) 
-              : auction.arrematante.valorEntrada)
-          : valorTotalLeilao * 0.3;
-        const valorRestante = valorTotalLeilao - valorEntrada;
-        valorParcela = valorRestante / totalParcelas;
-      }
-    } else if (tipoPagamento === 'parcelamento') {
-      // Parcelamento simples: dividir valor total pelas parcelas
-      valorParcela = valorTotalLeilao / totalParcelas;
-    }
+    // NOVO: Calcular valor total considerando fator multiplicador
+    const valorTotalCalculado = obterValorTotalArrematante({
+      usaFatorMultiplicador: auction.arrematante?.usaFatorMultiplicador,
+      valorLance: auction.arrematante?.valorLance,
+      fatorMultiplicador: auction.arrematante?.fatorMultiplicador || lote?.fatorMultiplicador,
+      valorPagarNumerico: auction.arrematante.valorPagarNumerico
+    });
 
     const templateData = {
       arrematanteNome: auction.arrematante.nome,
       leilaoNome: auction.nome,
-      loteNumero: lote?.numero || auction.lotes?.[0]?.numero,
-      valorPagar: `R$ ${valorParcela.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      loteNumero: auction.lotes?.[0]?.numero,
+      valorPagar: auction.arrematante.valorPagar || `R$ ${valorTotalCalculado.toFixed(2)}`,
       dataVencimento: format(dataVencimento, "dd 'de' MMMM 'de' yyyy", { locale: ptBR }),
       diasRestantes,
       tipoPagamento,
@@ -293,113 +288,246 @@ export function useEmailNotifications() {
     };
   };
 
-  const enviarCobranca = async (auction: Auction): Promise<{ success: boolean; message: string }> => {
+  const enviarCobranca = async (auction: Auction, parcelaEspecifica?: number, forcarEnvio?: boolean): Promise<{ success: boolean; message: string }> => {
     if (!auction.arrematante?.email) {
       return { success: false, message: 'Arrematante não possui email cadastrado' };
     }
 
-    const jaEnviou = await jaEnviouEmail(auction.id, 'cobranca');
-    if (jaEnviou) {
-      return { success: false, message: 'Cobrança já foi enviada hoje para este arrematante' };
-    }
-
-    const lote = auction.lotes?.find(l => l.id === auction.arrematante?.loteId);
+    const arrematante = auction.arrematante;
+    const lote = auction.lotes?.find(l => l.id === arrematante?.loteId);
     const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
-    const parcelaAtual = (auction.arrematante.parcelasPagas || 0) + 1;
-    const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
+    const parcelasPagas = arrematante.parcelasPagas || 0;
+    const parcelaAtual = parcelaEspecifica !== undefined ? parcelaEspecifica : (parcelasPagas + 1);
+    const totalParcelas = arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
+    const valorTotalArrematante = arrematante.valorPagarNumerico;
+
+    // Verificar se já enviou email para esta parcela específica hoje (a menos que seja teste forçado)
+    if (!forcarEnvio) {
+      const jaEnviou = await jaEnviouEmail(auction.id, 'cobranca', parcelaAtual);
+      if (jaEnviou) {
+        return { success: false, message: `Cobrança da parcela ${parcelaAtual} já foi enviada hoje` };
+      }
+    }
+    
+    // Função para calcular juros progressivos (IGUAL ao email de confirmação)
+    const calcularJurosProgressivos = (valorOriginal: number, percentualJuros: number, mesesAtraso: number) => {
+      if (mesesAtraso < 1 || !percentualJuros) {
+        return valorOriginal;
+      }
+      let valorAtual = valorOriginal;
+      const taxaMensal = percentualJuros / 100;
+      for (let mes = 1; mes <= mesesAtraso; mes++) {
+        const jurosMes = valorAtual * taxaMensal;
+        valorAtual = valorAtual + jurosMes;
+      }
+      return Math.round(valorAtual * 100) / 100;
+    };
 
     let dataVencimento: Date;
-    if (auction.tipoPagamento === 'a_vista' && auction.dataVencimentoVista) {
-      dataVencimento = parseISO(auction.dataVencimentoVista);
-    } else if (tipoPagamento === 'entrada_parcelamento' && parcelaAtual === 1 && auction.arrematante.dataEntrada) {
-      dataVencimento = parseISO(auction.arrematante.dataEntrada);
-    } else if (auction.arrematante.mesInicioPagamento && auction.arrematante.diaVencimentoMensal) {
-      const [ano, mes] = auction.arrematante.mesInicioPagamento.split('-');
-      dataVencimento = new Date(parseInt(ano), parseInt(mes) - 1, auction.arrematante.diaVencimentoMensal);
-    } else {
-      return { success: false, message: 'Data de vencimento não configurada' };
-    }
+    let valorParcela: number;
+    let diasAtraso: number;
 
-    const hoje = new Date();
-    const diasAtraso = differenceInDays(hoje, dataVencimento);
-
-    if (diasAtraso <= 0) {
-      return { success: false, message: 'Pagamento ainda não está em atraso' };
-    }
-
-    // 🔧 CALCULAR VALOR CORRETO DA PARCELA baseado no tipo de pagamento
-    const valorTotalLeilao = auction.arrematante.valorPagarNumerico;
-    let valorParcela = valorTotalLeilao;
-
+    // PAGAMENTO À VISTA
     if (tipoPagamento === 'a_vista') {
-      // À vista: valor total
-      valorParcela = valorTotalLeilao;
+      if (!auction.dataVencimentoVista && !lote?.dataVencimentoVista) {
+        return { success: false, message: 'Data de vencimento à vista não configurada' };
+      }
+      
+      const dateStr = lote?.dataVencimentoVista || auction.dataVencimentoVista || new Date().toISOString().split('T')[0];
+      const [year, month, day] = dateStr.split('-').map(Number);
+      dataVencimento = new Date(year, month - 1, day, 23, 59, 59);
+      valorParcela = valorTotalArrematante;
+      
+      const hoje = new Date();
+      diasAtraso = differenceInDays(hoje, dataVencimento);
+      
+      if (diasAtraso <= 0) {
+        return { success: false, message: 'Pagamento à vista ainda não está em atraso' };
+      }
+      
+    // ENTRADA + PARCELAMENTO
     } else if (tipoPagamento === 'entrada_parcelamento') {
       if (parcelaAtual === 1) {
-        // Primeira parcela é a entrada
-        const valorEntrada = auction.arrematante.valorEntrada 
-          ? (typeof auction.arrematante.valorEntrada === 'string' 
-              ? parseFloat(auction.arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) 
-              : auction.arrematante.valorEntrada)
-          : valorTotalLeilao * 0.3;
-        valorParcela = valorEntrada;
+        // Email para a ENTRADA
+        if (!arrematante.dataEntrada) {
+          return { success: false, message: 'Data de entrada não configurada' };
+        }
+        dataVencimento = parseISO(arrematante.dataEntrada);
+        valorParcela = Number(arrematante.valorEntrada) || 0;
       } else {
-        // Parcelas após entrada
-        const valorEntrada = auction.arrematante.valorEntrada 
-          ? (typeof auction.arrematante.valorEntrada === 'string' 
-              ? parseFloat(auction.arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) 
-              : auction.arrematante.valorEntrada)
-          : valorTotalLeilao * 0.3;
-        const valorRestante = valorTotalLeilao - valorEntrada;
-        valorParcela = valorRestante / totalParcelas;
+        // Email para PARCELAS após a entrada
+        if (!arrematante.mesInicioPagamento || !arrematante.diaVencimentoMensal) {
+          return { success: false, message: 'Mês de início ou dia de vencimento não configurado' };
+        }
+        
+        const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+        const parcelaIndex = parcelaAtual - 2; // -1 pela entrada, -1 pois é 0-based
+        dataVencimento = new Date(startYear, startMonth - 1 + parcelaIndex, arrematante.diaVencimentoMensal, 23, 59, 59);
+        
+        const totalParcelasRestantes = totalParcelas - 1;
+        const valorRestante = valorTotalArrematante - (Number(arrematante.valorEntrada) || 0);
+        valorParcela = valorRestante / totalParcelasRestantes;
       }
-    } else if (tipoPagamento === 'parcelamento') {
-      // Parcelamento simples: dividir valor total pelas parcelas
-      valorParcela = valorTotalLeilao / totalParcelas;
+      
+      const hoje = new Date();
+      diasAtraso = differenceInDays(hoje, dataVencimento);
+      
+      if (diasAtraso <= 0) {
+        return { success: false, message: `Parcela ${parcelaAtual} ainda não está em atraso` };
+      }
+      
+    // PARCELAMENTO SIMPLES
+    } else {
+      if (!arrematante.mesInicioPagamento || !arrematante.diaVencimentoMensal) {
+        return { success: false, message: 'Mês de início ou dia de vencimento não configurado' };
+      }
+      
+      const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+      const parcelaIndex = parcelaAtual - 1; // 0-based (parcela 1 = índice 0)
+      dataVencimento = new Date(startYear, startMonth - 1 + parcelaIndex, arrematante.diaVencimentoMensal, 0, 0, 0);
+      
+      // CORREÇÃO: Calcular o valor BASE sem juros
+      // O valorTotalArrematante pode conter juros de parcelas já vencidas
+      // Precisamos calcular o valor original base e dividir pelas parcelas
+      let valorBase = valorTotalArrematante;
+      
+      // Se há juros configurados, recalcular o valor base removendo juros das parcelas vencidas
+      if (arrematante.percentualJurosAtraso && arrematante.percentualJurosAtraso > 0) {
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+        
+        // Calcular quantas parcelas estão com juros aplicados
+        let valorTotalComJurosCalculado = 0;
+        const valorParcelaBase = valorTotalArrematante / totalParcelas; // Primeira estimativa
+        
+        for (let i = 0; i < totalParcelas; i++) {
+          const dataVencParcela = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal, 23, 59, 59);
+          dataVencParcela.setHours(0, 0, 0, 0);
+          
+          if (hoje > dataVencParcela) {
+            const diffTime = hoje.getTime() - dataVencParcela.getTime();
+            const mesesAtraso = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 30));
+            
+            if (mesesAtraso >= 1) {
+              const parcelaComJuros = calcularJurosProgressivos(valorParcelaBase, arrematante.percentualJurosAtraso, mesesAtraso);
+              valorTotalComJurosCalculado += parcelaComJuros;
+            } else {
+              valorTotalComJurosCalculado += valorParcelaBase;
+            }
+          } else {
+            valorTotalComJurosCalculado += valorParcelaBase;
+          }
+        }
+        
+        // ✅ CORREÇÃO: Só ajustar se o valor informado for MAIOR que o calculado
+        // Isso indica que o valor informado JÁ INCLUI os juros das parcelas vencidas
+        if (valorTotalArrematante > valorTotalComJurosCalculado + 1) {
+          
+          // Fazer iteração para encontrar o valor base correto
+          let tentativaBase = valorTotalArrematante / 1.1; // Estimativa inicial
+          let iteracoes = 0;
+          
+          while (iteracoes < 10) {
+            valorTotalComJurosCalculado = 0;
+            const valorParcalaTentativa = tentativaBase / totalParcelas;
+            
+            for (let i = 0; i < totalParcelas; i++) {
+              const dataVencParcela = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal, 23, 59, 59);
+              dataVencParcela.setHours(0, 0, 0, 0);
+              
+              if (hoje > dataVencParcela) {
+                const diffTime = hoje.getTime() - dataVencParcela.getTime();
+                const mesesAtraso = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 30));
+                
+                if (mesesAtraso >= 1) {
+                  valorTotalComJurosCalculado += calcularJurosProgressivos(valorParcalaTentativa, arrematante.percentualJurosAtraso, mesesAtraso);
+                } else {
+                  valorTotalComJurosCalculado += valorParcalaTentativa;
+                }
+              } else {
+                valorTotalComJurosCalculado += valorParcalaTentativa;
+              }
+            }
+            
+            const diferenca = valorTotalArrematante - valorTotalComJurosCalculado;
+            if (Math.abs(diferenca) < 1) break;
+            
+            tentativaBase += diferenca * 0.5;
+            iteracoes++;
+          }
+          
+          valorBase = tentativaBase;
+        }
+      }
+      
+      valorParcela = valorBase / totalParcelas;
+      
+      const hoje = new Date();
+      diasAtraso = differenceInDays(hoje, dataVencimento);
+      
+      if (diasAtraso <= 0) {
+        return { success: false, message: `Parcela ${parcelaAtual} ainda não está em atraso` };
+      }
     }
 
-    console.log(`💰 DEBUG Email Cobrança:`);
-    console.log(`   - Valor Total Leilão: R$ ${valorTotalLeilao.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
-    console.log(`   - Tipo Pagamento: ${tipoPagamento}`);
-    console.log(`   - Parcela ${parcelaAtual}/${totalParcelas}`);
-    console.log(`   - Valor da Parcela: R$ ${valorParcela.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
-    console.log(`   - Dias em Atraso: ${diasAtraso}`);
-
-    const percentualJuros = auction.arrematante.percentualJurosAtraso || 0;
-    const tipoJuros = auction.arrematante.tipoJurosAtraso || 'simples';
-    const { valorJuros, valorTotal } = calcularValorComJuros(
-      valorParcela,
-      diasAtraso,
-      percentualJuros,
-      tipoJuros
-    );
-
-    console.log(`   - Percentual Juros: ${percentualJuros}% ao mês`);
-    console.log(`   - Valor Juros: R$ ${valorJuros.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
-    console.log(`   - Valor Total com Juros: R$ ${valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+    // Calcular juros progressivos se houver atraso
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0); // Zerar horas para comparação precisa
+    
+    const dataVencimentoSemHora = new Date(dataVencimento);
+    dataVencimentoSemHora.setHours(0, 0, 0, 0);
+    
+    let valorComJuros = valorParcela;
+    let valorJurosAplicado = 0;
+    let avisoJurosFuturos: { diasRestantes: number; percentualJuros: number; valorJurosFuturo: string } | undefined;
+    
+    if (hoje > dataVencimentoSemHora && arrematante.percentualJurosAtraso) {
+      // Calcular meses de atraso de forma mais precisa
+      const diffTime = hoje.getTime() - dataVencimentoSemHora.getTime();
+      const diasAtrasoAtual = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      const mesesAtraso = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 30));
+      
+      if (mesesAtraso >= 1) {
+        valorComJuros = calcularJurosProgressivos(valorParcela, arrematante.percentualJurosAtraso, mesesAtraso);
+        valorJurosAplicado = valorComJuros - valorParcela;
+      } else {
+        // Se ainda não completou 1 mês (30 dias), calcular aviso de juros futuros
+        const diasAte30Dias = 30 - diasAtrasoAtual;
+        const valorJurosQuandoAplicado = valorParcela * (arrematante.percentualJurosAtraso / 100);
+        
+        avisoJurosFuturos = {
+          diasRestantes: diasAte30Dias,
+          percentualJuros: arrematante.percentualJurosAtraso,
+          valorJurosFuturo: `R$ ${valorJurosQuandoAplicado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        };
+      }
+    }
 
     const templateData = {
-      arrematanteNome: auction.arrematante.nome,
+      arrematanteNome: arrematante.nome,
       leilaoNome: auction.nome,
-      loteNumero: lote?.numero || auction.lotes?.[0]?.numero,
+      loteNumero: auction.lotes?.[0]?.numero,
       valorPagar: `R$ ${valorParcela.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       dataVencimento: format(dataVencimento, "dd 'de' MMMM 'de' yyyy", { locale: ptBR }),
       diasAtraso,
-      valorJuros: valorJuros > 0 ? `R$ ${valorJuros.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined,
-      valorTotal: valorJuros > 0 ? `R$ ${valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined,
+      valorJuros: valorJurosAplicado > 0 ? `R$ ${valorJurosAplicado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined,
+      valorTotal: valorJurosAplicado > 0 ? `R$ ${valorComJuros.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : undefined,
       tipoPagamento,
       parcelaAtual,
       totalParcelas,
+      avisoJurosFuturos,
     };
 
     const { subject, html } = getCobrancaEmailTemplate(templateData);
-    const result = await enviarEmail(auction.arrematante.email, subject, html);
+    const result = await enviarEmail(arrematante.email, subject, html);
 
+    // Registrar log com identificador único por parcela
+    const logIdentifier = `${auction.id}-cobranca-parcela-${parcelaAtual}`;
     await registrarLog({
-      auction_id: auction.id,
-      arrematante_nome: auction.arrematante.nome,
+      auction_id: logIdentifier,
+      arrematante_nome: arrematante.nome,
       tipo_email: 'cobranca',
-      email_destinatario: auction.arrematante.email,
+      email_destinatario: arrematante.email,
       data_envio: new Date().toISOString(),
       sucesso: result.success,
       erro: result.error,
@@ -408,7 +536,7 @@ export function useEmailNotifications() {
     return {
       success: result.success,
       message: result.success
-        ? `Cobrança enviada com sucesso para ${auction.arrematante.email}`
+        ? `Cobrança da parcela ${parcelaAtual}/${totalParcelas} enviada com sucesso para ${arrematante.email}`
         : `Erro ao enviar cobrança: ${result.error}`,
     };
   };
@@ -427,7 +555,7 @@ export function useEmailNotifications() {
     const parcelaAtual = parcelaEspecifica !== undefined ? parcelaEspecifica : (auction.arrematante.parcelasPagas || 0);
     const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
     
-    let valorFinal = valorEspecifico 
+    const valorFinal = valorEspecifico 
       ? `R$ ${valorEspecifico.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : (auction.arrematante.valorPagar || `R$ ${auction.arrematante.valorPagarNumerico.toFixed(2)}`);
 
@@ -475,7 +603,7 @@ export function useEmailNotifications() {
     const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
     const totalParcelas = auction.arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
     
-    let valorTotal = valorTotalPago 
+    const valorTotal = valorTotalPago 
       ? `R$ ${valorTotalPago.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : (auction.arrematante.valorPagar || `R$ ${auction.arrematante.valorPagarNumerico.toFixed(2)}`);
 
@@ -530,40 +658,148 @@ export function useEmailNotifications() {
         continue;
       }
 
-      let dataVencimento: Date | null = null;
-      if (auction.tipoPagamento === 'a_vista' && auction.dataVencimentoVista) {
-        dataVencimento = parseISO(auction.dataVencimentoVista);
-      } else if (auction.arrematante.dataEntrada) {
-        dataVencimento = parseISO(auction.arrematante.dataEntrada);
-      } else if (auction.arrematante.mesInicioPagamento && auction.arrematante.diaVencimentoMensal) {
-        const [ano, mes] = auction.arrematante.mesInicioPagamento.split('-');
-        dataVencimento = new Date(parseInt(ano), parseInt(mes) - 1, auction.arrematante.diaVencimentoMensal);
-      }
+      const arrematante = auction.arrematante;
+      const lote = auction.lotes?.find(l => l.id === arrematante?.loteId);
+      const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
+      const parcelasPagas = arrematante.parcelasPagas || 0;
+      const totalParcelas = arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
 
-      if (!dataVencimento) continue;
+      // Para pagamento à vista
+      if (tipoPagamento === 'a_vista') {
+        if (!auction.dataVencimentoVista && !lote?.dataVencimentoVista) continue;
+        
+        const dateStr = lote?.dataVencimentoVista || auction.dataVencimentoVista || '';
+        const [year, month, day] = dateStr.split('-').map(Number);
+        const dataVencimento = new Date(year, month - 1, day, 23, 59, 59);
+        const diasDiferenca = differenceInDays(dataVencimento, hoje);
 
-      const diasDiferenca = differenceInDays(dataVencimento, hoje);
+        // Lembrete
+        if (diasDiferenca > 0 && diasDiferenca <= config.diasAntesLembrete) {
+          const jaEnviou = await jaEnviouEmail(auction.id, 'lembrete', 1);
+          if (!jaEnviou) {
+            const result = await enviarLembrete(auction);
+            if (result.success) {
+              resultados.lembretes++;
+            } else {
+              resultados.erros++;
+            }
+          }
+        }
 
-      if (diasDiferenca > 0 && diasDiferenca <= config.diasAntesLembrete) {
-        const jaEnviou = await jaEnviouEmail(auction.id, 'lembrete');
-        if (!jaEnviou) {
-          const result = await enviarLembrete(auction);
-          if (result.success) {
-            resultados.lembretes++;
-          } else {
-            resultados.erros++;
+        // Cobrança
+        if (diasDiferenca < 0 && Math.abs(diasDiferenca) >= config.diasDepoisCobranca) {
+          const jaEnviou = await jaEnviouEmail(auction.id, 'cobranca', 1);
+          if (!jaEnviou) {
+            const result = await enviarCobranca(auction, 1);
+            if (result.success) {
+              resultados.cobrancas++;
+            } else {
+              resultados.erros++;
+            }
           }
         }
       }
+      // Para entrada + parcelamento
+      else if (tipoPagamento === 'entrada_parcelamento') {
+        // Verificar entrada (parcela 1)
+        if (parcelasPagas === 0 && arrematante.dataEntrada) {
+          const dataVencimento = parseISO(arrematante.dataEntrada);
+          const diasDiferenca = differenceInDays(dataVencimento, hoje);
 
-      if (diasDiferenca < 0 && Math.abs(diasDiferenca) >= config.diasDepoisCobranca) {
-        const jaEnviou = await jaEnviouEmail(auction.id, 'cobranca');
-        if (!jaEnviou) {
-          const result = await enviarCobranca(auction);
-          if (result.success) {
-            resultados.cobrancas++;
-          } else {
-            resultados.erros++;
+          if (diasDiferenca > 0 && diasDiferenca <= config.diasAntesLembrete) {
+            const jaEnviou = await jaEnviouEmail(auction.id, 'lembrete', 1);
+            if (!jaEnviou) {
+              const result = await enviarLembrete(auction);
+              if (result.success) resultados.lembretes++;
+              else resultados.erros++;
+            }
+          }
+
+          if (diasDiferenca < 0 && Math.abs(diasDiferenca) >= config.diasDepoisCobranca) {
+            const jaEnviou = await jaEnviouEmail(auction.id, 'cobranca', 1);
+            if (!jaEnviou) {
+              const result = await enviarCobranca(auction, 1);
+              if (result.success) resultados.cobrancas++;
+              else resultados.erros++;
+            }
+          }
+        }
+
+        // Verificar parcelas após entrada (parcelas 2 em diante)
+        if (arrematante.mesInicioPagamento && arrematante.diaVencimentoMensal) {
+          const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+          
+          // Iterar por todas as parcelas não pagas
+          for (let i = Math.max(1, parcelasPagas); i < totalParcelas; i++) {
+            const numParcela = i + 1; // Número da parcela (2, 3, 4...)
+            const parcelaIndex = i - 1; // Índice 0-based para calcular data
+            const dataVencimento = new Date(startYear, startMonth - 1 + parcelaIndex, arrematante.diaVencimentoMensal, 23, 59, 59);
+            const diasDiferenca = differenceInDays(dataVencimento, hoje);
+
+            // Lembrete
+            if (diasDiferenca > 0 && diasDiferenca <= config.diasAntesLembrete && i === parcelasPagas) {
+              const jaEnviou = await jaEnviouEmail(auction.id, 'lembrete', numParcela);
+              if (!jaEnviou) {
+                const result = await enviarLembrete(auction);
+                if (result.success) resultados.lembretes++;
+                else resultados.erros++;
+              }
+            }
+
+            // Cobrança - enviar para TODAS as parcelas atrasadas
+            if (diasDiferenca < 0 && Math.abs(diasDiferenca) >= config.diasDepoisCobranca) {
+              const jaEnviou = await jaEnviouEmail(auction.id, 'cobranca', numParcela);
+              if (!jaEnviou) {
+                console.log(`📧 Enviando cobrança da parcela ${numParcela}/${totalParcelas} (${Math.abs(diasDiferenca)} dias de atraso)`);
+                const result = await enviarCobranca(auction, numParcela);
+                if (result.success) {
+                  resultados.cobrancas++;
+                  console.log(`✅ Cobrança da parcela ${numParcela} enviada com sucesso`);
+                } else {
+                  resultados.erros++;
+                  console.log(`❌ Erro ao enviar cobrança da parcela ${numParcela}: ${result.message}`);
+                }
+              }
+            }
+          }
+        }
+      }
+      // Para parcelamento simples
+      else {
+        if (!arrematante.mesInicioPagamento || !arrematante.diaVencimentoMensal) continue;
+        
+        const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+        
+        // Iterar por todas as parcelas não pagas
+        for (let i = parcelasPagas; i < totalParcelas; i++) {
+          const numParcela = i + 1; // Número da parcela (1, 2, 3...)
+          const dataVencimento = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal, 23, 59, 59);
+          const diasDiferenca = differenceInDays(dataVencimento, hoje);
+
+          // Lembrete - apenas para a próxima parcela não paga
+          if (diasDiferenca > 0 && diasDiferenca <= config.diasAntesLembrete && i === parcelasPagas) {
+            const jaEnviou = await jaEnviouEmail(auction.id, 'lembrete', numParcela);
+            if (!jaEnviou) {
+              const result = await enviarLembrete(auction);
+              if (result.success) resultados.lembretes++;
+              else resultados.erros++;
+            }
+          }
+
+          // Cobrança - enviar para TODAS as parcelas atrasadas
+          if (diasDiferenca < 0 && Math.abs(diasDiferenca) >= config.diasDepoisCobranca) {
+            const jaEnviou = await jaEnviouEmail(auction.id, 'cobranca', numParcela);
+            if (!jaEnviou) {
+              console.log(`📧 Enviando cobrança da parcela ${numParcela}/${totalParcelas} (${Math.abs(diasDiferenca)} dias de atraso)`);
+              const result = await enviarCobranca(auction, numParcela);
+              if (result.success) {
+                resultados.cobrancas++;
+                console.log(`✅ Cobrança da parcela ${numParcela} enviada com sucesso`);
+              } else {
+                resultados.erros++;
+                console.log(`❌ Erro ao enviar cobrança da parcela ${numParcela}: ${result.message}`);
+              }
+            }
           }
         }
       }
@@ -586,7 +822,7 @@ export function useEmailNotifications() {
       return;
     }
 
-    setEmailLogs(data || []);
+    setEmailLogs((data || []) as EmailLog[]);
   };
 
   const limparHistorico = async (): Promise<{ success: boolean; message: string }> => {
@@ -619,6 +855,255 @@ export function useEmailNotifications() {
     }
   };
 
+  const testarEnvioCobranca = async (auction: Auction): Promise<{ success: boolean; message: string; detalhes?: string[] }> => {
+    if (!auction.arrematante?.email) {
+      return { success: false, message: 'Arrematante não possui email cadastrado' };
+    }
+
+    const arrematante = auction.arrematante;
+    const lote = auction.lotes?.find(l => l.id === arrematante?.loteId);
+    const tipoPagamento = lote?.tipoPagamento || auction.tipoPagamento;
+    const parcelasPagas = arrematante.parcelasPagas || 0;
+    const totalParcelas = arrematante.quantidadeParcelas || lote?.parcelasPadrao || 0;
+
+    const detalhes: string[] = [];
+    let totalEnviados = 0;
+    let totalErros = 0;
+    const errosDetalhados: string[] = [];
+
+    detalhes.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    detalhes.push(`🔍 TESTE DE COBRANÇA - ${arrematante.nome}`);
+    detalhes.push(`📧 Email: ${arrematante.email}`);
+    detalhes.push(`📊 Tipo: ${tipoPagamento}`);
+    detalhes.push(`💰 Parcelas Pagas: ${parcelasPagas}/${totalParcelas}`);
+    detalhes.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    detalhes.push('');
+
+    const hoje = new Date();
+
+    // Para pagamento à vista
+    if (tipoPagamento === 'a_vista') {
+      if (!auction.dataVencimentoVista && !lote?.dataVencimentoVista) {
+        const erro = '❌ Data de vencimento à vista não configurada';
+        detalhes.push(erro);
+        errosDetalhados.push(erro);
+        console.error(erro);
+        return { success: false, message: 'Configuração incompleta', detalhes };
+      }
+
+      const dateStr = lote?.dataVencimentoVista || auction.dataVencimentoVista || '';
+      const [year, month, day] = dateStr.split('-').map(Number);
+      const dataVencimento = new Date(year, month - 1, day, 0, 0, 0); // ✅ CORRIGIDO
+      const diasDiferenca = differenceInDays(hoje, dataVencimento); // ✅ CORRIGIDO
+
+      detalhes.push(`💳 PAGAMENTO À VISTA:`);
+      detalhes.push(`   📅 Vencimento: ${dataVencimento.toLocaleDateString('pt-BR')}`);
+      detalhes.push(`   ⏰ Status: ${diasDiferenca > 0 ? `⚠️ ${diasDiferenca} dias de atraso` : diasDiferenca === 0 ? `⚠️ Vence hoje` : `✅ Vence em ${Math.abs(diasDiferenca)} dias`}`);
+
+      if (diasDiferenca >= 0) { // ✅ CORRIGIDO
+        detalhes.push('   📧 Enviando email de cobrança...');
+        console.log('📧 Enviando cobrança à vista...');
+        
+        try {
+          const result = await enviarCobranca(auction, 1, true); // forcarEnvio = true para teste
+          if (result.success) {
+            totalEnviados++;
+            detalhes.push(`   ✅ ${result.message}`);
+            console.log('✅ Cobrança à vista enviada:', result.message);
+          } else {
+            totalErros++;
+            const erro = `   ❌ ERRO: ${result.message}`;
+            detalhes.push(erro);
+            errosDetalhados.push(`À Vista - ${result.message}`);
+            console.error('❌ Erro ao enviar cobrança à vista:', result.message);
+          }
+        } catch (error) {
+          totalErros++;
+          const mensagemErro = error instanceof Error ? error.message : 'Erro desconhecido';
+          const erro = `   ❌ EXCEÇÃO: ${mensagemErro}`;
+          detalhes.push(erro);
+          errosDetalhados.push(`À Vista - ${mensagemErro}`);
+          console.error('❌ Exceção ao enviar cobrança à vista:', error);
+        }
+      } else {
+        detalhes.push('   ℹ️ Pagamento não está em atraso ainda');
+        console.log('ℹ️ À vista não está em atraso');
+      }
+      detalhes.push('');
+    }
+    // Para entrada + parcelamento
+    else if (tipoPagamento === 'entrada_parcelamento') {
+      // Verificar entrada
+      if (parcelasPagas === 0 && arrematante.dataEntrada) {
+        const dataVencimento = parseISO(arrematante.dataEntrada);
+        const diasDiferenca = differenceInDays(hoje, dataVencimento); // ✅ CORRIGIDO
+        
+        detalhes.push(`💰 ENTRADA (Parcela 1):`);
+        detalhes.push(`   📅 Vencimento: ${dataVencimento.toLocaleDateString('pt-BR')}`);
+        detalhes.push(`   ⏰ Status: ${diasDiferenca > 0 ? `⚠️ ${diasDiferenca} dias de atraso` : diasDiferenca === 0 ? `⚠️ Vence hoje` : `✅ Vence em ${Math.abs(diasDiferenca)} dias`}`);
+
+        if (diasDiferenca >= 0) { // ✅ CORRIGIDO
+          detalhes.push('   📧 Enviando email de cobrança...');
+          console.log('📧 Enviando cobrança da entrada...');
+          
+          try {
+            const result = await enviarCobranca(auction, 1, true); // forcarEnvio = true para teste
+            if (result.success) {
+              totalEnviados++;
+              detalhes.push(`   ✅ ${result.message}`);
+              console.log('✅ Cobrança da entrada enviada:', result.message);
+            } else {
+              totalErros++;
+              const erro = `   ❌ ERRO: ${result.message}`;
+              detalhes.push(erro);
+              errosDetalhados.push(`Entrada - ${result.message}`);
+              console.error('❌ Erro ao enviar cobrança da entrada:', result.message);
+            }
+          } catch (error) {
+            totalErros++;
+            const mensagemErro = error instanceof Error ? error.message : 'Erro desconhecido';
+            const erro = `   ❌ EXCEÇÃO: ${mensagemErro}`;
+            detalhes.push(erro);
+            errosDetalhados.push(`Entrada - ${mensagemErro}`);
+            console.error('❌ Exceção ao enviar cobrança da entrada:', error);
+          }
+        } else {
+          detalhes.push('   ℹ️ Entrada não está em atraso ainda');
+        }
+        detalhes.push('');
+      }
+
+      // Verificar parcelas
+      if (arrematante.mesInicioPagamento && arrematante.diaVencimentoMensal) {
+        const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+        
+        for (let i = Math.max(1, parcelasPagas); i < totalParcelas; i++) {
+          const numParcela = i + 1;
+          const parcelaIndex = i - 1;
+          const dataVencimento = new Date(startYear, startMonth - 1 + parcelaIndex, arrematante.diaVencimentoMensal, 0, 0, 0); // ✅ CORRIGIDO
+          const diasDiferenca = differenceInDays(hoje, dataVencimento); // ✅ CORRIGIDO
+
+          detalhes.push(`📦 PARCELA ${numParcela - 1}/${totalParcelas - 1} (Parcela ${numParcela} do sistema):`);
+          detalhes.push(`   📅 Vencimento: ${dataVencimento.toLocaleDateString('pt-BR')}`);
+          detalhes.push(`   ⏰ Status: ${diasDiferenca > 0 ? `⚠️ ${diasDiferenca} dias de atraso` : diasDiferenca === 0 ? `⚠️ Vence hoje` : `✅ Vence em ${Math.abs(diasDiferenca)} dias`}`);
+
+          if (diasDiferenca >= 0) { // ✅ CORRIGIDO
+            detalhes.push('   📧 Enviando email de cobrança...');
+            console.log(`📧 Enviando cobrança da parcela ${numParcela}...`);
+            
+            try {
+              const result = await enviarCobranca(auction, numParcela, true); // forcarEnvio = true para teste
+              if (result.success) {
+                totalEnviados++;
+                detalhes.push(`   ✅ ${result.message}`);
+                console.log(`✅ Cobrança da parcela ${numParcela} enviada:`, result.message);
+              } else {
+                totalErros++;
+                const erro = `   ❌ ERRO: ${result.message}`;
+                detalhes.push(erro);
+                errosDetalhados.push(`Parcela ${numParcela} - ${result.message}`);
+                console.error(`❌ Erro ao enviar cobrança da parcela ${numParcela}:`, result.message);
+              }
+            } catch (error) {
+              totalErros++;
+              const mensagemErro = error instanceof Error ? error.message : 'Erro desconhecido';
+              const erro = `   ❌ EXCEÇÃO: ${mensagemErro}`;
+              detalhes.push(erro);
+              errosDetalhados.push(`Parcela ${numParcela} - ${mensagemErro}`);
+              console.error(`❌ Exceção ao enviar cobrança da parcela ${numParcela}:`, error);
+            }
+          } else {
+            detalhes.push(`   ℹ️ Parcela não está em atraso ainda`);
+          }
+          detalhes.push('');
+        }
+      }
+    }
+    // Para parcelamento simples
+    else {
+      if (!arrematante.mesInicioPagamento || !arrematante.diaVencimentoMensal) {
+        const erro = '❌ Mês de início ou dia de vencimento não configurado';
+        detalhes.push(erro);
+        errosDetalhados.push(erro);
+        console.error(erro);
+        return { success: false, message: 'Configuração incompleta', detalhes };
+      }
+
+      const [startYear, startMonth] = arrematante.mesInicioPagamento.split('-').map(Number);
+      
+      for (let i = parcelasPagas; i < totalParcelas; i++) {
+        const numParcela = i + 1;
+        const dataVencimento = new Date(startYear, startMonth - 1 + i, arrematante.diaVencimentoMensal, 0, 0, 0);
+        const diasDiferenca = differenceInDays(hoje, dataVencimento); // ✅ CORRIGIDO: hoje primeiro, depois vencimento
+
+        detalhes.push(`📦 PARCELA ${numParcela}/${totalParcelas}:`);
+        detalhes.push(`   📅 Vencimento: ${dataVencimento.toLocaleDateString('pt-BR')}`);
+        detalhes.push(`   ⏰ Status: ${diasDiferenca > 0 ? `⚠️ ${diasDiferenca} dias de atraso` : diasDiferenca === 0 ? `⚠️ Vence hoje` : `✅ Vence em ${Math.abs(diasDiferenca)} dias`}`);
+
+        if (diasDiferenca >= 0) { // ✅ CORRIGIDO: >= 0 para incluir "vence hoje"
+          detalhes.push('   📧 Enviando email de cobrança...');
+          console.log(`📧 Enviando cobrança da parcela ${numParcela}/${totalParcelas}...`);
+          
+          try {
+            const result = await enviarCobranca(auction, numParcela, true); // forcarEnvio = true para teste
+            if (result.success) {
+              totalEnviados++;
+              detalhes.push(`   ✅ ${result.message}`);
+              console.log(`✅ Cobrança da parcela ${numParcela} enviada:`, result.message);
+            } else {
+              totalErros++;
+              const erro = `   ❌ ERRO: ${result.message}`;
+              detalhes.push(erro);
+              errosDetalhados.push(`Parcela ${numParcela} - ${result.message}`);
+              console.error(`❌ Erro ao enviar cobrança da parcela ${numParcela}:`, result.message);
+            }
+          } catch (error) {
+            totalErros++;
+            const mensagemErro = error instanceof Error ? error.message : 'Erro desconhecido';
+            const erro = `   ❌ EXCEÇÃO: ${mensagemErro}`;
+            detalhes.push(erro);
+            errosDetalhados.push(`Parcela ${numParcela} - ${mensagemErro}`);
+            console.error(`❌ Exceção ao enviar cobrança da parcela ${numParcela}:`, error);
+          }
+        } else {
+          detalhes.push(`   ℹ️ Parcela não está em atraso ainda`);
+        }
+        detalhes.push('');
+      }
+    }
+
+    detalhes.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    detalhes.push(`📊 RESUMO DO TESTE:`);
+    detalhes.push(`   ✅ Emails enviados: ${totalEnviados}`);
+    detalhes.push(`   ❌ Erros: ${totalErros}`);
+    
+    if (errosDetalhados.length > 0) {
+      detalhes.push('');
+      detalhes.push('❌ DETALHES DOS ERROS:');
+      errosDetalhados.forEach(erro => {
+        detalhes.push(`   • ${erro}`);
+      });
+    }
+    
+    detalhes.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    console.log('📊 RESUMO DO TESTE:', {
+      totalEnviados,
+      totalErros,
+      erros: errosDetalhados
+    });
+
+    return {
+      success: totalEnviados > 0,
+      message: totalEnviados > 0 
+        ? `✅ ${totalEnviados} email(s) de cobrança enviado(s) com sucesso!`
+        : totalErros > 0
+          ? `❌ Erro ao enviar emails. Total de erros: ${totalErros}`
+          : 'ℹ️ Nenhuma parcela em atraso encontrada',
+      detalhes
+    };
+  };
+
   return {
     config,
     loading,
@@ -632,6 +1117,9 @@ export function useEmailNotifications() {
     carregarLogs,
     limparHistorico,
     jaEnviouEmail,
+    testarEnvioCobranca,
   };
 }
+
+
 

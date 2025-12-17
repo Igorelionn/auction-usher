@@ -1,6 +1,7 @@
 import { supabaseClient } from './supabase-client';
 import { db } from './storage';
 import { Auction, Bidder, Lot, Invoice, LoteInfo } from './types';
+import { Database } from './database.types';
 
 // Função para gerar UUID válido
 function generateUUID(): string {
@@ -90,13 +91,13 @@ export async function migrateLocalStorageToSupabase(): Promise<MigrationResult> 
           id: validId,
           nome: auction.nome,
           identificacao: auction.identificacao || null,
-          local: local as any,
+          local: local as Database['public']['Enums']['location_type'],
           endereco: auction.endereco || null,
           data_inicio: auction.dataInicio,
           data_andamento: auction.status === 'em_andamento' ? auction.dataInicio : null,
           data_encerramento: auction.dataEncerramento || null,
           prazo_final_pagamento: auction.dataVencimentoVista || null,
-          status: status as any,
+          status: status as Database['public']['Enums']['auction_status'],
           custos_texto: auction.custos || null,
           custos_numerico: auction.custosNumerico || null,
           historico_notas: auction.historicoNotas || null,
@@ -254,7 +255,7 @@ export async function migrateLocalStorageToSupabase(): Promise<MigrationResult> 
           custos_adicionais: invoice.custosAdicionais || 0,
           valor_liquido: invoice.valorLiquido,
           data_vencimento: invoice.vencimento,
-          status: status as any,
+          status: status as Database['public']['Enums']['invoice_status'],
           arquivado: false,
         };
       });
@@ -279,8 +280,9 @@ export async function migrateLocalStorageToSupabase(): Promise<MigrationResult> 
       result.message = `Migração concluída com ${result.errors.length} erros.`;
     }
 
-  } catch (error: any) {
-    result.errors.push(`Erro geral na migração: ${error.message}`);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+    result.errors.push(`Erro geral na migração: ${errorMessage}`);
     result.message = 'Falha na migração para Supabase.';
   }
 

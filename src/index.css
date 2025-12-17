@@ -187,6 +187,41 @@ All colors MUST be HSL.
     }
   }
   
+  /* Animação suave para wizard de leilão */
+  @keyframes wizardFadeIn {
+    0% {
+      opacity: 0;
+    }
+    100% {
+      opacity: 1;
+    }
+  }
+
+  /* Animação para campos de input do wizard */
+  .wizard-input {
+    position: relative;
+    transition: border-bottom-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    color: #111827 !important;
+    caret-color: #111827 !important;
+  }
+
+  .wizard-input::before {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 50%;
+    width: 100%;
+    height: 2px;
+    background-color: #1f2937;
+    transform: translateX(-50%) scaleX(0);
+    transform-origin: center;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .wizard-input:focus::before {
+    transform: translateX(-50%) scaleX(1);
+  }
+  
   @keyframes fadeOut {
     0% {
       opacity: 1;
@@ -476,4 +511,49 @@ All colors MUST be HSL.
       opacity: 0.85;
     }
   }
+}
+
+/* CORREÇÃO CRÍTICA: Estilos para inputs do wizard - FORA do @layer para maior especificidade */
+input.wizard-input,
+.wizard-input input,
+.wizard-input {
+  color: #111827 !important;
+  caret-color: #111827 !important;
+  -webkit-text-fill-color: #111827 !important;
+}
+
+input.wizard-input:focus,
+.wizard-input input:focus,
+.wizard-input:focus {
+  color: #111827 !important;
+  caret-color: #111827 !important;
+  -webkit-text-fill-color: #111827 !important;
+}
+
+input.wizard-input::placeholder,
+.wizard-input input::placeholder,
+.wizard-input::placeholder {
+  color: #9ca3af !important;
+  -webkit-text-fill-color: #9ca3af !important;
+}
+
+/* Fix para autofill do navegador */
+input.wizard-input:-webkit-autofill,
+input.wizard-input:-webkit-autofill:hover,
+input.wizard-input:-webkit-autofill:focus,
+input.wizard-input:-webkit-autofill:active {
+  -webkit-text-fill-color: #111827 !important;
+  -webkit-box-shadow: 0 0 0 30px white inset !important;
+  box-shadow: 0 0 0 30px white inset !important;
+  caret-color: #111827 !important;
+}
+
+/* Garantir visibilidade em qualquer estado */
+input[type="text"].wizard-input,
+input[type="email"].wizard-input,
+input[type="number"].wizard-input,
+input[type="tel"].wizard-input {
+  color: #111827 !important;
+  -webkit-text-fill-color: #111827 !important;
+  opacity: 1 !important;
 }

@@ -33,13 +33,14 @@ import { useToast } from "@/hooks/use-toast";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { StringDatePicker } from "@/components/ui/date-picker";
 import { PdfReport } from "@/components/PdfReport";
+import { ArrematanteInfo, Auction, LoteInfo, MercadoriaInfo, ItemCustoInfo, ItemPatrocinioInfo } from "@/lib/types";
 
 // Função para verificar se um arrematante está inadimplente (considera tipos de pagamento)
-const isOverdue = (arrematante: any, auction: any) => {
+const isOverdue = (arrematante: ArrematanteInfo, auction: Auction) => {
   if (arrematante.pago) return false;
   
   // Encontrar o lote arrematado para obter as configurações específicas de pagamento
-  const loteArrematado = auction.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+  const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante.loteId);
   if (!loteArrematado || !loteArrematado.tipoPagamento) return false;
   
   const tipoPagamento = loteArrematado.tipoPagamento;
@@ -138,7 +139,7 @@ const calcularJurosProgressivos = (valorOriginal: number, dataVencimento: string
 };
 
 // Função auxiliar para calcular valor total com juros
-const calcularValorTotalComJuros = (arrematante: any, auction: any): number => {
+const calcularValorTotalComJuros = (arrematante: ArrematanteInfo, auction: Auction): number => {
   if (!arrematante) return 0;
   
   const valorBase = arrematante.valorPagarNumerico || parseFloat(arrematante.valorPagar?.replace(/[^\d,]/g, '').replace(',', '.') || '0');
@@ -258,7 +259,7 @@ function Relatorios() {
   const [paymentTypeFilter, setPaymentTypeFilter] = useState<'todos' | 'a_vista' | 'parcelamento' | 'entrada_parcelamento'>('todos');
   
   // Estado para o gráfico de evolução
-  const [hoveredPoint, setHoveredPoint] = useState<any>(null);
+  const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number; label: string; index: number; faturamento: number; despesas: number; mes?: string } | null>(null);
   
   // Estados para o modal de PDF temporário (invisível)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -400,7 +401,7 @@ function Relatorios() {
   };
 
   // Função auxiliar para criar conteúdo PDF de um leilão específico
-  const createPdfContentForAuction = (auction: any) => {
+  const createPdfContentForAuction = (auction: Auction) => {
     const formatDate = (dateString?: string) => {
       if (!dateString) return 'Não informado';
       try {
@@ -530,14 +531,14 @@ function Relatorios() {
             📦 LOTES (${auction.lotes.length})
           </h2>
           <div style="space-y: 15px;">
-            ${auction.lotes.map((lote: any) => `
+            ${auction.lotes.map((lote: LoteInfo) => `
               <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; margin-bottom: 10px;">
                 <h3 style="font-size: 14px; font-weight: bold; margin-bottom: 8px;">Lote ${lote.numero}</h3>
                 <p style="font-size: 12px; color: #666; margin-bottom: 8px;">${lote.descricao || 'Sem descrição'}</p>
                 ${lote.mercadorias && lote.mercadorias.length > 0 ? `
                   <div style="font-size: 11px; color: #555;">
                     <strong>Mercadorias (${lote.mercadorias.length}):</strong><br>
-                    ${lote.mercadorias.map((m: any) => `• ${m.nome || m.tipo} - ${m.descricao || 'Sem descrição'} ${m.valorNumerico ? `(${formatCurrency(m.valorNumerico)})` : ''}`).join('<br>')}
+                    ${lote.mercadorias.map((m: MercadoriaInfo) => `• ${m.nome || m.tipo} - ${m.descricao || 'Sem descrição'} ${m.valorNumerico ? `(${formatCurrency(m.valorNumerico)})` : ''}`).join('<br>')}
                   </div>
                 ` : ''}
               </div>
@@ -700,7 +701,7 @@ function Relatorios() {
           // Calcular valor total com juros
           const arrematante = auction.arrematante;
           let valorTotalStr = arrematante?.valorPagar || 'N/A';
-          let detalhamentoJuros = '';
+          const detalhamentoJuros = '';
           
           if (arrematante) {
             const valorBase = parseFloat(arrematante.valorPagar?.replace(/[^\d,]/g, '').replace(',', '.') || '0');
@@ -1305,7 +1306,7 @@ function Relatorios() {
                         {(() => {
                           // Usar os mesmos dados calculados no gráfico
                           const tipoGrafico = config.periodo.inicio || 'mensal';
-                          let labelsData = [];
+                          const labelsData = [];
                           
                           if (tipoGrafico === 'personalizado') {
                             const dataInicio = config.filtros.dataInicio ? new Date(config.filtros.dataInicio) : new Date(new Date().getTime() - (6 * 30 * 24 * 60 * 60 * 1000));
@@ -1524,24 +1525,19 @@ function Relatorios() {
                                     return sum;
                                   }, 0) || 0;
                                   
-                                  // Adicionar superávit de patrocínios ao faturamento
-                                  const superavitPatrocinios = auctions?.reduce((sum, auction) => {
+                                  // Adicionar patrocínios ao faturamento (total recebido de patrocinadores)
+                                  const totalPatrocinios = auctions?.reduce((sum, auction) => {
                                     if (!auction.arquivado) {
                                       const dataLeilao = new Date(auction.dataInicio + 'T00:00:00.000');
                                       if (dataLeilao >= dataInicio && dataLeilao <= dataFim) {
-                                        const custosNumerico = auction.custosNumerico || 0;
                                         const patrociniosTotal = auction.patrociniosTotal || 0;
-                                        
-                                        // Se há superávit, adicionar ao faturamento
-                                        if (patrociniosTotal > custosNumerico) {
-                                          return sum + (patrociniosTotal - custosNumerico);
-                                        }
+                                        return sum + patrociniosTotal;
                                       }
                                     }
                                     return sum;
                                   }, 0) || 0;
                                   
-                                  const faturamentoTotalPeriodo = faturamentoPeriodo + superavitPatrocinios;
+                                  const faturamentoTotalPeriodo = faturamentoPeriodo + totalPatrocinios;
                                   
                                   // DESPESAS = Custos de todos os leilões com custos definidos (passados ou futuros)
                                   const despesasPeriodo = auctions?.reduce((sum, auction) => {
@@ -2005,7 +2001,7 @@ function Relatorios() {
             {/* Tipo de Relatório */}
             <div>
               <Label htmlFor="report-type">Tipo de Relatório</Label>
-              <Select value={previewType} onValueChange={(value) => setPreviewType(value as any)}>
+              <Select value={previewType} onValueChange={(value) => setPreviewType(value as ('leiloes' | 'inadimplencia' | 'historico' | 'faturas'))}>
                 <SelectTrigger className="focus:ring-0 focus:ring-offset-0 focus:outline-none">
                   <SelectValue />
                 </SelectTrigger>
@@ -2042,7 +2038,7 @@ function Relatorios() {
             {previewType === 'inadimplencia' && (
               <div>
                 <Label htmlFor="payment-type-filter">Filtrar por Tipo de Pagamento</Label>
-                <Select value={paymentTypeFilter} onValueChange={(value) => setPaymentTypeFilter(value as any)}>
+                <Select value={paymentTypeFilter} onValueChange={(value) => setPaymentTypeFilter(value as ('todos' | 'a_vista' | 'parcelamento' | 'entrada_parcelamento'))}>
                   <SelectTrigger className="focus:ring-0 focus:ring-offset-0 focus:outline-none">
                     <SelectValue />
                   </SelectTrigger>
@@ -2131,7 +2127,7 @@ function Relatorios() {
 // Componente de Preview do Relatório
 const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: { 
   type: 'leiloes' | 'inadimplencia' | 'historico' | 'faturas', 
-  auctions: any[], 
+  auctions: Auction[], 
   paymentTypeFilter?: 'todos' | 'a_vista' | 'parcelamento' | 'entrada_parcelamento' 
 }) => {
   if (!auctions || auctions.length === 0) {
@@ -2224,7 +2220,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
     const totalLeiloes = leiloesAtivos.length;
     const emAndamento = leiloesAtivos.filter(a => a.status === 'em_andamento').length;
     const finalizados = leiloesAtivos.filter(a => a.status === 'finalizado').length;
-    const comArrematante = leiloesAtivos.filter(a => a.arrematante).length;
+    const leiloesAgendados = leiloesAtivos.filter(a => a.status === 'agendado').length;
     
     return (
       <div className="bg-white min-h-[600px]" style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', pageBreakInside: 'auto', orphans: 3, widows: 3 }}>
@@ -2268,101 +2264,125 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                 <div className="text-xs text-slate-600 uppercase tracking-wider" style={{ fontWeight: 300 }}>Finalizados</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl font-light text-slate-700 mb-1">{comArrematante}</div>
-                <div className="text-xs text-slate-600 uppercase tracking-wider" style={{ fontWeight: 300 }}>Com Arrematante</div>
+                <div className="text-3xl font-light text-slate-700 mb-1">{leiloesAgendados}</div>
+                <div className="text-xs text-slate-600 uppercase tracking-wider" style={{ fontWeight: 300 }}>Agendados</div>
               </div>
             </div>
           </div>
         )}
 
         {/* Lista Detalhada dos Leilões */}
-        <div className="space-y-6">
-          <div className="pb-3 mb-4" style={{ borderBottom: '1px solid #cbd5e1', pageBreakAfter: 'avoid' }}>
-            <h2 className="text-lg font-medium text-slate-900 tracking-tight">
-              Detalhamento dos Processos
-            </h2>
-            <p className="text-sm text-slate-600 mt-1" style={{ fontWeight: 300 }}>
-              Informações completas de {totalLeiloes} processo{totalLeiloes !== 1 ? 's' : ''} licitatório{totalLeiloes !== 1 ? 's' : ''}
-            </p>
-          </div>
-          
+        <div className="space-y-12">
           {leiloesAtivos.map((auction, index) => (
-            <div key={auction.id} className="mb-6" style={{ pageBreakBefore: index > 0 ? 'auto' : 'avoid', border: '1px solid #cbd5e1', borderRadius: '4px', overflow: 'hidden' }}>
+            <div key={auction.id} style={{ pageBreakBefore: index > 0 ? 'always' : 'avoid', pageBreakInside: 'avoid' }}>
+              {/* Separador visual entre leilões */}
+              {index > 0 && (
+                <div className="mb-8 pb-4" style={{ borderBottom: '2px solid #cbd5e1' }} />
+              )}
+
               {/* Cabeçalho do Leilão */}
-              <div className="px-6 py-4" style={{ background: 'linear-gradient(to right, #f1f5f9, #ffffff)', borderBottom: '1px solid #e2e8f0', pageBreakAfter: 'avoid' }}>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="flex items-center gap-3 mb-1">
-                      <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Processo #{String(index + 1).padStart(3, '0')}</span>
-                      {auction.status && (
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          auction.status === 'em_andamento' 
-                            ? 'bg-slate-100 text-slate-700 border border-slate-300' 
-                            : auction.status === 'finalizado' 
-                              ? 'bg-slate-100 text-slate-700 border border-slate-300' 
-                              : 'bg-slate-100 text-slate-600 border border-slate-300'
-                        }`} style={{ fontWeight: 500 }}>
-                          {getStatusLabel(auction.status)}
-                        </span>
-                      )}
+              <div className="mb-6 pb-4" style={{ borderBottom: '1px solid #e2e8f0', pageBreakAfter: 'avoid' }}>
+                <div className="mb-2">
+                  <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                    Leilão #{String(index + 1).padStart(2, '0')}
+                  </span>
+                </div>
+                <h2 className="text-2xl font-light text-slate-900 mb-1">
+                  {auction.identificacao || auction.nome || `Leilão ${index + 1}`}
+                </h2>
+                {auction.nome && auction.identificacao && (
+                  <p className="text-sm text-slate-600">{auction.nome}</p>
+                )}
+              </div>
+
+              {/* Identificação do Leilão */}
+              <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+                <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em' }}>
+                  Identificação do Leilão
+                </h3>
+                <div className="p-4" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Código de Identificação</div>
+                      <div className="text-base font-medium text-slate-900">{auction.identificacao || 'Não informado'}</div>
                     </div>
-                    <h3 className="text-lg font-medium text-slate-900 mb-1">
-                      {auction.identificacao || auction.nome || `Leilão ${index + 1}`}
-                    </h3>
-                    {auction.nome && auction.identificacao && (
-                      <p className="text-sm text-slate-600" style={{ fontWeight: 300 }}>{auction.nome}</p>
-                    )}
+                    <div>
+                      <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Status do Leilão</div>
+                      <div className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                        auction.status === 'finalizado' ? 'bg-red-600 text-white border border-red-700' :
+                        auction.status === 'em_andamento' ? 'bg-green-50 text-green-700 border border-green-200' :
+                        'bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}>
+                        {getStatusLabel(auction.status)}
+                      </div>
+                    </div>
+                    <div className="col-span-2" style={{ borderTop: '1px solid #e2e8f0', paddingTop: '12px', marginTop: '8px' }}>
+                      <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Nome do Evento</div>
+                      <div className="text-base font-medium text-slate-900">{auction.nome || 'Não informado'}</div>
+                    </div>
                   </div>
                 </div>
               </div>
-              
-              {/* Corpo do Leilão */}
-              <div className="px-6 py-5 space-y-5">
-                {/* Informações Básicas */}
-                <div>
-                  <h4 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', pageBreakAfter: 'avoid' }}>
-                    Dados do Processo
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm" style={{ fontWeight: 300 }}>
-                    <div className="space-y-2">
-                      <div className="flex items-start">
-                        <span className="text-slate-500 min-w-[110px]">Data de início:</span>
-                        <span className="text-slate-900 font-medium">{formatDate(auction.dataInicio)}</span>
-                      </div>
-                      <div className="flex items-start">
-                        <span className="text-slate-500 min-w-[110px]">Encerramento:</span>
-                        <span className="text-slate-900 font-medium">{formatDate(auction.dataEncerramento) || 'Não definida'}</span>
-                      </div>
-                      <div className="flex items-start">
-                        <span className="text-slate-500 min-w-[110px]">Modalidade:</span>
-                        <span className="text-slate-900 font-medium">{getLocalLabel(auction.local)}</span>
+
+              {/* Cronograma e Local */}
+              <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+                <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em' }}>
+                  Cronograma e Local do Evento
+                </h3>
+                <div className="p-4" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
+                  <div className="grid grid-cols-3 gap-4 mb-3 text-sm">
+                    <div>
+                      <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Data de Início</div>
+                      <div className="text-base font-medium text-slate-900">{formatDate(auction.dataInicio)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Data de Encerramento</div>
+                      <div className="text-base font-medium text-slate-900">{formatDate(auction.dataEncerramento || '')}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Modalidade</div>
+                      <div className="text-base font-medium text-slate-900">{getLocalLabel(auction.local)}</div>
+                    </div>
+                  </div>
+                  <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
+                    <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Endereço do Evento</div>
+                    <div className="text-sm text-slate-900">{auction.endereco || 'Não informado'}</div>
+                  </div>
+                  {auction.historicoNotas?.join('; ') && (
+                    <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '12px', marginTop: '12px' }}>
+                      <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Observações</div>
+                      <div className="text-sm text-slate-900 p-2 rounded" style={{ backgroundColor: '#fafafa', border: '1px solid #e2e8f0' }}>
+                        {auction.historicoNotas?.join('; ') || 'Não informado'}
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <div className="flex flex-col">
-                        <span className="text-slate-500 mb-1">Local do Evento:</span>
-                        <span className="text-slate-900 text-sm">{auction.endereco || 'Não informado'}</span>
-                    </div>
-                      <div className="flex items-start">
-                        <span className="text-slate-500 min-w-[110px]">Qtd. Lotes:</span>
-                        <span className="text-slate-900 font-medium">{auction.lotes?.length || 0} lote{(auction.lotes?.length || 0) !== 1 ? 's' : ''}</span>
-                      </div>
-                      <div className="flex items-start">
-                        <span className="text-slate-500 min-w-[110px]">Custos:</span>
-                        <span className="text-slate-900 font-medium">{formatCurrency(auction.custosNumerico || auction.custos)}</span>
-                      </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Informações Financeiras */}
+              <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+                <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em' }}>
+                  Informações Financeiras
+                </h3>
+                <div className="p-4" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
+                  <div>
+                    <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Custos do Leilão</div>
+                    <div className="text-lg font-medium text-slate-900">
+                      {formatCurrency(auction.custosNumerico || auction.custos)}
                     </div>
                   </div>
                 </div>
+              </div>
 
-                {/* Especificação dos Custos */}
-                {auction.detalheCustos && auction.detalheCustos.length > 0 && (
-                  <div className="pt-5" style={{ borderTop: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
-                    <h4 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', pageBreakAfter: 'avoid' }}>
-                      Especificação dos Gastos
-                    </h4>
+              {/* Especificação dos Custos */}
+              {auction.detalheCustos && auction.detalheCustos.length > 0 && (
+                <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em' }}>
+                    Especificação dos Gastos
+                  </h3>
+                  <div className="p-4 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
                     <div className="space-y-2">
-                      {auction.detalheCustos.map((item: any, index: number) => (
+                      {auction.detalheCustos.map((item: ItemCustoInfo, index: number) => (
                         <div key={item.id || index} className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded border border-gray-200">
                           <div className="flex items-center gap-3">
                             <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-gray-200 text-xs font-semibold text-gray-700">
@@ -2379,214 +2399,181 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                       ))}
                     </div>
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* Patrocínios Recebidos */}
-                {auction.detalhePatrocinios && auction.detalhePatrocinios.length > 0 && (
-                  <div className="pt-5" style={{ borderTop: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
-                    <h4 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', pageBreakAfter: 'avoid' }}>
-                      Patrocínios Recebidos
-                    </h4>
-                    
+              {/* Patrocínios Recebidos */}
+              {auction.detalhePatrocinios && auction.detalhePatrocinios.length > 0 && (
+                <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em' }}>
+                    Patrocínios Recebidos
+                  </h3>
+                  <div className="p-4 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
                     {/* Total de Patrocínios */}
                     <div className="mb-4 pb-3 border-b border-gray-200">
                       <div className="flex justify-between items-center">
-                        <span className="text-xs text-slate-500 uppercase tracking-wider" style={{ fontWeight: 500 }}>Total de Patrocínios</span>
-                        <span className="text-lg font-light text-slate-900 tracking-tight">
+                        <div className="text-xs text-slate-500 uppercase tracking-wider" style={{ fontWeight: 500 }}>Total de Patrocínios</div>
+                        <div className="text-lg font-light text-slate-900 tracking-tight">
                           {formatCurrency(auction.patrociniosTotal || 0)}
-                        </span>
+                        </div>
                       </div>
                     </div>
 
                     {/* Lista de Patrocinadores */}
-                    <div className="space-y-2 mb-4">
-                      {auction.detalhePatrocinios.map((item: any, index: number) => (
-                        <div key={item.id || index} className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded border border-gray-200">
-                          <div className="flex items-center gap-3">
-                            <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-gray-200 text-xs font-semibold text-gray-700">
-                              {String(index + 1).padStart(2, '0')}
-                            </span>
-                            <span className="text-sm text-gray-700">
-                              {item.nomePatrocinador || 'Patrocinador'}
-                            </span>
-                          </div>
-                          <span className="text-sm font-medium text-gray-900">
-                            {formatCurrency(item.valorNumerico)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Resumo Financeiro */}
-                    {auction.custosNumerico && (
-                      <div className="p-4 bg-gray-50 rounded border border-gray-200">
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center text-sm">
-                            <span className="text-gray-600">Custos Totais:</span>
-                            <span className="font-medium text-gray-900">
-                              {formatCurrency(auction.custosNumerico)}
-                            </span>
-                          </div>
-                          
-                          <div className="flex justify-between items-center text-sm">
-                            <span className="text-gray-600">Patrocínios:</span>
-                            <span className="font-medium text-gray-700">
-                              - {formatCurrency(auction.patrociniosTotal || 0)}
-                            </span>
-                          </div>
-                          
-                          <div className="border-t border-gray-300 pt-3">
-                            <div className="flex justify-between items-center">
-                              <span className="text-sm font-semibold text-gray-900">
-                                {(auction.patrociniosTotal || 0) > auction.custosNumerico ? 'Superávit:' : 'Saldo Líquido:'}
+                    <div className="border-t border-gray-200 pt-4">
+                      <div className="text-xs font-medium text-gray-600 uppercase tracking-wide mb-3">Patrocinadores</div>
+                      <div className="space-y-2">
+                        {auction.detalhePatrocinios.map((item: ItemPatrocinioInfo, index: number) => (
+                          <div key={item.id || index} className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded border border-gray-200">
+                            <div className="flex items-center gap-3">
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-gray-200 text-xs font-semibold text-gray-700">
+                                {String(index + 1).padStart(2, '0')}
                               </span>
-                              <span className="text-base font-medium text-gray-900">
-                                {(() => {
-                                  const saldo = auction.custosNumerico - (auction.patrociniosTotal || 0);
-                                  return formatCurrency(Math.abs(saldo));
-                                })()}
+                              <span className="text-sm text-gray-700">
+                                {item.nomePatrocinador || 'Patrocinador'}
                               </span>
                             </div>
-                            {(auction.patrociniosTotal || 0) > auction.custosNumerico && (
-                              <p className="text-xs text-gray-500 mt-1 text-right">
-                                Superávit de patrocínios
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Informações do Arrematante */}
-                {auction.arrematante && (
-                  <div className="pt-5" style={{ borderTop: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
-                    <h4 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', pageBreakAfter: 'avoid' }}>
-                      Dados do Arrematante
-                    </h4>
-                    <div className="p-4" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm" style={{ fontWeight: 300 }}>
-                        <div className="space-y-2">
-                          <div className="flex items-start">
-                            <span className="text-slate-500 min-w-[90px]">Nome:</span>
-                            <span className="text-slate-900 font-medium">{auction.arrematante.nome || 'Não informado'}</span>
-                          </div>
-                          <div className="flex items-start">
-                            <span className="text-slate-500 min-w-[90px]">Documento:</span>
-                            <span className="text-slate-900">{auction.arrematante.documento || 'Não informado'}</span>
-                          </div>
-                          <div className="flex items-start">
-                            <span className="text-slate-500 min-w-[90px]">Telefone:</span>
-                            <span className="text-slate-900">{auction.arrematante.telefone || 'Não informado'}</span>
-                          </div>
-                          <div className="flex items-start">
-                            <span className="text-slate-500 min-w-[90px]">Email:</span>
-                            <span className="text-slate-900">{auction.arrematante.email || 'Não informado'}</span>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-start">
-                            <span className="text-slate-500 min-w-[90px]">Valor Total:</span>
-                            <span className="text-slate-900 font-semibold">
-                            {(() => {
-                              const valorComJuros = calcularValorTotalComJuros(auction.arrematante, auction);
-                              const valorBase = auction.arrematante?.valorPagarNumerico || parseFloat(auction.arrematante?.valorPagar?.replace(/[^\d,]/g, '').replace(',', '.') || '0');
-                              const valorJuros = valorComJuros - valorBase;
-                              
-                              return (
-                                <>
-                                  {formatCurrency(valorComJuros)}
-                                  {valorJuros > 0 && (
-                                    <span className="text-xs text-red-600 ml-1" style={{ color: '#dc2626', fontSize: '0.75rem', marginLeft: '0.25rem' }}>
-                                      ({formatCurrency(valorJuros)} juros)
-                                    </span>
-                                  )}
-                                </>
-                              );
-                            })()}
+                            <span className="text-sm font-medium text-gray-900">
+                              {formatCurrency(item.valorNumerico)}
                             </span>
                           </div>
-                          <div className="flex items-start">
-                            <span className="text-slate-500 min-w-[90px]">Situação:</span>
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              auction.arrematante.pago 
-                                ? 'bg-slate-100 text-slate-700 border border-slate-300' 
-                                : isOverdue(auction.arrematante, auction) 
-                                  ? 'bg-red-50 text-red-700 border border-red-200' 
-                                  : 'bg-slate-100 text-slate-600 border border-slate-300'
-                            }`} style={{ fontWeight: 500 }}>
-                              {auction.arrematante.pago 
-                                ? 'QUITADO' 
-                                : isOverdue(auction.arrematante, auction) 
-                                  ? 'ATRASADO' 
-                                  : 'PENDENTE'
-                              }
-                            </span>
-                          </div>
-                        </div>
+                        ))}
                       </div>
-                      {auction.arrematante.endereco && (
-                        <div className="mt-4 pt-3" style={{ borderTop: '1px solid #e2e8f0' }}>
-                          <div className="text-sm" style={{ fontWeight: 300 }}>
-                            <span className="text-slate-500 block mb-1">Endereço Completo:</span>
-                            <span className="text-slate-900">{auction.arrematante.endereco}</span>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* Informações dos Lotes */}
-                {auction.lotes && auction.lotes.length > 0 && (
-                  <div className="pt-5" style={{ borderTop: '1px solid #e2e8f0' }}>
-                    <h4 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', pageBreakAfter: 'avoid' }}>
-                      Composição dos Lotes • {auction.lotes.length} Lote{auction.lotes.length !== 1 ? 's' : ''}
-                    </h4>
-                    <div className="space-y-3">
-                      {auction.lotes.slice(0, 3).map((lote: any, loteIndex: number) => (
-                        <div key={lote.id || loteIndex} className="p-3" style={{ background: 'linear-gradient(to right, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
-                          <div className="flex justify-between items-start mb-2">
-                            <h5 className="font-medium text-slate-900 text-sm">Lote #{lote.numero}</h5>
-                            {lote.mercadorias && lote.mercadorias.length > 0 && (
-                              <span className="text-xs px-2 py-1 bg-white border border-slate-300 rounded text-slate-600" style={{ fontWeight: 500 }}>
-                                {lote.mercadorias.length} item{lote.mercadorias.length !== 1 ? 's' : ''}
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-sm" style={{ fontWeight: 300 }}>
+              {/* Configurações de Pagamento por Mercadoria */}
+              <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+                <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em' }}>
+                  Configurações de Pagamento por Mercadoria
+                </h3>
+                
+                {auction.lotes && auction.lotes.length > 0 ? (
+                  <div className="space-y-3">
+                    {auction.lotes.map((lote, loteIndex) => {
+                      if (!lote.mercadorias || lote.mercadorias.length === 0) {
+                        return (
+                          <div key={lote.id || loteIndex} className="p-3" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
                             <div className="mb-2">
-                              <span className="text-slate-500 text-xs">Descrição:</span>
-                              <p className="text-slate-900 mt-1">{lote.descricao || 'Não informada'}</p>
+                              <h4 className="font-medium text-slate-800 text-sm">Lote {lote.numero}</h4>
                             </div>
-                            {lote.mercadorias && lote.mercadorias.length > 0 && (
-                              <div className="mt-3 pt-2" style={{ borderTop: '1px solid #e2e8f0' }}>
-                                <span className="text-slate-500 text-xs block mb-2">Itens Componentes:</span>
-                                <div className="space-y-1">
-                                  {lote.mercadorias.slice(0, 2).map((merc: any, mercIndex: number) => (
-                                    <div key={mercIndex} className="flex justify-between items-center py-1 px-2 bg-white rounded text-xs" style={{ border: '1px solid #f1f5f9' }}>
-                                      <span className="text-slate-700">{merc.nome || merc.tipo}</span>
-                                      <span className="font-semibold text-slate-900">{formatCurrency(merc.valorNumerico || merc.valor)}</span>
+                            {lote.descricao && <p className="text-xs text-slate-600 mb-2">{lote.descricao}</p>}
+                            <div className="bg-gray-100 border border-gray-300 p-2 rounded">
+                              <p className="text-gray-600 text-xs text-center">Nenhuma mercadoria cadastrada neste lote</p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div key={lote.id || loteIndex} className="p-3" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
+                          <div className="mb-2">
+                            <h4 className="font-medium text-slate-800 text-sm">Lote {lote.numero}</h4>
+                          </div>
+                          
+                          {lote.descricao && <p className="text-xs text-slate-600 mb-3">{lote.descricao}</p>}
+
+                          <div className="space-y-2 mt-2">
+                            {lote.mercadorias.map((mercadoria, mercIndex) => {
+                              const arrematante = auction.arrematantes?.find(arr => arr.mercadoriaId === mercadoria.id);
+
+                              return (
+                                <div key={mercadoria.id || mercIndex} className="bg-white border border-gray-300 p-2 rounded">
+                                  <div className="mb-2 pb-1 border-b border-gray-200">
+                                    <h5 className="text-xs font-medium text-gray-800">
+                                      {mercadoria.titulo || mercadoria.tipo || 'Mercadoria'} 
+                                      {mercadoria.quantidade && <span className="text-xs text-gray-500 ml-2">(Qtd: {mercadoria.quantidade})</span>}
+                                    </h5>
+                                    {mercadoria.descricao && <p className="text-xs text-gray-600 mt-1">{mercadoria.descricao}</p>}
+                                  </div>
+
+                                  {arrematante && arrematante.tipoPagamento ? (
+                                    <div>
+                                      <p className="text-xs font-medium text-gray-700 mb-1">
+                                        Arrematante: {arrematante.nome || 'Não informado'}
+                                      </p>
+                                      <div className="bg-blue-50 border border-blue-200 p-2 rounded">
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-1 text-xs">
+                                          <div>
+                                            <strong className="text-gray-700">Tipo:</strong>{' '}
+                                            <span className="text-gray-900">
+                                              {arrematante.tipoPagamento === 'a_vista' ? 'À Vista' :
+                                               arrematante.tipoPagamento === 'parcelamento' ? 'Parcelamento' :
+                                               arrematante.tipoPagamento === 'entrada_parcelamento' ? 'Entrada + Parcelamento' :
+                                               'Não definido'}
+                                            </span>
+                                          </div>
+
+                                          {arrematante.tipoPagamento === 'a_vista' && arrematante.dataVencimentoVista && (
+                                            <div>
+                                              <strong className="text-gray-700">Data de Pagamento:</strong>{' '}
+                                              <span className="text-gray-900">{formatDate(arrematante.dataVencimentoVista)}</span>
+                                            </div>
+                                          )}
+
+                                          {arrematante.tipoPagamento === 'entrada_parcelamento' && arrematante.dataEntrada && (
+                                            <div>
+                                              <strong className="text-gray-700">Data da Entrada:</strong>{' '}
+                                              <span className="text-gray-900">{formatDate(arrematante.dataEntrada)}</span>
+                                            </div>
+                                          )}
+
+                                          {(arrematante.tipoPagamento === 'parcelamento' || arrematante.tipoPagamento === 'entrada_parcelamento') && (
+                                            <>
+                                              {arrematante.mesInicioPagamento && (
+                                                <div>
+                                                  <strong className="text-gray-700">Mês de Início:</strong>{' '}
+                                                  <span className="text-gray-900">
+                                                    {(() => {
+                                                      const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                                                                    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+                                                      return meses[parseInt(arrematante.mesInicioPagamento) - 1] || arrematante.mesInicioPagamento;
+                                                    })()}
+                                                  </span>
+                                                </div>
+                                              )}
+                                              
+                                              {arrematante.diaVencimentoMensal && (
+                                                <div>
+                                                  <strong className="text-gray-700">Dia do Vencimento:</strong>{' '}
+                                                  <span className="text-gray-900">Dia {arrematante.diaVencimentoMensal}</span>
+                                                </div>
+                                              )}
+                                              
+                                              {arrematante.quantidadeParcelas && (
+                                                <div>
+                                                  <strong className="text-gray-700">Parcelas:</strong>{' '}
+                                                  <span className="text-gray-900">
+                                                    {arrematante.quantidadeParcelas}x
+                                                    {arrematante.tipoPagamento === 'entrada_parcelamento' ? ' (após entrada)' : ''}
+                                                  </span>
+                                                </div>
+                                              )}
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
                                     </div>
-                                  ))}
-                                  {lote.mercadorias.length > 2 && (
-                                    <div className="text-xs text-slate-500 text-center pt-1">
-                                      + {lote.mercadorias.length - 2} item{lote.mercadorias.length - 2 !== 1 ? 's' : ''} adicional{lote.mercadorias.length - 2 !== 1 ? 'is' : ''}
+                                  ) : (
+                                    <div className="bg-white border border-gray-300 p-2 rounded">
+                                      <p className="text-gray-600 text-xs text-center">
+                                        Configurações de pagamento não definidas para esta mercadoria
+                                      </p>
                                     </div>
                                   )}
                                 </div>
-                              </div>
-                            )}
+                              );
+                            })}
                           </div>
                         </div>
-                      ))}
-                      {auction.lotes.length > 3 && (
-                        <div className="text-xs text-slate-500 text-center py-2" style={{ borderTop: '1px solid #e2e8f0', fontWeight: 300 }}>
-                          + {auction.lotes.length - 3} lote{auction.lotes.length - 3 !== 1 ? 's' : ''} adicional{auction.lotes.length - 3 !== 1 ? 'is' : ''} não exibido{auction.lotes.length - 3 !== 1 ? 's' : ''}
-                        </div>
-                      )}
-                    </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-3 bg-gray-50 rounded border border-gray-200">
+                    <p className="text-gray-600 text-center text-sm">Nenhum lote cadastrado neste leilão</p>
                   </div>
                 )}
               </div>
@@ -2774,7 +2761,8 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
         : null;
       
       const tipoPagamento = loteArrematado?.tipoPagamento || auction.tipoPagamento;
-      const valorTotal = auction.arrematante?.valorPagarNumerico || auction.arrematante?.valorPagar || 0;
+      const valorTotal = auction.arrematante?.valorPagarNumerico || 
+        (auction.arrematante?.valorPagar ? parseCurrencyToNumber(auction.arrematante.valorPagar) : 0);
       
       let detalhesInadimplencia = {
         tipoAtraso: '',
@@ -3214,13 +3202,13 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                             hoje.setHours(0, 0, 0, 0);
                             
                             if (tipoPagamento === 'entrada_parcelamento') {
-                              const percentualEntrada = loteComprado?.percentualEntrada || auction.percentualEntrada || 0;
+                              const percentualEntrada = 30; // Padrão de 30% para entrada
                               const valorEntrada = (valorBase * percentualEntrada) / 100;
                               const dataEntrada = arrematante.dataEntrada ? new Date(arrematante.dataEntrada + 'T00:00:00') : null;
                               
-                              if (dataEntrada && dataEntrada < hoje && !arrematante.entradaPaga) {
-                                const mesesAtrasoEntrada = Math.max(0, Math.floor((hoje.getTime() - dataEntrada.getTime()) / (1000 * 60 * 60 * 24 * 30)));
-                                valorTotalComJuros += calcularJurosProgressivos(valorEntrada, percentualJuros, mesesAtrasoEntrada);
+                              if (dataEntrada && dataEntrada < hoje) {
+                                const dataEntradaStr = arrematante.dataEntrada || '';
+                                valorTotalComJuros += calcularJurosProgressivos(valorEntrada, dataEntradaStr, percentualJuros);
                               } else {
                                 valorTotalComJuros += valorEntrada;
                               }
@@ -3229,8 +3217,8 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                               const quantidadeParcelas = arrematante.quantidadeParcelas || 0;
                               const valorParcela = quantidadeParcelas > 0 ? valorRestante / quantidadeParcelas : 0;
                               const parcelasPagas = arrematante.parcelasPagas || 0;
-                              const mesInicioParcelas = arrematante.mesInicioParcelas;
-                              const diaVencimento = arrematante.diaVencimento || 1;
+                              const mesInicioParcelas = arrematante.mesInicioPagamento;
+                              const diaVencimento = arrematante.diaVencimentoMensal || 1;
                               
                               for (let i = parcelasPagas; i < quantidadeParcelas; i++) {
                                 if (mesInicioParcelas) {
@@ -3238,8 +3226,8 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                                   const dataVencimentoParcela = new Date(ano, mes - 1 + i, diaVencimento);
                                   
                                   if (dataVencimentoParcela < hoje) {
-                                    const mesesAtrasoParcela = Math.max(0, Math.floor((hoje.getTime() - dataVencimentoParcela.getTime()) / (1000 * 60 * 60 * 24 * 30)));
-                                    valorTotalComJuros += calcularJurosProgressivos(valorParcela, percentualJuros, mesesAtrasoParcela);
+                                    const dataVencimentoParcelaStr = dataVencimentoParcela.toISOString().split('T')[0];
+                                    valorTotalComJuros += calcularJurosProgressivos(valorParcela, dataVencimentoParcelaStr, percentualJuros);
                                   } else {
                                     valorTotalComJuros += valorParcela;
                                   }
@@ -3251,8 +3239,8 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                               const quantidadeParcelas = arrematante.quantidadeParcelas || 0;
                               const valorParcela = quantidadeParcelas > 0 ? valorBase / quantidadeParcelas : 0;
                               const parcelasPagas = arrematante.parcelasPagas || 0;
-                              const mesInicioParcelas = arrematante.mesInicioParcelas;
-                              const diaVencimento = arrematante.diaVencimento || 1;
+                              const mesInicioParcelas = arrematante.mesInicioPagamento;
+                              const diaVencimento = arrematante.diaVencimentoMensal || 1;
                               
                               for (let i = parcelasPagas; i < quantidadeParcelas; i++) {
                                 if (mesInicioParcelas) {
@@ -3260,8 +3248,8 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                                   const dataVencimentoParcela = new Date(ano, mes - 1 + i, diaVencimento);
                                   
                                   if (dataVencimentoParcela < hoje) {
-                                    const mesesAtrasoParcela = Math.max(0, Math.floor((hoje.getTime() - dataVencimentoParcela.getTime()) / (1000 * 60 * 60 * 24 * 30)));
-                                    valorTotalComJuros += calcularJurosProgressivos(valorParcela, percentualJuros, mesesAtrasoParcela);
+                                    const dataVencimentoParcelaStr = dataVencimentoParcela.toISOString().split('T')[0];
+                                    valorTotalComJuros += calcularJurosProgressivos(valorParcela, dataVencimentoParcelaStr, percentualJuros);
                                   } else {
                                     valorTotalComJuros += valorParcela;
                                   }
@@ -4671,7 +4659,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                     
                     if (!mesInicio) return null;
                     
-                    let detalhamentoParcelas: any[] = [];
+                    const detalhamentoParcelas: { numero: string | number; vencimento: string; valor?: number; status?: string; valorBase?: number; valorComJuros?: number; isPaga?: boolean; isAtrasada?: boolean; temJuros?: boolean }[] = [];
                     
                     try {
                       if (tipoPagamento === 'entrada_parcelamento') {

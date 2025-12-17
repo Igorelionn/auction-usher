@@ -156,7 +156,10 @@ export function useAutoEmailNotifications() {
         console.log('🛑 Sistema de envio automático desativado');
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auctions, config.enviarAutomatico, config.diasAntesLembrete, config.diasDepoisCobranca]);
+  // Nota: verificarEEnviarEmails não é incluída intencionalmente para evitar recriação do intervalo
+  // A função captura as dependências via closure e o intervalo é recriado quando as deps mudam
 
   return {
     verificando: config.enviarAutomatico,

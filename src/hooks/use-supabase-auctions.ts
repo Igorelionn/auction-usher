@@ -1,12 +1,131 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabaseClient } from "@/lib/supabase-client";
-import { Auction, AuctionStatus } from "@/lib/types";
+import { Auction, AuctionStatus, ItemCustoInfo, ItemPatrocinioInfo, LoteInfo } from "@/lib/types";
 import { Database } from "@/lib/database.types";
 
 type AuctionRow = Database['public']['Tables']['auctions']['Row'];
 type AuctionInsert = Database['public']['Tables']['auctions']['Insert'];
 type AuctionUpdate = Database['public']['Tables']['auctions']['Update'];
+
+// Tipos auxiliares para substituir 'any'
+interface DocumentRow {
+  id: string | number;
+  nome: string;
+  tipo: string;
+  tamanho: number;
+  data_upload: string;
+  url: string | null;
+  categoria?: string;
+  descricao?: string;
+}
+
+interface BidderRow {
+  id?: string;
+  nome: string;
+  documento?: string;
+  endereco?: string;
+  cep?: string;
+  rua?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  cidade?: string;
+  estado?: string;
+  telefone?: string;
+  email?: string;
+  tipo_pagamento?: string;
+  parcelas?: number;
+  entrada_percentual?: number;
+  entrada_valor?: number;
+  juros_mensal?: number;
+  multa_atraso?: number;
+  tipo_juros_atraso?: string;
+  valor_lance?: number;
+  fator_multiplicador?: number;
+  usa_fator_multiplicador?: boolean;
+  parcelas_triplas?: number[];
+  parcelas_duplas?: number[];
+  parcelas_simples?: number[];
+  data_entrada?: string;
+  data_vencimento_vista?: string;
+  pago?: boolean;
+  mes_inicio_pagamento?: string;
+  dia_vencimento_mensal?: number;
+  lote_id?: string;
+  mercadoria_id?: string;
+  created_at?: string;
+  valor_pagar_texto?: string;
+  valor_pagar_numerico?: number;
+  valor_entrada_texto?: string;
+  quantidade_parcelas?: number;
+  parcelas_pagas?: number;
+  percentual_juros_atraso?: number;
+}
+
+// Tipos estendidos para incluir campos que não estão no schema gerado
+interface ExtendedAuctionRow extends AuctionRow {
+  detalhe_custos?: ItemCustoInfo[] | null;
+  detalhe_patrocinios?: ItemPatrocinioInfo[] | null;
+  patrocinios_total?: number | null;
+  documents?: DocumentRow[];
+  bidders?: BidderRow[];
+}
+
+interface ExtendedAuctionInsert extends AuctionInsert {
+  detalhe_custos?: ItemCustoInfo[] | null;
+  detalhe_patrocinios?: ItemPatrocinioInfo[] | null;
+  patrocinios_total?: number | null;
+}
+
+interface ExtendedAuctionUpdate extends AuctionUpdate {
+  detalhe_custos?: ItemCustoInfo[] | null;
+  detalhe_patrocinios?: ItemPatrocinioInfo[] | null;
+  patrocinios_total?: number | null;
+}
+
+interface BidderInsert {
+  id?: string;
+  auction_id: string;
+  lote_id?: string | null;
+  mercadoria_id?: string | null;
+  nome: string;
+  documento?: string | null;
+  endereco?: string | null;
+  cep?: string | null;
+  rua?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  telefone?: string | null;
+  email?: string | null;
+  tipo_pagamento?: string | null;
+  parcelas?: number | null;
+  entrada_percentual?: number | null;
+  entrada_valor?: number | null;
+  juros_mensal?: number | null;
+  multa_atraso?: number | null;
+  tipo_juros_atraso?: string | null;
+  valor_lance?: number | null;
+  fator_multiplicador?: number | null;
+  usa_fator_multiplicador?: boolean | null;
+  parcelas_triplas?: number[] | null;
+  parcelas_duplas?: number[] | null;
+  parcelas_simples?: number[] | null;
+  data_entrada?: string | null;
+  data_vencimento_vista?: string | null;
+  pago?: boolean | null;
+  mes_inicio_pagamento?: string | null;
+  dia_vencimento_mensal?: number | null;
+  valor_pagar_texto?: string | null;
+  valor_pagar_numerico?: number | null;
+  valor_entrada_texto?: string | null;
+  quantidade_parcelas?: number | null;
+  parcelas_pagas?: number | null;
+  percentual_juros_atraso?: number | null;
+}
 
 const AUCTIONS_KEY = ["supabase-auctions"] as const;
 
@@ -37,7 +156,7 @@ function calculateAuctionStatus(dataInicio: string, dataEncerramento?: string): 
 }
 
 // Função para converter dados do Supabase para o formato do app
-function mapSupabaseAuctionToApp(auction: AuctionRow): Auction {
+function mapSupabaseAuctionToApp(auction: ExtendedAuctionRow): Auction {
   // Calcular status correto baseado nas datas
   const statusCalculado = calculateAuctionStatus(auction.data_inicio, auction.data_encerramento || undefined);
   
@@ -58,25 +177,25 @@ function mapSupabaseAuctionToApp(auction: AuctionRow): Auction {
     status: statusCalculado, // Usar status calculado em vez do status salvo
     custos: auction.custos_texto || undefined,
     custosNumerico: auction.custos_numerico ? Number(auction.custos_numerico) : undefined,
-    detalheCustos: (auction as any).detalhe_custos || undefined,
-    detalhePatrocinios: (auction as any).detalhe_patrocinios || undefined,
-    patrociniosTotal: (auction as any).patrocinios_total ? Number((auction as any).patrocinios_total) : undefined,
-    lotes: auction.lotes as any || [],
-    fotosMercadoria: (auction as any).documents?.filter((doc: any) => doc.categoria === 'leilao_fotos_mercadoria').map((doc: any) => ({
-      id: doc.id,
+    detalheCustos: auction.detalhe_custos || undefined,
+    detalhePatrocinios: auction.detalhe_patrocinios || undefined,
+    patrociniosTotal: auction.patrocinios_total ? Number(auction.patrocinios_total) : undefined,
+    lotes: (auction.lotes as unknown as LoteInfo[]) || [],
+    fotosMercadoria: auction.documents?.filter((doc) => doc.categoria === 'leilao_fotos_mercadoria').map((doc) => ({
+      id: doc.id.toString(),
       nome: doc.nome,
       tipo: doc.tipo,
       tamanho: doc.tamanho,
       dataUpload: doc.data_upload,
-      url: doc.url // Usar URL salva no banco (base64)
+      url: doc.url || undefined // Usar URL salva no banco (base64)
     })) || [],
-    documentos: (auction as any).documents?.filter((doc: any) => doc.categoria === 'leilao_geral').map((doc: any) => ({
-      id: doc.id,
+    documentos: auction.documents?.filter((doc) => doc.categoria === 'leilao_geral').map((doc) => ({
+      id: doc.id.toString(),
       nome: doc.nome,
       tipo: doc.tipo,
       tamanho: doc.tamanho,
       dataUpload: doc.data_upload,
-      url: doc.url // Usar URL salva no banco (base64 ou null para documentos)
+      url: doc.url || undefined // Usar URL salva no banco (base64 ou null para documentos)
     })) || [],
     historicoNotas: auction.historico_notas || undefined,
     arquivado: auction.arquivado || false,
@@ -84,7 +203,7 @@ function mapSupabaseAuctionToApp(auction: AuctionRow): Auction {
 }
 
 // Função para converter dados do app para o formato do Supabase
-function mapAppAuctionToSupabase(auction: Omit<Auction, "id">): AuctionInsert {
+function mapAppAuctionToSupabase(auction: Omit<Auction, "id">): ExtendedAuctionInsert {
   return {
     nome: auction.nome,
     identificacao: auction.identificacao,
@@ -101,10 +220,10 @@ function mapAppAuctionToSupabase(auction: Omit<Auction, "id">): AuctionInsert {
     status: auction.status as Database['public']['Enums']['auction_status'],
     custos_texto: auction.custos,
     custos_numerico: auction.custosNumerico,
-    detalhe_custos: auction.detalheCustos as any,
-    detalhe_patrocinios: auction.detalhePatrocinios as any,
+    detalhe_custos: auction.detalheCustos || undefined,
+    detalhe_patrocinios: auction.detalhePatrocinios || undefined,
     patrocinios_total: auction.patrociniosTotal,
-    lotes: auction.lotes as any,
+    lotes: (auction.lotes as unknown as Database['public']['Tables']['auctions']['Insert']['lotes']) || undefined,
     historico_notas: auction.historicoNotas,
     arquivado: auction.arquivado,
   };
@@ -126,6 +245,7 @@ export function useSupabaseAuctions() {
         .select(`
           *,
           bidders (
+            id,
             nome,
             valor_pagar_texto,
             valor_pagar_numerico,
@@ -137,12 +257,30 @@ export function useSupabaseAuctions() {
             observacoes,
             documento,
             endereco,
+            cep,
+            rua,
+            numero,
+            complemento,
+            bairro,
+            cidade,
+            estado,
             email,
             telefone,
             lote_id,
+            mercadoria_id,
+            created_at,
             pago,
             percentual_juros_atraso,
-            tipo_juros_atraso
+            tipo_juros_atraso,
+            valor_lance,
+            fator_multiplicador,
+            usa_fator_multiplicador,
+            parcelas_triplas,
+            parcelas_duplas,
+            parcelas_simples,
+            data_entrada,
+            data_vencimento_vista,
+            tipo_pagamento
           ),
           documents (
             id,
@@ -151,7 +289,8 @@ export function useSupabaseAuctions() {
             categoria,
             tamanho,
             data_upload,
-            url
+            url,
+            descricao
           )
         `)
         .order('data_inicio', { ascending: false });
@@ -159,25 +298,45 @@ export function useSupabaseAuctions() {
       if (error) throw error;
       
       return data.map(auction => {
-        const mappedAuction = mapSupabaseAuctionToApp(auction);
+        const mappedAuction = mapSupabaseAuctionToApp(auction as unknown as ExtendedAuctionRow);
         
-        // Adicionar arrematante se existir
+        // Adicionar arrematantes (suporta múltiplos)
         if (auction.bidders && auction.bidders.length > 0) {
-          const bidder = auction.bidders[0] as any; // Assumindo um arrematante por leilão
-          
-          // Buscar documentos do arrematante na tabela documents
+          // Mapear TODOS os bidders para array de arrematantes
+          mappedAuction.arrematantes = (auction.bidders as unknown as BidderRow[]).map((bidder) => {
+            // Buscar documentos específicos deste arrematante
           const arrematanteDocumentos = auction.documents 
-            ? auction.documents.filter((doc: any) => doc.categoria === 'arrematante_documentos')
+              ? auction.documents.filter((doc) => 
+                  doc.categoria === 'arrematante_documentos' && 
+                  doc.descricao?.includes(bidder.nome)
+                )
             : [];
 
-          
-          mappedAuction.arrematante = {
+          console.log('📄 DOCUMENTOS - Carregando documentos do arrematante:', {
+            nome: bidder.nome,
+            todosDocumentos: auction.documents?.length || 0,
+            documentosArrematante: arrematanteDocumentos.length,
+            documentos: arrematanteDocumentos.map((d) => ({ nome: d.nome, categoria: d.categoria, descricao: d.descricao }))
+          });
+
+            const mappedBidder = {
+              id: bidder.id || undefined,
             nome: bidder.nome,
             documento: bidder.documento || undefined,
             endereco: bidder.endereco || undefined,
+            // ✅ Campos de endereço detalhados
+            cep: bidder.cep || undefined,
+            rua: bidder.rua || undefined,
+            numero: bidder.numero || undefined,
+            complemento: bidder.complemento || undefined,
+            bairro: bidder.bairro || undefined,
+            cidade: bidder.cidade || undefined,
+            estado: bidder.estado || undefined,
             telefone: bidder.telefone || undefined,
             email: bidder.email || undefined,
             loteId: bidder.lote_id || undefined,
+            mercadoriaId: bidder.mercadoria_id || undefined,
+            created_at: bidder.created_at,
             valorPagar: bidder.valor_pagar_texto || '',
             valorPagarNumerico: bidder.valor_pagar_numerico ? Number(bidder.valor_pagar_numerico) : 0,
             valorEntrada: bidder.valor_entrada_texto || undefined,
@@ -187,8 +346,17 @@ export function useSupabaseAuctions() {
             mesInicioPagamento: bidder.mes_inicio_pagamento || new Date().toISOString().slice(0, 7),
             pago: bidder.pago || false,
             percentualJurosAtraso: bidder.percentual_juros_atraso || 0,
-            tipoJurosAtraso: bidder.tipo_juros_atraso || "composto",
-            documentos: arrematanteDocumentos.map((doc: any) => ({
+            tipoJurosAtraso: (bidder.tipo_juros_atraso as "composto" | "simples") || "composto",
+            valorLance: bidder.valor_lance,
+            fatorMultiplicador: bidder.fator_multiplicador,
+            usaFatorMultiplicador: bidder.usa_fator_multiplicador,
+            parcelasTriplas: bidder.parcelas_triplas,
+            parcelasDuplas: bidder.parcelas_duplas,
+            parcelasSimples: bidder.parcelas_simples,
+            dataEntrada: bidder.data_entrada,
+            dataVencimentoVista: bidder.data_vencimento_vista,
+            tipoPagamento: bidder.tipo_pagamento as "a_vista" | "parcelamento" | "entrada_parcelamento" | undefined,
+            documentos: arrematanteDocumentos.map((doc) => ({
               id: doc.id?.toString() || Date.now().toString(),
               nome: doc.nome,
               tipo: doc.tipo === 'pdf' ? 'application/pdf' :
@@ -203,6 +371,29 @@ export function useSupabaseAuctions() {
               url: doc.url || undefined
             }))
           };
+
+          console.log('✅ CONDIÇÕES DE PAGAMENTO - Bidder Mapeado:', {
+            valorLance: mappedBidder.valorLance,
+            fatorMultiplicador: mappedBidder.fatorMultiplicador,
+            usaFatorMultiplicador: mappedBidder.usaFatorMultiplicador,
+            parcelasTriplas: mappedBidder.parcelasTriplas,
+            parcelasDuplas: mappedBidder.parcelasDuplas,
+            parcelasSimples: mappedBidder.parcelasSimples,
+            dataEntrada: mappedBidder.dataEntrada,
+            dataVencimentoVista: mappedBidder.dataVencimentoVista
+          });
+
+          return mappedBidder;
+          });
+          
+          // Ordenar por data de criação (mais recente primeiro)
+          mappedAuction.arrematantes.sort((a, b) => {
+            if (!a.created_at || !b.created_at) return 0;
+            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          });
+          
+          // Manter compatibilidade: arrematante = mais recente
+          mappedAuction.arrematante = mappedAuction.arrematantes[0];
         }
         
         return mappedAuction;
@@ -224,6 +415,37 @@ export function useSupabaseAuctions() {
         .single();
 
       if (error) throw error;
+
+      // Salvar imagens dos lotes (se houver)
+      if (data.lotes && data.lotes.length > 0) {
+        for (const lote of data.lotes) {
+          if (lote.imagens && lote.imagens.length > 0) {
+            console.log(`🖼️ Processando ${lote.imagens.length} imagens do lote ${lote.numero}`);
+            
+            const imagensLoteParaInserir = lote.imagens.map((imagemUrl: string, index: number) => ({
+              auction_id: created.id,
+              nome: `Lote ${lote.numero} - Imagem ${index + 1}`,
+              categoria: 'lote_fotos' as const,
+              tipo: 'jpg' as const, // Assumir JPG por padrão, já que são base64
+              tamanho: Math.round(imagemUrl.length * 0.75), // Estimativa do tamanho
+              data_upload: new Date().toISOString(),
+              url: imagemUrl, // A imagem já está em base64
+              storage_path: `lote-${lote.numero}-img-${index + 1}`,
+              descricao: `Lote ${lote.numero} - ${lote.id}`
+            }));
+
+            const { error: loteImgError } = await supabaseClient
+              .from('documents')
+              .insert(imagensLoteParaInserir);
+            
+            if (loteImgError) {
+              console.error(`❌ Erro ao salvar imagens do lote ${lote.numero}:`, loteImgError);
+            } else {
+              console.log(`✅ ${lote.imagens.length} imagens do lote ${lote.numero} salvas com sucesso!`);
+            }
+          }
+        }
+      }
 
       // Salvar fotos da mercadoria (se houver)
       if (fotosMercadoria && fotosMercadoria.length > 0) {
@@ -392,9 +614,9 @@ export function useSupabaseAuctions() {
       const previousAuctions = queryClient.getQueryData(AUCTIONS_KEY);
       
       // Atualizar cache otimisticamente
-      queryClient.setQueryData(AUCTIONS_KEY, (old: any) => {
+      queryClient.setQueryData<Auction[]>(AUCTIONS_KEY, (old) => {
         if (!old) return old;
-        return old.map((auction: Auction) => 
+        return old.map((auction) => 
           auction.id === id 
             ? { ...auction, ...data }
             : auction
@@ -431,58 +653,107 @@ export function useSupabaseAuctions() {
       if (sanitizedData.status !== undefined) updateData.status = sanitizedData.status as Database['public']['Enums']['auction_status'];
       if (sanitizedData.custos !== undefined) updateData.custos_texto = sanitizedData.custos;
       if (sanitizedData.custosNumerico !== undefined) updateData.custos_numerico = sanitizedData.custosNumerico;
-      if (sanitizedData.detalheCustos !== undefined) updateData.detalhe_custos = sanitizedData.detalheCustos as any;
-      if (sanitizedData.detalhePatrocinios !== undefined) updateData.detalhe_patrocinios = sanitizedData.detalhePatrocinios as any;
-      if (sanitizedData.patrociniosTotal !== undefined) updateData.patrocinios_total = sanitizedData.patrociniosTotal;
-      if (sanitizedData.lotes !== undefined) updateData.lotes = sanitizedData.lotes as any;
+      
+      // Campos estendidos (não presentes no tipo base, mas suportados pelo banco)
+      const extendedUpdateData = updateData as ExtendedAuctionUpdate;
+      if (sanitizedData.detalheCustos !== undefined) extendedUpdateData.detalhe_custos = sanitizedData.detalheCustos;
+      if (sanitizedData.detalhePatrocinios !== undefined) extendedUpdateData.detalhe_patrocinios = sanitizedData.detalhePatrocinios;
+      if (sanitizedData.patrociniosTotal !== undefined) extendedUpdateData.patrocinios_total = sanitizedData.patrociniosTotal;
+      
+      if (sanitizedData.lotes !== undefined) updateData.lotes = sanitizedData.lotes as unknown as Database['public']['Tables']['auctions']['Update']['lotes'];
       if (sanitizedData.historicoNotas !== undefined) updateData.historico_notas = sanitizedData.historicoNotas;
       if (sanitizedData.arquivado !== undefined) updateData.arquivado = sanitizedData.arquivado;
 
-      // Se tem arrematante, precisamos lidar com isso separadamente
-      if (data.arrematante !== undefined) {
-        if (data.arrematante) {
-          // Primeiro, remover arrematante existente (se houver)
+      // Se tem arrematantes, precisamos lidar com isso separadamente
+      if (data.arrematantes !== undefined || data.arrematante !== undefined) {
+        // Priorizar arrematantes[] sobre arrematante (compatibilidade)
+        const arrematantesArray = data.arrematantes || (data.arrematante ? [data.arrematante] : []);
+        
+        if (arrematantesArray.length > 0) {
+          // Remover todos os arrematantes existentes
           await supabaseClient
             .from('bidders')
             .delete()
             .eq('auction_id', id);
 
-          // Remover documentos existentes do arrematante
+          // Remover documentos existentes dos arrematantes
           await supabaseClient
             .from('documents')
             .delete()
             .eq('auction_id', id)
             .eq('categoria', 'arrematante_documentos');
 
-          // Depois, inserir o novo arrematante
+          // Inserir todos os novos arrematantes
+          for (const arrematante of arrematantesArray) {
+            const bidderData: BidderInsert = {
+              auction_id: id,
+              nome: arrematante.nome,
+              documento: arrematante.documento || null,
+              endereco: arrematante.endereco || null,
+              // ✅ Campos de endereço detalhados
+              cep: arrematante.cep || null,
+              rua: arrematante.rua || null,
+              numero: arrematante.numero || null,
+              complemento: arrematante.complemento || null,
+              bairro: arrematante.bairro || null,
+              cidade: arrematante.cidade || null,
+              estado: arrematante.estado || null,
+              telefone: arrematante.telefone,
+              email: arrematante.email,
+              lote_id: arrematante.loteId,
+              mercadoria_id: arrematante.mercadoriaId || null,
+              valor_pagar_texto: arrematante.valorPagar,
+              valor_pagar_numerico: arrematante.valorPagarNumerico,
+              valor_entrada_texto: arrematante.valorEntrada || null,
+              dia_vencimento_mensal: arrematante.diaVencimentoMensal,
+              quantidade_parcelas: arrematante.quantidadeParcelas,
+              parcelas_pagas: arrematante.parcelasPagas,
+              mes_inicio_pagamento: arrematante.mesInicioPagamento,
+              pago: arrematante.pago || false,
+              percentual_juros_atraso: arrematante.percentualJurosAtraso || 0,
+              tipo_juros_atraso: arrematante.tipoJurosAtraso || 'composto',
+              valor_lance: arrematante.valorLance || null,
+              fator_multiplicador: arrematante.fatorMultiplicador || null,
+              usa_fator_multiplicador: arrematante.usaFatorMultiplicador || false,
+              parcelas_triplas: Array.isArray(arrematante.parcelasTriplas) ? arrematante.parcelasTriplas : [],
+              parcelas_duplas: Array.isArray(arrematante.parcelasDuplas) ? arrematante.parcelasDuplas : [],
+              parcelas_simples: Array.isArray(arrematante.parcelasSimples) ? arrematante.parcelasSimples : [],
+              data_entrada: arrematante.dataEntrada || null,
+              data_vencimento_vista: arrematante.dataVencimentoVista || null,
+              tipo_pagamento: arrematante.tipoPagamento || null,
+            };
+
+            console.log('🗄️ CONDIÇÕES DE PAGAMENTO - bidderData:', {
+              valor_lance: bidderData.valor_lance,
+              fator_multiplicador: bidderData.fator_multiplicador,
+              usa_fator_multiplicador: bidderData.usa_fator_multiplicador,
+              parcelas_triplas: bidderData.parcelas_triplas,
+              parcelas_duplas: bidderData.parcelas_duplas,
+              parcelas_simples: bidderData.parcelas_simples,
+              data_entrada: bidderData.data_entrada,
+              data_vencimento_vista: bidderData.data_vencimento_vista
+            });
+
+            // Se tem ID, fazer upsert (atualizar se existe)
+            if (arrematante.id) {
+              bidderData.id = arrematante.id;
+            }
+
           const { error: bidderError } = await supabaseClient
             .from('bidders')
-            .insert({
-              auction_id: id,
-            nome: data.arrematante.nome,
-            documento: data.arrematante.documento,
-            endereco: data.arrematante.endereco,
-            telefone: data.arrematante.telefone,
-            email: data.arrematante.email,
-            lote_id: data.arrematante.loteId,
-            valor_pagar_texto: data.arrematante.valorPagar,
-            valor_pagar_numerico: data.arrematante.valorPagarNumerico,
-            valor_entrada_texto: data.arrematante.valorEntrada || null,
-            dia_vencimento_mensal: data.arrematante.diaVencimentoMensal,
-            quantidade_parcelas: data.arrematante.quantidadeParcelas,
-            parcelas_pagas: data.arrematante.parcelasPagas,
-            mes_inicio_pagamento: data.arrematante.mesInicioPagamento,
-            pago: data.arrematante.pago || false,
-            percentual_juros_atraso: data.arrematante.percentualJurosAtraso || 0,
-            tipo_juros_atraso: data.arrematante.tipoJurosAtraso || 'composto',
-            });
+              .insert(bidderData);
 
           if (bidderError) throw bidderError;
 
           // Salvar documentos do arrematante na tabela documents
-          if (data.arrematante.documentos && data.arrematante.documentos.length > 0) {
+            if (arrematante.documentos && arrematante.documentos.length > 0) {
+            console.log('📄 DOCUMENTOS - Salvando documentos do arrematante:', {
+              nome: arrematante.nome,
+              quantidadeDocumentos: arrematante.documentos.length,
+              documentos: arrematante.documentos.map(d => ({ nome: d.nome, tipo: d.tipo }))
+            });
             const documentosParaInserir = await Promise.all(
-              data.arrematante.documentos.map(async (doc, index) => {
+                arrematante.documentos.map(async (doc, index) => {
                 let base64Data = null;
                 
                 // Se o documento tem uma URL (blob ou base64), processar
@@ -518,9 +789,9 @@ export function useSupabaseAuctions() {
                         doc.tipo.includes('png') ? 'png' as const : 'outros' as const,
                   tamanho: doc.tamanho,
                   data_upload: doc.dataUpload,
-                  url: base64Data, // Salvar base64 do documento
+                    url: base64Data,
                   storage_path: doc.nome,
-                  descricao: `Arrematante ${data.arrematante.nome}` // Identificar o arrematante
+                    descricao: `Arrematante ${arrematante.nome}` // Identificar o arrematante
                 };
               })
             );
@@ -538,16 +809,22 @@ export function useSupabaseAuctions() {
                 code: docsError.code
               });
               throw docsError;
+            } else {
+              console.log('✅ DOCUMENTOS - Documentos salvos com sucesso!', {
+                quantidade: documentosParaInserir.length,
+                documentos: documentosParaInserir.map(d => ({ nome: d.nome, categoria: d.categoria, descricao: d.descricao }))
+              });
+            }
             }
           }
         } else {
-          // Remover arrematante e seus documentos
+          // Remover todos os arrematantes e seus documentos
           await supabaseClient
             .from('bidders')
             .delete()
             .eq('auction_id', id);
 
-          // Remover documentos do arrematante
+          // Remover documentos dos arrematantes
           const { error: deleteDocsError } = await supabaseClient
             .from('documents')
             .delete()
@@ -555,6 +832,49 @@ export function useSupabaseAuctions() {
             .eq('categoria', 'arrematante_documentos');
 
           if (deleteDocsError) throw deleteDocsError;
+        }
+      }
+
+      // Salvar imagens dos lotes (se houver mudanças nos lotes)
+      if (sanitizedData.lotes !== undefined) {
+        // Primeiro, remover todas as imagens antigas dos lotes deste leilão
+        const { error: deleteOldImagesError } = await supabaseClient
+          .from('documents')
+          .delete()
+          .eq('auction_id', id)
+          .eq('categoria', 'lote_fotos');
+        
+        if (deleteOldImagesError) {
+          console.error('❌ Erro ao remover imagens antigas dos lotes:', deleteOldImagesError);
+        }
+
+        // Agora, salvar as novas imagens de cada lote
+        for (const lote of sanitizedData.lotes) {
+          if (lote.imagens && lote.imagens.length > 0) {
+            console.log(`🖼️ Processando ${lote.imagens.length} imagens do lote ${lote.numero}`);
+            
+            const imagensLoteParaInserir = lote.imagens.map((imagemUrl: string, index: number) => ({
+              auction_id: id,
+              nome: `Lote ${lote.numero} - Imagem ${index + 1}`,
+              categoria: 'lote_fotos' as const,
+              tipo: 'jpg' as const, // Assumir JPG por padrão, já que são base64
+              tamanho: Math.round(imagemUrl.length * 0.75), // Estimativa do tamanho
+              data_upload: new Date().toISOString(),
+              url: imagemUrl, // A imagem já está em base64
+              storage_path: `lote-${lote.numero}-img-${index + 1}`,
+              descricao: `Lote ${lote.numero} - ${lote.id}`
+            }));
+
+            const { error: loteImgError } = await supabaseClient
+              .from('documents')
+              .insert(imagensLoteParaInserir);
+            
+            if (loteImgError) {
+              console.error(`❌ Erro ao salvar imagens do lote ${lote.numero}:`, loteImgError);
+            } else {
+              console.log(`✅ ${lote.imagens.length} imagens do lote ${lote.numero} salvas com sucesso!`);
+            }
+          }
         }
       }
 
@@ -708,6 +1028,7 @@ export function useSupabaseAuctions() {
           .select(`
             *,
             bidders (
+              id,
               nome,
               valor_pagar_texto,
               valor_pagar_numerico,
@@ -719,10 +1040,30 @@ export function useSupabaseAuctions() {
               observacoes,
               documento,
               endereco,
+              cep,
+              rua,
+              numero,
+              complemento,
+              bairro,
+              cidade,
+              estado,
               email,
               telefone,
               lote_id,
-              pago
+              mercadoria_id,
+              created_at,
+              pago,
+              percentual_juros_atraso,
+              tipo_juros_atraso,
+              valor_lance,
+              fator_multiplicador,
+              usa_fator_multiplicador,
+              parcelas_triplas,
+              parcelas_duplas,
+              parcelas_simples,
+              data_entrada,
+              data_vencimento_vista,
+              tipo_pagamento
             )
           `)
           .eq('id', id)
@@ -730,18 +1071,29 @@ export function useSupabaseAuctions() {
 
         if (error) throw error;
         
-        const mappedAuction = mapSupabaseAuctionToApp(current);
+        const mappedAuction = mapSupabaseAuctionToApp(current as unknown as ExtendedAuctionRow);
         
-        // Adicionar arrematante atualizado se existir
+        // Adicionar arrematantes atualizados se existirem
         if (current.bidders && current.bidders.length > 0) {
-          const bidder = current.bidders[0] as any;
-          mappedAuction.arrematante = {
+          mappedAuction.arrematantes = (current.bidders as unknown as BidderRow[]).map((bidder) => {
+            return {
+            id: bidder.id || undefined,
             nome: bidder.nome,
             documento: bidder.documento || undefined,
             endereco: bidder.endereco || undefined,
+            // ✅ Campos de endereço detalhados
+            cep: bidder.cep || undefined,
+            rua: bidder.rua || undefined,
+            numero: bidder.numero || undefined,
+            complemento: bidder.complemento || undefined,
+            bairro: bidder.bairro || undefined,
+            cidade: bidder.cidade || undefined,
+            estado: bidder.estado || undefined,
             telefone: bidder.telefone || undefined,
             email: bidder.email || undefined,
             loteId: bidder.lote_id || undefined,
+            mercadoriaId: bidder.mercadoria_id || undefined,
+            created_at: bidder.created_at,
             valorPagar: bidder.valor_pagar_texto || '',
             valorPagarNumerico: bidder.valor_pagar_numerico ? Number(bidder.valor_pagar_numerico) : 0,
             valorEntrada: bidder.valor_entrada_texto || undefined,
@@ -750,16 +1102,42 @@ export function useSupabaseAuctions() {
             parcelasPagas: bidder.parcelas_pagas || 0,
             mesInicioPagamento: bidder.mes_inicio_pagamento || new Date().toISOString().slice(0, 7),
             pago: bidder.pago || false,
+            percentualJurosAtraso: bidder.percentual_juros_atraso || 0,
+            tipoJurosAtraso: (bidder.tipo_juros_atraso as "composto" | "simples") || "composto",
+            valorLance: bidder.valor_lance,
+            fatorMultiplicador: bidder.fator_multiplicador,
+            usaFatorMultiplicador: bidder.usa_fator_multiplicador,
+            parcelasTriplas: bidder.parcelas_triplas,
+            parcelasDuplas: bidder.parcelas_duplas,
+            parcelasSimples: bidder.parcelas_simples,
+            dataEntrada: bidder.data_entrada,
+            dataVencimentoVista: bidder.data_vencimento_vista,
+            tipoPagamento: bidder.tipo_pagamento as "a_vista" | "parcelamento" | "entrada_parcelamento" | undefined,
             documentos: [],
           };
+          });
+          
+          // Ordenar por data de criação (mais recente primeiro)
+          mappedAuction.arrematantes.sort((a, b) => {
+            if (!a.created_at || !b.created_at) return 0;
+            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          });
+          
+          // Compatibilidade: arrematante = mais recente
+          mappedAuction.arrematante = mappedAuction.arrematantes[0];
         }
         
         return mappedAuction;
       }
     },
     // Invalidar queries sem aguardar (background)
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: AUCTIONS_KEY });
+    onSuccess: async () => {
+      // Limpar cache completamente
+      queryClient.removeQueries({ queryKey: AUCTIONS_KEY });
+      
+      // Invalidar e forçar refetch imediato
+      await queryClient.invalidateQueries({ queryKey: AUCTIONS_KEY });
+      await queryClient.refetchQueries({ queryKey: AUCTIONS_KEY });
     },
     // Sempre invalidar ao finalizar (mesmo com erro)
     onSettled: () => {

@@ -4,9 +4,9 @@ import { useCallback } from 'react';
 export interface ActivityLogOptions {
   targetType?: string;
   targetId?: string;
-  metadata?: any;
-  oldValue?: any;
-  newValue?: any;
+  metadata?: Record<string, unknown>; // Objeto indexado por string com valores de qualquer tipo
+  oldValue?: unknown; // Valor anterior em atualizações (pode ser qualquer tipo)
+  newValue?: unknown; // Valor novo em atualizações (pode ser qualquer tipo)
 }
 
 export function useActivityLogger() {

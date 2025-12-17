@@ -25,12 +25,31 @@ interface MigrationManagerProps {
   onMigrationComplete?: () => void;
 }
 
+interface MigrationResult {
+  success: boolean;
+  message: string;
+  migratedCounts: {
+    auctions: number;
+    bidders: number;
+    lots: number;
+    invoices: number;
+  };
+  errors: string[];
+}
+
+interface DataCounts {
+  auctions: number;
+  bidders: number;
+  lots: number;
+  invoices: number;
+}
+
 export function MigrationManager({ onMigrationComplete }: MigrationManagerProps) {
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
-  const [migrationResult, setMigrationResult] = useState<any>(null);
-  const [localDataCounts, setLocalDataCounts] = useState<any>(null);
+  const [migrationResult, setMigrationResult] = useState<MigrationResult | null>(null);
+  const [localDataCounts, setLocalDataCounts] = useState<DataCounts | null>(null);
 
   // Verificar conexão com Supabase
   const handleCheckConnection = async () => {
@@ -66,11 +85,12 @@ export function MigrationManager({ onMigrationComplete }: MigrationManagerProps)
           onMigrationComplete();
         }, 2000);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido na migração';
       setMigrationResult({
         success: false,
-        message: `Erro na migração: ${error.message}`,
-        errors: [error.message],
+        message: `Erro na migração: ${errorMessage}`,
+        errors: [errorMessage],
         migratedCounts: { auctions: 0, bidders: 0, lots: 0, invoices: 0 }
       });
     } finally {

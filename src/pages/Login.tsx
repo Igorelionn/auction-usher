@@ -9,7 +9,7 @@ import { toast } from "@/hooks/use-toast";
 export default function Login() {
   const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation() as any;
+  const location = useLocation() as { state?: { from?: { pathname?: string } } };
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -71,8 +71,9 @@ export default function Login() {
       await login({ email: username, password });
       const redirectTo = location?.state?.from?.pathname || "/";
       navigate(redirectTo, { replace: true });
-    } catch (err: any) {
-      setError(err?.message || "Falha no login");
+    } catch (err: unknown) {
+      const error = err as Error;
+      setError(error?.message || "Falha no login");
     } finally {
       setIsLoading(false);
     }

@@ -36,6 +36,48 @@ import { useSupabaseAuctions } from "@/hooks/use-supabase-auctions";
 import { useToast } from "@/hooks/use-toast";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { useEmailNotifications } from "@/hooks/use-email-notifications";
+import { obterValorTotalArrematante } from "@/lib/parcelamento-calculator";
+import { ArrematanteInfo, Auction, LoteInfo } from "@/lib/types";
+
+// Interface estendida para arrematante com campos adicionais
+interface ArrematanteInfoExtended extends ArrematanteInfo {
+  dataPagamento?: string;
+}
+
+// Interface estendida com informações calculadas de inadimplência
+interface AuctionWithOverdueInfo extends Auction {
+  overdueAmount?: number;
+  daysOverdue?: number;
+  dueDateFormatted?: string;
+  overdueSeverity?: 'recente' | 'moderado' | 'critico' | 'high' | 'medium' | 'low';
+  isEntradaAtrasada?: boolean;
+  entradaDetails?: {
+    diasAtraso: number;
+    valorAtrasado: number;
+  };
+  parcelaDetails?: {
+    diasAtraso: number;
+    valorAtrasado: number;
+  };
+  ambosAtrasados?: boolean;
+  parcelasAtrasadas?: number;
+  avgDaysOverdue?: number;
+  proximaParcela?: number;
+  isPrimeiraParcelaAtrasada?: boolean;
+}
+
+// Interface para contratos no histórico do arrematante
+interface ContratoInfo {
+  leilaoNome: string;
+  leilaoId?: string;
+  valorTotal: number;
+  parcelasPagas: number;
+  quantidadeParcelas: number;
+  valorPorParcela: number;
+  dataInicio: Date;
+  status: string;
+  tipoPagamento?: string;
+}
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -57,7 +99,7 @@ const HoverTransitionValue = ({
   secondaryLabel,
   className = ""
 }: {
-  auction: any;
+  auction: AuctionWithOverdueInfo;
   primaryValue: string;
   primaryLabel: string;
   secondaryValue: string;
@@ -109,7 +151,7 @@ const HoverTransitionDate = ({
   secondaryLabel,
   className = ""
 }: {
-  auction: any;
+  auction: AuctionWithOverdueInfo;
   primaryDate: string;
   primaryLabel: string;
   secondaryDate: string;
@@ -164,7 +206,7 @@ const HoverTransitionStatus = ({
   secondarySubtext,
   className = ""
 }: {
-  auction: any;
+  auction: AuctionWithOverdueInfo;
   primaryStatus: string;
   primarySubtext: string;
   secondaryStatus: string;
@@ -237,7 +279,7 @@ export default function Inadimplencia() {
   const { auctions, isLoading } = useSupabaseAuctions();
   const { toast } = useToast();
   const { logReportAction } = useActivityLogger();
-  const { enviarCobranca, enviarLembrete } = useEmailNotifications();
+  const { enviarCobranca, enviarLembrete, testarEnvioCobranca } = useEmailNotifications();
 
   // Função para calcular juros progressivos mês a mês
   const calcularJurosProgressivos = (valorOriginal: number, percentualJuros: number, mesesAtraso: number) => {
@@ -266,29 +308,28 @@ export default function Inadimplencia() {
   
   // Estados para modal de cobrança
   const [isChargeModalOpen, setIsChargeModalOpen] = useState(false);
-  const [selectedDebtor, setSelectedDebtor] = useState<any>(null);
+  const [selectedDebtor, setSelectedDebtor] = useState<AuctionWithOverdueInfo | null>(null);
   const [chargeMessage, setChargeMessage] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [isSending, setIsSending] = useState(false);
 
   // Estados para modal de histórico
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-  const [selectedArrematante, setSelectedArrematante] = useState<any>(null);
+  const [selectedArrematante, setSelectedArrematante] = useState<AuctionWithOverdueInfo | null>(null);
 
   // Estados para modal de exportação
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedArrematanteForExport, setSelectedArrematanteForExport] = useState<string>("");
   const [isExportSelectOpen, setIsExportSelectOpen] = useState(false);
 
-  // Estados para envio em massa
-  const [isMassEmailModalOpen, setIsMassEmailModalOpen] = useState(false);
-  const [isSendingMassEmail, setIsSendingMassEmail] = useState(false);
-  const [massEmailProgress, setMassEmailProgress] = useState({ sent: 0, total: 0, errors: 0 });
-  const [massEmailResults, setMassEmailResults] = useState<Array<{ nome: string; email: string; success: boolean; message: string }>>([]);
+  // Estados para modal de teste de envio
+  const [isTestEmailModalOpen, setIsTestEmailModalOpen] = useState(false);
+  const [testEmailLogs, setTestEmailLogs] = useState<string[]>([]);
+  const [isTestingSend, setIsTestingSend] = useState(false);
 
 
   // Função para abrir histórico do arrematante
-  const handleOpenHistory = (auction: any) => {
+  const handleOpenHistory = (auction: AuctionWithOverdueInfo) => {
     setSelectedArrematante(auction);
     setIsHistoryModalOpen(true);
   };
@@ -434,7 +475,7 @@ export default function Inadimplencia() {
 
 
   // Função para gerar texto de cobrança personalizado
-  const generateChargeText = (auction: any) => {
+  const generateChargeText = (auction: AuctionWithOverdueInfo) => {
     const nome = auction.arrematante?.nome || 'Cliente';
     const valor = currency.format(auction.overdueAmount || 0);
     const dias = auction.daysOverdue === 1 ? '1 dia' : `${auction.daysOverdue} dias`;
@@ -466,7 +507,7 @@ Atenciosamente,
 
 
   // Função para gerar relatório completo do arrematante considerando TODOS os leilões
-  const generateArrematanteAnalysis = (currentAuction: any) => {
+  const generateArrematanteAnalysis = (currentAuction: Auction) => {
     if (!currentAuction?.arrematante) return null;
 
     const nomeArrematante = currentAuction.arrematante.nome;
@@ -492,13 +533,18 @@ Atenciosamente,
     // Analisar cada leilão/contrato do arrematante
     allArrematanteAuctions.forEach(auction => {
       const arrematante = auction.arrematante;
-      const loteArrematado = auction.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+      const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante.loteId);
       const tipoPagamento = loteArrematado?.tipoPagamento || "parcelamento";
       
-      // Calcular valor real por parcela baseado no tipo de pagamento
-      const valorTotal = arrematante?.valorPagarNumerico !== undefined 
+      // NOVO: Usar função que considera fator multiplicador se disponível
+      const valorTotal = obterValorTotalArrematante({
+        usaFatorMultiplicador: arrematante?.usaFatorMultiplicador,
+        valorLance: arrematante?.valorLance,
+        fatorMultiplicador: arrematante?.fatorMultiplicador || loteArrematado?.fatorMultiplicador,
+        valorPagarNumerico: arrematante?.valorPagarNumerico !== undefined 
         ? arrematante.valorPagarNumerico 
-        : (typeof arrematante?.valorPagar === 'number' ? arrematante.valorPagar : 0);
+          : (typeof arrematante?.valorPagar === 'number' ? arrematante.valorPagar : 0)
+      });
       
       let parcelasPagas = arrematante.parcelasPagas || 0;
       let quantidadeParcelas = arrematante.quantidadeParcelas || 1;
@@ -829,7 +875,7 @@ Atenciosamente,
   };
 
   // Função para verificar se um arrematante está inadimplente (considera tipos de pagamento)
-  const isOverdue = (arrematante: any, auction: any) => {
+  const isOverdue = (arrematante: ArrematanteInfo, auction: Auction) => {
     console.log(`🔍 [isOverdue] Verificando ${arrematante.nome}:`, {
       pago: arrematante.pago,
       loteId: arrematante.loteId,
@@ -842,7 +888,7 @@ Atenciosamente,
     }
     
     // Encontrar o lote arrematado para obter as configurações específicas de pagamento
-    const loteArrematado = auction.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+    const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante.loteId);
     
     console.log(`🔍 [isOverdue] Lote encontrado para ${arrematante.nome}:`, {
       loteEncontrado: !!loteArrematado,
@@ -1003,11 +1049,11 @@ Atenciosamente,
   };
 
   // Calcular informações de atraso (maior atraso para classificação e média para estatísticas)
-  const calculateOverdueInfo = (arrematante: any, auction: any) => {
+  const calculateOverdueInfo = (arrematante: ArrematanteInfo, auction: Auction) => {
     if (arrematante.pago) return { maxDays: 0, avgDays: 0 };
     
     // Encontrar o lote arrematado para obter as configurações específicas de pagamento
-    const loteArrematado = auction.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+    const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante.loteId);
     if (!loteArrematado || !loteArrematado.tipoPagamento) return { maxDays: 0, avgDays: 0 };
     
     const tipoPagamento = loteArrematado.tipoPagamento;
@@ -1101,7 +1147,7 @@ Atenciosamente,
   };
 
   // Função de compatibilidade para manter a interface existente
-  const calculateDaysOverdue = (arrematante: any, auction: any) => {
+  const calculateDaysOverdue = (arrematante: ArrematanteInfo, auction: Auction) => {
     return calculateOverdueInfo(arrematante, auction).maxDays;
   };
 
@@ -1152,7 +1198,7 @@ Atenciosamente,
         const daysOverdue = overdueInfo.maxDays;
         
         // Categorizar por dias de atraso de forma mais intuitiva
-        let overdueSeverity = 'recente';
+        let overdueSeverity: 'recente' | 'moderado' | 'critico' = 'recente';
         if (daysOverdue > 30) {
           overdueSeverity = 'critico';
         } else if (daysOverdue > 15) {
@@ -1160,16 +1206,23 @@ Atenciosamente,
         }
         
         // Encontrar o lote arrematado para obter as configurações específicas de pagamento
-        const loteArrematado = auction.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+        const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante.loteId);
         
         let valorPorParcela = 0;
         let nextPaymentDate = new Date();
         
         if (loteArrematado && loteArrematado.tipoPagamento) {
           const tipoPagamento = loteArrematado.tipoPagamento;
-          const valorTotal = arrematante?.valorPagarNumerico !== undefined 
+          
+          // NOVO: Usar função que considera fator multiplicador se disponível
+          const valorTotal = obterValorTotalArrematante({
+            usaFatorMultiplicador: arrematante?.usaFatorMultiplicador,
+            valorLance: arrematante?.valorLance,
+            fatorMultiplicador: arrematante?.fatorMultiplicador || loteArrematado?.fatorMultiplicador,
+            valorPagarNumerico: arrematante?.valorPagarNumerico !== undefined 
             ? arrematante.valorPagarNumerico 
-            : (typeof arrematante?.valorPagar === 'number' ? arrematante.valorPagar : 0);
+              : (typeof arrematante?.valorPagar === 'number' ? arrematante.valorPagar : 0)
+          });
           
           switch (tipoPagamento) {
             case 'a_vista': {
@@ -1183,7 +1236,7 @@ Atenciosamente,
               break;
             }
               
-            case 'entrada_parcelamento':
+            case 'entrada_parcelamento': {
               const parcelasPagas = arrematante.parcelasPagas || 0;
               const quantidadeParcelasTotal = arrematante.quantidadeParcelas || loteArrematado.parcelasPadrao || 12;
               
@@ -1244,9 +1297,10 @@ Atenciosamente,
                 }
               }
               break;
+            }
               
             case 'parcelamento':
-            default:
+            default: {
               valorPorParcela = valorTotal / (loteArrematado.parcelasPadrao || 1);
               // Buscar mesInicioPagamento e diaVencimento do arrematante primeiro, depois do lote
               const mesInicioParc = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
@@ -1258,6 +1312,7 @@ Atenciosamente,
                 nextPaymentDate = new Date(startYear, startMonth - 1 + parcelasPagasParc, diaVencParc);
               }
               break;
+            }
           }
         }
         
@@ -1603,7 +1658,8 @@ Atenciosamente,
           arrematante: {
             ...arrematante,
             dataPagamento: dueDateFormatted,
-            valorPagarNumerico: valorPorParcela
+            valorParcelaAtual: valorPorParcela // ✅ Campo separado para exibição da parcela atual
+            // valorPagarNumerico mantém o valor total original!
           }
         };
       })
@@ -1668,10 +1724,10 @@ Atenciosamente,
   }, [overdueAuctions]);
 
   // Funções para cobrança
-  const generateChargeMessage = (debtor: any) => {
+  const generateChargeMessage = (debtor: AuctionWithOverdueInfo) => {
     const daysOverdue = debtor.daysOverdue;
     const amount = currency.format(debtor.overdueAmount || 0);
-    const dueDate = new Date(debtor.arrematante?.dataPagamento || "").toLocaleDateString("pt-BR");
+    const dueDate = debtor.dueDateFormatted || "—";
     
     return `Prezado(a) ${debtor.arrematante?.nome},
 
@@ -1690,7 +1746,7 @@ Atenciosamente,
 Arthur Lira Leilões`;
   };
 
-  const handleSendReminder = async (auction: any) => {
+  const handleSendReminder = async (auction: AuctionWithOverdueInfo) => {
     if (!auction.arrematante?.email) {
       toast({
         title: "❌ Email Não Cadastrado",
@@ -1724,7 +1780,7 @@ Arthur Lira Leilões`;
     }
   };
 
-  const handleSendCharge = (auction: any) => {
+  const handleSendCharge = (auction: AuctionWithOverdueInfo) => {
     if (!auction.arrematante?.email) {
       toast({
         title: "❌ Email Não Cadastrado",
@@ -1786,90 +1842,67 @@ Arthur Lira Leilões`;
     }
   };
 
-  // Função para enviar emails em massa para todos os inadimplentes
-  const handleMassEmailSend = async () => {
-    const inadimplentesComEmail = overdueAuctions.filter(auction => auction.arrematante?.email);
+  // Função para testar envio de cobrança
+  const handleTestEmailSend = async (auctionProcessado: AuctionWithOverdueInfo) => {
+    // 🔧 CORREÇÃO: Buscar o auction ORIGINAL (sem modificações) do array auctions
+    const auctionOriginal = auctions.find(a => a.id === auctionProcessado.id);
     
-    if (inadimplentesComEmail.length === 0) {
+    if (!auctionOriginal) {
       toast({
-        title: "⚠️ Nenhum Email",
-        description: "Não há inadimplentes com email cadastrado.",
+        title: "❌ Erro",
+        description: "Leilão não encontrado",
         variant: "destructive",
       });
       return;
     }
+    
+    setSelectedDebtor(auctionProcessado);
+    setTestEmailLogs([]);
+    setIsTestEmailModalOpen(true);
+    setIsTestingSend(true);
 
-    setMassEmailProgress({ sent: 0, total: inadimplentesComEmail.length, errors: 0 });
-    setMassEmailResults([]);
-    setIsSendingMassEmail(true);
-
-    const results: Array<{ nome: string; email: string; success: boolean; message: string }> = [];
-    let enviados = 0;
-    let erros = 0;
-
-    for (const auction of inadimplentesComEmail) {
-      try {
-        console.log(`📧 Enviando email para: ${auction.arrematante.nome} (${auction.arrematante.email})`);
-        
-        const result = await enviarCobranca(auction);
-        
-        results.push({
-          nome: auction.arrematante.nome,
-          email: auction.arrematante.email,
-          success: result.success,
-          message: result.message
+    try {
+      // Passar o auction ORIGINAL (com valorPagarNumerico correto)
+      const result = await testarEnvioCobranca(auctionOriginal);
+      
+      setTestEmailLogs(result.detalhes || []);
+      
+      if (result.success) {
+        toast({
+          title: "✅ Teste Concluído",
+          description: result.message,
         });
-
-        if (result.success) {
-          enviados++;
-        } else {
-          erros++;
-        }
-
-        setMassEmailProgress({ sent: enviados, total: inadimplentesComEmail.length, errors: erros });
-        setMassEmailResults([...results]);
-
-        // Aguardar 1 segundo entre cada envio para evitar sobrecarga
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-      } catch (error) {
-        console.error(`❌ Erro ao enviar para ${auction.arrematante.nome}:`, error);
-        
-        results.push({
-          nome: auction.arrematante.nome,
-          email: auction.arrematante.email,
-          success: false,
-          message: 'Erro ao enviar email'
+      } else {
+        toast({
+          title: "⚠️ Teste Concluído com Avisos",
+          description: result.message,
+          variant: "destructive",
         });
-        
-        erros++;
-        setMassEmailProgress({ sent: enviados, total: inadimplentesComEmail.length, errors: erros });
-        setMassEmailResults([...results]);
       }
-    }
-
-    setIsSendingMassEmail(false);
-
-    toast({
-      title: "✅ Envio Concluído",
-      description: `${enviados} emails enviados com sucesso. ${erros > 0 ? `${erros} erro(s).` : ''}`,
-    });
-  };
-
-  // Função para abrir modal de confirmação de envio em massa
-  const handleOpenMassEmailModal = () => {
-    const inadimplentesComEmail = overdueAuctions.filter(auction => auction.arrematante?.email);
-    
-    if (inadimplentesComEmail.length === 0) {
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+      setTestEmailLogs([
+        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+        '❌ ERRO CRÍTICO',
+        '',
+        `Exceção: ${errorMessage}`,
+        '',
+        'Verifique:',
+        '• Chave API configurada',
+        '• Email do arrematante válido',
+        '• Conexão com internet',
+        '• Console do navegador (F12)',
+        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      ]);
+      
       toast({
-        title: "⚠️ Nenhum Email",
-        description: "Não há inadimplentes com email cadastrado.",
+        title: "❌ Erro ao Testar",
+        description: errorMessage,
         variant: "destructive",
       });
-      return;
+    } finally {
+      setIsTestingSend(false);
     }
-
-    setIsMassEmailModalOpen(true);
   };
 
   const getSeverityBadge = (severity: string, daysOverdue: number) => {
@@ -1886,7 +1919,7 @@ Arthur Lira Leilões`;
     auction,
     className = ""
   }: {
-    auction: any;
+    auction: AuctionWithOverdueInfo;
     className?: string;
   }) => {
     const { isRowHovered } = useContext(HoverContext);
@@ -1936,15 +1969,6 @@ Arthur Lira Leilões`;
           </p>
         </div>
         <div className="flex gap-3">
-          <Button 
-            variant="outline" 
-            className="bg-orange-600 text-white border-orange-600 hover:bg-orange-700 hover:text-white"
-            onClick={handleOpenMassEmailModal}
-            disabled={isLoading || overdueAuctions.length === 0}
-          >
-            <Send className="h-4 w-4 mr-2" />
-            Enviar Notificações em Massa
-          </Button>
           <Button 
             variant="outline" 
             className="bg-white text-black border-gray-300 hover:bg-gray-100 hover:text-black"
@@ -2078,13 +2102,13 @@ Arthur Lira Leilões`;
                     {(() => {
                       // Verificar se há algum pagamento à vista na lista filtrada
                       const hasAVista = filteredOverdueAuctions.some(auction => {
-                        const loteArrematado = auction.lotes?.find((lote: any) => lote.id === auction.arrematante?.loteId);
+                        const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === auction.arrematante?.loteId);
                         return loteArrematado?.tipoPagamento === 'a_vista';
                       });
 
                       // Verificar se há algum pagamento parcelado na lista filtrada  
                       const hasParcelado = filteredOverdueAuctions.some(auction => {
-                        const loteArrematado = auction.lotes?.find((lote: any) => lote.id === auction.arrematante?.loteId);
+                        const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === auction.arrematante?.loteId);
                         return loteArrematado?.tipoPagamento !== 'a_vista';
                       });
 
@@ -2093,7 +2117,7 @@ Arthur Lira Leilões`;
 
                       // Se tem ambos ou apenas parcelado, usar "Valor Total Atrasado"
                       // Se tem apenas à vista, usar "Valor Total Atrasado"
-                       let baseText = "Valor Total Atrasado";
+                       const baseText = "Valor Total Atrasado";
                        
                        // Se há casos de ambos atrasados, usar componente de sincronização
                        if (hasAmbosAtrasados) {
@@ -2153,6 +2177,16 @@ Arthur Lira Leilões`;
                               >
                                 <History className="h-4 w-4 text-blue-900" />
                               </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleTestEmailSend(auction)}
+                                className="h-6 w-6 p-0 hover:bg-amber-100"
+                                title="Testar envio de cobrança"
+                                disabled={!auction.arrematante?.email}
+                              >
+                                <Send className="h-4 w-4 text-amber-600" />
+                              </Button>
                         </div>
                             <p className="text-sm text-gray-500">
                               {auction.arrematante?.documento || 'Sem documento'}
@@ -2176,7 +2210,7 @@ Arthur Lira Leilões`;
                         </span>
                         {(() => {
                           // Mostrar informação de quantas parcelas/entrada estão atrasadas
-                          const loteArrematado = auction.lotes?.find((lote: any) => lote.id === auction.arrematante?.loteId);
+                          const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === auction.arrematante?.loteId);
                           const tipoPagamento = loteArrematado?.tipoPagamento;
                           
                           if (tipoPagamento === 'a_vista') {
@@ -2238,7 +2272,7 @@ Arthur Lira Leilões`;
                           <p className="text-xs text-gray-500">
                             {(() => {
                               const arrematante = auction.arrematante;
-                              const loteArrematado = auction.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
+                              const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante?.loteId);
                               const tipoPagamento = loteArrematado?.tipoPagamento || "parcelamento";
 
                               if (tipoPagamento === "a_vista") {
@@ -2264,7 +2298,7 @@ Arthur Lira Leilões`;
                       <div className="flex flex-col">
                         {(() => {
                           const arrematante = auction.arrematante;
-                          const loteArrematado = auction.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
+                          const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante?.loteId);
                           const tipoPagamento = loteArrematado?.tipoPagamento || "parcelamento";
 
                           if (tipoPagamento === "a_vista") {
@@ -2483,11 +2517,11 @@ Arthur Lira Leilões`;
                         <p className="text-sm text-gray-600 mb-4">Histórico completo de todos os leilões e lotes arrematados por este cliente</p>
                         
                         <div className="space-y-4">
-                          {analysis.allContracts.map((contrato: any, idx: number) => {
+                          {analysis.allContracts.map((contrato: ContratoInfo, idx: number) => {
                             // Buscar o leilão completo para pegar os lotes
                             const leilaoCompleto = auctions.find(a => a.identificacao === contrato.leilaoId);
                             const arrematante = leilaoCompleto?.arrematante;
-                            const loteArrematado = leilaoCompleto?.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
+                            const loteArrematado = leilaoCompleto?.lotes?.find((lote: LoteInfo) => lote.id === arrematante?.loteId);
                             
                             return (
                               <div key={idx} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
@@ -2599,7 +2633,7 @@ Arthur Lira Leilões`;
                               return null;
                             })()}. {(() => {
                               const arrematante = selectedArrematante.arrematante;
-                              const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
+                              const loteArrematado = selectedArrematante.lotes?.find((lote: LoteInfo) => lote.id === arrematante?.loteId);
                               const tipoPagamento = loteArrematado?.tipoPagamento || 'parcelamento';
                               const parcelasPagas = arrematante?.parcelasPagas || 0;
                               const quantidadeParcelas = arrematante?.quantidadeParcelas || 12;
@@ -2624,7 +2658,7 @@ Arthur Lira Leilões`;
                       <p>
                         <strong>Situação Atual:</strong> {(() => {
                           const arrematante = selectedArrematante.arrematante;
-                          const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
+                          const loteArrematado = selectedArrematante.lotes?.find((lote: LoteInfo) => lote.id === arrematante?.loteId);
                           const tipoPagamento = loteArrematado?.tipoPagamento || 'parcelamento';
                           const parcelasPagas = arrematante?.parcelasPagas || 0;
                           const quantidadeParcelas = arrematante?.quantidadeParcelas || 12;
@@ -2687,7 +2721,7 @@ Arthur Lira Leilões`;
                             {(() => {
                          // Usar dados reais do arrematante
                               const arrematante = selectedArrematante.arrematante;
-                              const loteArrematado = selectedArrematante.lotes?.find((lote: any) => lote.id === arrematante?.loteId);
+                              const loteArrematado = selectedArrematante.lotes?.find((lote: LoteInfo) => lote.id === arrematante?.loteId);
                          const tipoPagamento = loteArrematado?.tipoPagamento || 'parcelamento';
                          const parcelasPagas = arrematante?.parcelasPagas || 0;
                          
@@ -3040,160 +3074,66 @@ Arthur Lira Leilões`;
         </DialogContent>
       </Dialog>
 
-      {/* Modal de Envio em Massa */}
-      <Dialog open={isMassEmailModalOpen} onOpenChange={setIsMassEmailModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      {/* Modal de Teste de Envio de Cobrança */}
+      <Dialog open={isTestEmailModalOpen} onOpenChange={setIsTestEmailModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh]">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Send className="h-5 w-5 text-orange-600" />
-              Enviar Notificações em Massa
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <Send className="h-5 w-5 text-amber-600" />
+              Teste de Envio de Cobrança
             </DialogTitle>
-            <DialogDescription>
-              Enviar email de cobrança para todos os inadimplentes
+            <DialogDescription className="space-y-2">
+              <p>Logs detalhados do envio de emails de cobrança para {selectedDebtor?.arrematante?.nome}</p>
+              <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-800">
+                <strong>⚠️ Modo de Teste:</strong> Este teste ignora a verificação de duplicatas e enviará emails mesmo que já tenham sido enviados hoje. Use apenas para testar o sistema.
+              </div>
             </DialogDescription>
           </DialogHeader>
-
-          <div className="space-y-6">
-            {/* Resumo */}
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 text-orange-600 mt-0.5" />
-                <div className="flex-1">
-                  <h4 className="font-semibold text-orange-900 mb-2">Atenção</h4>
-                  <p className="text-sm text-orange-800 mb-3">
-                    Você está prestes a enviar emails de cobrança para{" "}
-                    <strong>{overdueAuctions.filter(a => a.arrematante?.email).length}</strong>{" "}
-                    inadimplente(s).
-                  </p>
-                  <p className="text-xs text-orange-700">
-                    • Emails que já foram enviados hoje serão ignorados automaticamente<br />
-                    • Haverá um intervalo de 1 segundo entre cada envio<br />
-                    • Você pode acompanhar o progresso em tempo real
-                  </p>
-                </div>
+          
+          <div className="space-y-4">
+            {isTestingSend ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-600 mb-4"></div>
+                <p className="text-gray-600">Enviando emails de teste...</p>
+                <p className="text-sm text-gray-500 mt-2">Isso pode levar alguns segundos</p>
               </div>
-            </div>
-
-            {/* Lista de Inadimplentes */}
-            {!isSendingMassEmail && (
-              <div className="space-y-2">
-                <h4 className="font-semibold text-gray-900">Inadimplentes com Email:</h4>
-                <div className="max-h-60 overflow-y-auto border rounded-lg">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Nome</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Dias em Atraso</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {overdueAuctions
-                        .filter(auction => auction.arrematante?.email)
-                        .map((auction, index) => (
-                          <TableRow key={index}>
-                            <TableCell className="font-medium">{auction.arrematante.nome}</TableCell>
-                            <TableCell className="text-sm text-gray-600">{auction.arrematante.email}</TableCell>
-                            <TableCell>
-                              <Badge variant="destructive">
-                                {auction.daysOverdue} dias
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            )}
-
-            {/* Barra de Progresso */}
-            {isSendingMassEmail && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="font-medium">Progresso do Envio</span>
-                    <span className="text-gray-600">
-                      {massEmailProgress.sent} de {massEmailProgress.total}
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-3">
-                    <div
-                      className="bg-orange-600 h-3 rounded-full transition-all duration-300"
-                      style={{
-                        width: `${(massEmailProgress.sent / massEmailProgress.total) * 100}%`,
-                      }}
-                    />
-                  </div>
-                  {massEmailProgress.errors > 0 && (
-                    <p className="text-sm text-red-600">
-                      {massEmailProgress.errors} erro(s) encontrado(s)
-                    </p>
-                  )}
-                </div>
-
-                {/* Resultados em Tempo Real */}
-                <div className="max-h-60 overflow-y-auto border rounded-lg">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Nome</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Mensagem</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {massEmailResults.map((result, index) => (
-                        <TableRow key={index}>
-                          <TableCell className="font-medium">{result.nome}</TableCell>
-                          <TableCell>
-                            {result.success ? (
-                              <CheckCircle className="h-5 w-5 text-green-600" />
-                            ) : (
-                              <XCircle className="h-5 w-5 text-red-600" />
-                            )}
-                          </TableCell>
-                          <TableCell className="text-sm text-gray-600">{result.message}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            )}
-
-            {/* Botões */}
-            <div className="flex justify-end gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setIsMassEmailModalOpen(false);
-                  setMassEmailResults([]);
-                  setMassEmailProgress({ sent: 0, total: 0, errors: 0 });
-                }}
-                disabled={isSendingMassEmail}
-              >
-                {isSendingMassEmail ? "Aguarde..." : "Cancelar"}
-              </Button>
-              <Button
-                type="button"
-                onClick={handleMassEmailSend}
-                disabled={isSendingMassEmail}
-                className="bg-orange-600 hover:bg-orange-700 text-white"
-              >
-                {isSendingMassEmail ? (
-                  <>
-                    <Timer className="h-4 w-4 mr-2 animate-spin" />
-                    Enviando...
-                  </>
+            ) : (
+              <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[50vh]">
+                {testEmailLogs.length > 0 ? (
+                  testEmailLogs.map((log, index) => (
+                    <div key={index} className="whitespace-pre-wrap">
+                      {log}
+                    </div>
+                  ))
                 ) : (
-                  <>
-                    <Send className="h-4 w-4 mr-2" />
-                    Confirmar e Enviar
-                  </>
+                  <p className="text-gray-400">Aguardando execução do teste...</p>
                 )}
-              </Button>
+              </div>
+            )}
+            
+            <div className="flex justify-between items-center gap-2 pt-4 border-t">
+              <p className="text-sm text-gray-500">
+                {testEmailLogs.length > 0 && `${testEmailLogs.length} linhas de log`}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    navigator.clipboard.writeText(testEmailLogs.join('\n'));
+                    toast({
+                      title: "✅ Logs Copiados",
+                      description: "Logs foram copiados para a área de transferência",
+                    });
+                  }}
+                  disabled={testEmailLogs.length === 0}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Copiar Logs
+                </Button>
+                <Button onClick={() => setIsTestEmailModalOpen(false)}>
+                  Fechar
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>
@@ -3210,7 +3150,7 @@ function InadimplenciaReportPDF({
   filteredOverdueAuctions 
 }: { 
   arrematanteId: string; 
-  filteredOverdueAuctions: any[] 
+  filteredOverdueAuctions: AuctionWithOverdueInfo[] 
 }) {
   const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 

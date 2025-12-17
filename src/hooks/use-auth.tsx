@@ -3,6 +3,27 @@ import { supabase } from "@/lib/supabase";
 
 type UserRole = "admin";
 
+// Helper para acessar tabelas e funções não tipadas do Supabase
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const untypedSupabase = supabase as any;
+
+// Tipo para dados do usuário vindos do banco de dados
+interface DatabaseUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  full_name?: string | null;
+  can_edit?: boolean;
+  can_create?: boolean;
+  can_delete?: boolean;
+  can_manage_users?: boolean;
+  is_active?: boolean;
+  last_login_at?: string;
+  session_count?: number;
+  first_login_at?: string;
+}
+
 export interface AuthUser {
   id: string;
   name: string;
@@ -24,7 +45,7 @@ interface AuthContextValue {
   logout: () => void;
   updateFullName: (fullName: string) => void;
   updatePermissions: (permissions: { can_edit: boolean; can_create: boolean; can_delete: boolean; can_manage_users: boolean; }) => void;
-  logUserAction: (actionType: string, description: string, targetType?: string, targetId?: string, metadata?: any) => Promise<void>;
+  logUserAction: (actionType: string, description: string, targetType?: string, targetId?: string, metadata?: Record<string, unknown>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -98,15 +119,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Primeiro buscar o usuário por email
       console.log('🔍 Buscando usuário com email:', cleanEmail);
       let { data: users, error: userError } = await supabase
-        .from('users' as any)
+        .from('users')
         .select('id, name, email, role, full_name, can_edit, can_create, can_delete, can_manage_users, is_active')
         .eq('email', cleanEmail);
 
       // Se não encontrar por email, buscar por nome
       if (!users || users.length === 0) {
         console.log('👤 Não encontrado por email, buscando por nome:', cleanEmail);
-        const { data: usersByName, error: nameError } = await supabase
-          .from('users' as any)
+        const { data: usersByName, error: nameError} = await supabase
+          .from('users')
           .select('id, name, email, role, full_name, can_edit, can_create, can_delete, can_manage_users, is_active')
           .eq('name', cleanEmail);
         
@@ -124,7 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Usuário ou senha incorretos");
       }
 
-      const user = users[0] as any;
+      const user = users[0] as unknown as DatabaseUser;
       console.log('✅ Usuário encontrado:', { 
         id: user.id, 
         name: user.name, 
@@ -140,8 +161,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Depois buscar as credenciais do usuário
       console.log('🔑 Buscando credenciais do usuário...');
-      const { data: credentials, error: credError } = await supabase
-        .from('user_credentials' as any)
+      const { data: credentials, error: credError } = await untypedSupabase
+        .from('user_credentials')
         .select('password_hash')
         .eq('user_id', user.id)
         .single();
@@ -151,7 +172,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Usuário não possui credenciais válidas");
       }
 
-      if (!credentials || !(credentials as any).password_hash) {
+      const credentialsData = credentials as { password_hash?: string };
+      if (!credentials || !credentialsData.password_hash) {
         console.log('❌ Credenciais não encontradas ou hash vazio');
         throw new Error("Usuário não possui credenciais válidas");
       }
@@ -163,8 +185,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('📧 Email para verificação:', user.email);
       console.log('🔑 Senha recebida (tamanho):', cleanPassword.length, 'caracteres');
       
-      const { data: passwordMatch, error: verifyError } = await supabase
-        .rpc('verify_password' as any, {
+      const { data: passwordMatch, error: verifyError } = await untypedSupabase
+        .rpc('verify_password', {
           user_email: user.email, // Usar o email do banco, não o digitado
           user_password: cleanPassword
         });
@@ -196,18 +218,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         name: user.name,
         email: user.email,
         role: (user.role as UserRole) || "admin",
-        full_name: (user as any).full_name || null,
+        full_name: user.full_name || undefined,
         permissions,
       };
       
       // Atualizar dados de login no banco
       try {
-        const { error: updateError } = await supabase
-          .from('users' as any)
+        const { error: updateError } = await untypedSupabase
+          .from('users')
           .update({
             last_login_at: new Date().toISOString(),
-            session_count: ((user as any).session_count || 0) + 1,
-            first_login_at: (user as any).first_login_at || new Date().toISOString(),
+            session_count: (user.session_count || 0) + 1,
+            first_login_at: user.first_login_at || new Date().toISOString(),
             is_active: true
           })
           .eq('id', user.id);
@@ -217,7 +239,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         // Registrar ação de login
-        await supabase.from('user_actions' as any).insert({
+        await untypedSupabase.from('user_actions').insert({
           user_id: user.id,
           action_type: 'login',
           action_description: 'Fez login no sistema (autenticação bem-sucedida)',
@@ -231,11 +253,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('Autenticação concluída com sucesso:', { userId: user.id, userName: user.name });
       setUser(authenticatedUser);
       persist(authenticatedUser);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erro durante o login:', error);
-      throw new Error(error.message || "Usuário ou senha incorretos");
+      const errorMessage = error instanceof Error ? error.message : "Usuário ou senha incorretos";
+      throw new Error(errorMessage);
     }
-  }, [persist]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persist]); // 'user' não é incluído intencionalmente: login busca usuário do banco, não depende do state
 
   const logout = useCallback(async () => {
     console.log('Iniciando logout...', { userId: user?.id });
@@ -243,8 +267,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user && heartbeatIntervalRef.current) {
       // Marcar usuário como offline no banco antes de fazer logout
       try {
-        await supabase
-          .from('users' as any)
+        await untypedSupabase
+          .from('users')
           .update({ 
             last_login_at: new Date(Date.now() - 10 * 60 * 1000).toISOString() // 10 minutos atrás para garantir offline
           })
@@ -304,7 +328,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     description: string,
     targetType?: string,
     targetId?: string,
-    metadata?: any
+    metadata?: Record<string, unknown>
   ) => {
     if (!user) {
       console.warn('Tentativa de registrar ação sem usuário logado');
@@ -312,7 +336,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      await supabase.from('user_actions' as any).insert({
+      await untypedSupabase.from('user_actions').insert({
         user_id: user.id,
         action_type: actionType,
         action_description: description,
@@ -331,8 +355,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     try {
       // Atualizar heartbeat e buscar status + permissões atuais
-      const { data: userData, error: updateError } = await supabase
-        .from('users' as any)
+      const { data: userData, error: updateError } = await untypedSupabase
+        .from('users')
         .update({ last_login_at: new Date().toISOString() })
         .eq('id', user.id)
         .select('is_active, can_edit, can_create, can_delete, can_manage_users')
@@ -356,7 +380,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Se o usuário foi desativado, fazer logout automático
-      if (userData && !(userData as any).is_active) {
+      const dbUserData = userData as DatabaseUser;
+      if (userData && !dbUserData.is_active) {
         console.log('🔴 Usuário foi desativado - fazendo logout automático');
         
         // Salvar mensagem de desativação no localStorage
@@ -375,11 +400,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           can_delete: false,
           can_manage_users: false
         };
+        const dbUserData = userData as DatabaseUser;
         const newPermissions = {
-          can_edit: (userData as any).can_edit || false,
-          can_create: (userData as any).can_create || false,
-          can_delete: (userData as any).can_delete || false,
-          can_manage_users: (userData as any).can_manage_users || false,
+          can_edit: dbUserData.can_edit || false,
+          can_create: dbUserData.can_create || false,
+          can_delete: dbUserData.can_delete || false,
+          can_manage_users: dbUserData.can_manage_users || false,
         };
 
         // Verificar se houve mudanças nas permissões
@@ -406,11 +432,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }));
         }
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Erro ao atualizar heartbeat:', error);
       
       // Verificar se é erro de usuário não encontrado (excluído)
-      if ((error as any)?.code === 'PGRST116' || (error as any)?.message?.includes('No rows found')) {
+      const isSupabaseError = error && typeof error === 'object' && 'code' in error;
+      const errorCode = isSupabaseError ? (error as { code?: string }).code : undefined;
+      const errorMessage = isSupabaseError ? (error as { message?: string }).message : undefined;
+      
+      if (errorCode === 'PGRST116' || errorMessage?.includes('No rows found')) {
         console.log('🗑️ Usuário foi excluído - fazendo logout automático');
         
         // Salvar mensagem de exclusão no localStorage
@@ -420,7 +450,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout();
       }
     }
-  }, [user, logout]);
+  }, [user, logout, updatePermissions]);
 
   const handleUserActivity = useCallback(() => {
     lastActivityRef.current = Date.now();
@@ -523,6 +553,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) {

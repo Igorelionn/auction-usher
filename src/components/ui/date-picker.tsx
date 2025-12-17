@@ -83,7 +83,7 @@ export function DatePicker({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start" side="bottom">
+      <PopoverContent className="w-auto p-0 z-[100000]" align="start" side="bottom">
         <Calendar
           mode="single"
           selected={value}
@@ -266,7 +266,7 @@ export function StringDatePicker({
               <CalendarIcon className="h-4 w-4" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start" side="bottom">
+          <PopoverContent className="w-auto p-0 z-[100000]" align="start" side="bottom">
             <Calendar
               mode="single"
               selected={dateValue}

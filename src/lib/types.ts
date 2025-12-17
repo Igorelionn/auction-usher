@@ -26,8 +26,9 @@ export interface ItemPatrocinioInfo {
 
 export interface MercadoriaInfo {
   id: string;
+  titulo?: string; // título da mercadoria
   nome?: string; // nome personalizado da mercadoria (opcional)
-  tipo: string; // tipo de mercadoria (ex: Gado Nelore, Veículos)
+  tipo?: string; // tipo de mercadoria (ex: Gado Nelore, Veículos)
   descricao: string; // descrição detalhada da mercadoria
   quantidade?: number; // quantidade de unidades da mercadoria
   valor: string; // valor como string para preservar formatação
@@ -39,28 +40,40 @@ export interface LoteInfo {
   numero: string; // número do lote (ex: "001", "002")
   descricao: string; // descrição do lote
   mercadorias: MercadoriaInfo[]; // mercadorias dentro do lote
+  imagens?: string[]; // URLs ou caminhos das imagens do lote
   status?: 'disponivel' | 'arrematado' | 'arquivado'; // status do lote
   
-  // Configurações específicas de pagamento por lote
-  tipoPagamento?: "a_vista" | "parcelamento" | "entrada_parcelamento"; // tipo de pagamento específico do lote
-  dataPagamento?: string; // data específica para pagamento do lote (ISO date)
-  mesInicioPagamento?: string; // mês de início do pagamento específico do lote (formato MM)
-  diaVencimentoPadrao?: number; // dia padrão do mês para pagamentos do lote (1-31)
-  diaVencimentoMensal?: number; // dia do mês para vencimento (1-21)
-  dataEntrada?: string; // data completa para pagamento da entrada do lote (apenas para entrada_parcelamento)
-  dataVencimentoVista?: string; // data completa para pagamento à vista do lote (apenas para a_vista)
-  parcelasPadrao?: number; // quantidade padrão de parcelas para arrematantes do lote
-  quantidadeParcelas?: number; // quantidade de parcelas
-  valorEntrada?: string; // valor da entrada
+  // Configurações de pagamento específicas do lote (opcionais)
+  tipoPagamento?: "a_vista" | "parcelamento" | "entrada_parcelamento"; // tipo de pagamento específico deste lote
+  dataVencimentoVista?: string; // data completa para pagamento à vista (apenas para a_vista)
+  dataEntrada?: string; // data completa para pagamento da entrada (apenas para entrada_parcelamento)
+  mesInicioPagamento?: string; // Mês de início do pagamento (formato YYYY-MM ou MM)
+  diaVencimentoMensal?: number; // dia do mês para vencimento mensal (1-31)
+  diaVencimentoPadrao?: number; // dia padrão do mês para vencimentos (1-31)
+  parcelasPadrao?: number; // quantidade padrão de parcelas para este lote
+  quantidadeParcelas?: number; // quantidade de parcelas (compatibilidade)
+  fatorMultiplicador?: number; // fator multiplicador para cálculo de valores
 }
 
 export interface ArrematanteInfo {
+  id?: string; // ID único do arrematante no banco de dados
   nome: string;
   documento?: string; // CPF/CNPJ do arrematante
-  endereco?: string; // endereço do arrematante
+  endereco?: string; // endereço completo do arrematante
+  // Campos de endereço detalhados
+  cep?: string; // CEP formatado
+  rua?: string; // Nome da rua/avenida
+  numero?: string; // Número do endereço
+  complemento?: string; // Complemento (apto, sala, etc)
+  bairro?: string; // Nome do bairro
+  cidade?: string; // Nome da cidade
+  estado?: string; // Sigla do estado (UF)
   email?: string; // email do arrematante
   telefone?: string; // telefone do arrematante
   loteId?: string; // ID do lote arrematado
+  mercadoriaId?: string; // ID da mercadoria específica arrematada
+  created_at?: string; // Data de criação do registro no banco
+  tipoPagamento?: "a_vista" | "parcelamento" | "entrada_parcelamento"; // tipo de pagamento escolhido pelo arrematante
   valorPagar: string; // valor como string para preservar formatação
   valorPagarNumerico: number; // valor numérico para cálculos
   valorEntrada?: string; // valor da entrada para pagamentos com entrada + parcelamento
@@ -74,6 +87,16 @@ export interface ArrematanteInfo {
   documentos?: DocumentoInfo[]; // informações completas dos documentos
   percentualJurosAtraso?: number; // percentual de juros por mês de atraso (0-100)
   tipoJurosAtraso?: "simples" | "composto"; // tipo de juros aplicado
+  
+  // Valores relacionados ao lance (apenas para parcelamento e entrada_parcelamento)
+  valorLance?: number;            // Lance dado pelo arrematante
+  fatorMultiplicador?: number;    // Fator usado no cálculo
+  usaFatorMultiplicador?: boolean; // Se usa o sistema de fator
+  
+  // Configuração simplificada de parcelas
+  parcelasTriplas?: number;     // Quantidade de parcelas triplas (valor × 3)
+  parcelasDuplas?: number;      // Quantidade de parcelas duplas (valor × 2)
+  parcelasSimples?: number;     // Quantidade de parcelas simples (valor × 1)
 }
 
 export interface Auction {
@@ -100,7 +123,8 @@ export interface Auction {
   fotosMercadoria?: DocumentoInfo[]; // fotos da mercadoria
   historicoNotas?: string[];
   arquivado?: boolean; // se o leilão foi arquivado
-  arrematante?: ArrematanteInfo; // informações do arrematante
+  arrematantes?: ArrematanteInfo[]; // array de arrematantes (suporta múltiplos por lote)
+  arrematante?: ArrematanteInfo; // DEPRECATED: mantido para compatibilidade, use arrematantes[]
   documentos?: DocumentoInfo[]; // documentos do leilão
 }
 

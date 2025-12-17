@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Auction, AuctionStatus, DocumentoInfo, MercadoriaInfo, LoteInfo, ItemCustoInfo, ItemPatrocinioInfo } from "@/lib/types";
 import { parseCurrencyToNumber } from "@/lib/utils";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
+import { calcularValorTotal } from "@/lib/parcelamento-calculator";
+import { ParcelamentoPreview } from "@/components/ParcelamentoPreview";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,10 +51,13 @@ import {
   Plus,
   Pencil,
   CreditCard,
-  List
+  List,
+  Calculator
 } from "lucide-react";
 
-export interface AuctionFormValues extends Omit<Auction, "id"> {}
+export interface AuctionFormValues extends Omit<Auction, "id"> {
+  id?: string; // ID opcional: presente ao editar, ausente ao criar
+}
 
 export function AuctionForm({
   initial,
@@ -119,12 +124,15 @@ export function AuctionForm({
 
   // Limpar blob URLs quando componente desmontar
   useEffect(() => {
+    // Capturar o valor atual do ref no corpo do efeito, não no cleanup
+    const currentBlobUrls = tempBlobUrlsRef.current;
+    
     return () => {
-      // Limpar todas as URLs blob temporárias
-      tempBlobUrlsRef.current.forEach(url => {
+      // Limpar todas as URLs blob temporárias usando a captura
+      currentBlobUrls.forEach(url => {
         URL.revokeObjectURL(url);
       });
-      tempBlobUrlsRef.current.clear();
+      currentBlobUrls.clear();
     };
   }, []);
 
@@ -173,27 +181,6 @@ export function AuctionForm({
         
         if (!lote.numero?.trim()) missing.push(`Número do Lote ${index + 1}`);
         if (!lote.descricao?.trim()) missing.push(`Descrição do Lote ${index + 1}`);
-        
-        // Validar configurações de pagamento do lote
-        if (!lote.tipoPagamento) {
-          missing.push(`${lotePrefix} - Condições de Pagamento`);
-        } else {
-          // Validar campos específicos baseados no tipo de pagamento do lote
-          if (lote.tipoPagamento === "a_vista") {
-            if (!lote.dataVencimentoVista) {
-              missing.push(`${lotePrefix} - Data de Pagamento`);
-            }
-          } else if (lote.tipoPagamento === "parcelamento") {
-            if (!lote.mesInicioPagamento) missing.push(`${lotePrefix} - Mês de Início do Pagamento`);
-            if (!lote.parcelasPadrao || lote.parcelasPadrao === 0) missing.push(`${lotePrefix} - Quantidade de Parcelas`);
-            if (!lote.diaVencimentoPadrao) missing.push(`${lotePrefix} - Dia do Mês para Pagamento`);
-          } else if (lote.tipoPagamento === "entrada_parcelamento") {
-            if (!lote.dataEntrada) missing.push(`${lotePrefix} - Data do Pagamento da Entrada`);
-            if (!lote.mesInicioPagamento) missing.push(`${lotePrefix} - Mês de Início do Pagamento`);
-            if (!lote.parcelasPadrao || lote.parcelasPadrao === 0) missing.push(`${lotePrefix} - Quantidade de Parcelas`);
-            if (!lote.diaVencimentoPadrao) missing.push(`${lotePrefix} - Dia das Parcelas`);
-          }
-        }
         
         // Validar se o lote tem pelo menos uma mercadoria
         if (!lote.mercadorias || lote.mercadorias.length === 0) {
@@ -408,12 +395,12 @@ export function AuctionForm({
     }
   }, [initial.detalheCustos, hasUserChanges]);
   
-  // Sincronizar costItems quando o dialog abrir
+  // Sincronizar costItems quando o dialog abrir ou quando detalheCustos mudar
   useEffect(() => {
     if (isCostDetailDialogOpen) {
       setCostItems(values.detalheCustos || []);
     }
-  }, [isCostDetailDialogOpen]);
+  }, [isCostDetailDialogOpen, values.detalheCustos]);
 
   // Função para atualizar os itens de custo e recalcular o total
   const updateCostItems = (items: ItemCustoInfo[]) => {
@@ -441,12 +428,12 @@ export function AuctionForm({
     }
   }, [initial.detalhePatrocinios, hasUserChanges]);
   
-  // Sincronizar sponsorItems quando o dialog abrir
+  // Sincronizar sponsorItems quando o dialog abrir ou quando detalhePatrocinios mudar
   useEffect(() => {
     if (isSponsorDetailDialogOpen) {
       setSponsorItems(values.detalhePatrocinios || []);
     }
-  }, [isSponsorDetailDialogOpen]);
+  }, [isSponsorDetailDialogOpen, values.detalhePatrocinios]);
   
   // Função para calcular e atualizar o total baseado nos itens
   const calcularEAtualizarTotal = (items: ItemCustoInfo[]) => {
@@ -1570,163 +1557,6 @@ export function AuctionForm({
 
                     {/* Configurações de Pagamento do Lote */}
                     <div className="space-y-4 pl-4 border-l-2 border-gray-200 bg-gray-50/50 p-4 rounded-lg">
-                      <div className="flex items-center gap-2 mb-3">
-                        <CreditCard className="h-4 w-4 text-gray-600" />
-                        <Label className="text-sm font-medium text-gray-700">Configurações de Pagamento</Label>
-                      </div>
-
-                      {/* Condições de Pagamento */}
-                      <div className="space-y-2">
-                        <Label className="text-sm font-medium text-gray-700">Condições de Pagamento</Label>
-                        <Select 
-                          value={lote.tipoPagamento || undefined} 
-                          onValueChange={(v) => {
-                            const updatedLotes = (values.lotes || []).map(l => 
-                              l.id === lote.id ? { ...l, tipoPagamento: v as "a_vista" | "parcelamento" | "entrada_parcelamento" } : l
-                            );
-                            update("lotes", updatedLotes);
-                          }}
-                        >
-                          <SelectTrigger className="h-9 border-gray-300 focus:border-black focus:ring-0 focus-visible:ring-0 bg-white">
-                            <SelectValue placeholder="Selecione as condições" />
-                          </SelectTrigger>
-                          <SelectContent side="bottom">
-                            <SelectItem value="a_vista">À vista</SelectItem>
-                            <SelectItem value="parcelamento">Parcelamento</SelectItem>
-                            <SelectItem value="entrada_parcelamento">Entrada + Parcelamento</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Data de Pagamento - Para à vista */}
-                      {lote.tipoPagamento === "a_vista" && (
-                        <div className="space-y-2">
-                          <Label className="text-sm font-medium text-gray-700">Data de Pagamento</Label>
-                          <StringDatePicker
-                            value={lote.dataVencimentoVista || ""}
-                            onChange={(v) => {
-                              const updatedLotes = (values.lotes || []).map(l => 
-                                l.id === lote.id ? { ...l, dataVencimentoVista: v } : l
-                              );
-                              update("lotes", updatedLotes);
-                            }}
-                            placeholder="Selecione a data de pagamento"
-                            className="h-9 border-gray-300 focus:border-black focus:ring-0 focus-visible:ring-0 bg-white"
-                          />
-                          <p className="text-xs text-gray-500">
-                            Data específica para pagamento à vista deste lote
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Data da Entrada - Para entrada + parcelamento */}
-                      {lote.tipoPagamento === "entrada_parcelamento" && (
-                        <div className="space-y-2">
-                          <Label className="text-sm font-medium text-gray-700">Data do Pagamento da Entrada</Label>
-                          <StringDatePicker
-                            value={lote.dataEntrada || ""}
-                            onChange={(v) => {
-                              const updatedLotes = (values.lotes || []).map(l => 
-                                l.id === lote.id ? { ...l, dataEntrada: v } : l
-                              );
-                              update("lotes", updatedLotes);
-                            }}
-                            placeholder="Selecione a data da entrada"
-                            className="h-9 border-gray-300 focus:border-black focus:ring-0 focus-visible:ring-0 bg-white"
-                          />
-                          <p className="text-xs text-gray-500">
-                            Data específica para pagamento da entrada deste lote
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Configurações de Parcelamento */}
-                      {(lote.tipoPagamento === "parcelamento" || lote.tipoPagamento === "entrada_parcelamento") && (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          {/* Mês de Início */}
-                          <div className="space-y-2">
-                            <Label className="text-sm font-medium text-gray-700">Mês de Início</Label>
-                            <Select 
-                              value={lote.mesInicioPagamento || undefined} 
-                              onValueChange={(v) => {
-                                const updatedLotes = (values.lotes || []).map(l => 
-                                  l.id === lote.id ? { ...l, mesInicioPagamento: v } : l
-                                );
-                                update("lotes", updatedLotes);
-                              }}
-                            >
-                              <SelectTrigger className="h-9 border-gray-300 focus:border-black focus:ring-0 focus-visible:ring-0 bg-white">
-                                <SelectValue placeholder="Mês" />
-                              </SelectTrigger>
-                              <SelectContent side="bottom">
-                                <SelectItem value="01">Janeiro</SelectItem>
-                                <SelectItem value="02">Fevereiro</SelectItem>
-                                <SelectItem value="03">Março</SelectItem>
-                                <SelectItem value="04">Abril</SelectItem>
-                                <SelectItem value="05">Maio</SelectItem>
-                                <SelectItem value="06">Junho</SelectItem>
-                                <SelectItem value="07">Julho</SelectItem>
-                                <SelectItem value="08">Agosto</SelectItem>
-                                <SelectItem value="09">Setembro</SelectItem>
-                                <SelectItem value="10">Outubro</SelectItem>
-                                <SelectItem value="11">Novembro</SelectItem>
-                                <SelectItem value="12">Dezembro</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          {/* Dia do Vencimento */}
-                          <div className="space-y-2">
-                            <Label className="text-sm font-medium text-gray-700">Dia do Vencimento</Label>
-                            <Select 
-                              value={lote.diaVencimentoPadrao?.toString() || undefined} 
-                              onValueChange={(v) => {
-                                const updatedLotes = (values.lotes || []).map(l => 
-                                  l.id === lote.id ? { ...l, diaVencimentoPadrao: parseInt(v) } : l
-                                );
-                                update("lotes", updatedLotes);
-                              }}
-                            >
-                              <SelectTrigger className="h-9 border-gray-300 focus:border-black focus:ring-0 focus-visible:ring-0 bg-white">
-                                <SelectValue placeholder="Dia" />
-                              </SelectTrigger>
-                              <SelectContent side="bottom">
-                                {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
-                                  <SelectItem key={day} value={day.toString()}>
-                                    {day}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          {/* Quantidade de Parcelas */}
-                          <div className="space-y-2">
-                            <Label className="text-sm font-medium text-gray-700">
-                              Parcelas{lote.tipoPagamento === "entrada_parcelamento" && <span className="text-xs text-gray-500 ml-1">(após entrada)</span>}
-                            </Label>
-                            <Input 
-                              type="number"
-                              min="1"
-                              max="60"
-                              value={lote.parcelasPadrao || ""} 
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                const updatedLotes = (values.lotes || []).map(l => 
-                                  l.id === lote.id ? { 
-                                    ...l, 
-                                    parcelasPadrao: value === "" ? undefined : parseInt(value) 
-                                  } : l
-                                );
-                                update("lotes", updatedLotes);
-                              }} 
-                              placeholder="12"
-                              className="h-9 border-gray-300 focus:border-black focus:ring-0 focus-visible:ring-0 bg-white"
-                            />
-                          </div>
-                        </div>
-                      )}
-
                     </div>
                   </div>
                 ))}
@@ -2108,6 +1938,7 @@ export function AuctionForm({
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function createEmptyAuctionForm(): AuctionFormValues {
   const today = new Date().toISOString().slice(0, 10);
   return {

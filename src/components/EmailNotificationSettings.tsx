@@ -44,7 +44,8 @@ export function EmailNotificationSettings() {
     }, 10000);
 
     return () => clearInterval(interval);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Intencionalmente vazio: queremos apenas UM interval, criado na montagem
 
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);

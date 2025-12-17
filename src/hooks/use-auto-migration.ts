@@ -5,9 +5,21 @@ import { db } from '@/lib/storage';
 // Chave para marcar migração como concluída
 const MIGRATION_COMPLETED_KEY = 'auction-usher.migration-completed';
 
+interface MigrationResult {
+  success: boolean;
+  message: string;
+  migratedCounts: {
+    auctions: number;
+    bidders: number;
+    lots: number;
+    invoices: number;
+  };
+  errors: string[];
+}
+
 export function useAutoMigration() {
   const [migrationStatus, setMigrationStatus] = useState<'checking' | 'needed' | 'completed' | 'error'>('checking');
-  const [migrationResult, setMigrationResult] = useState<any>(null);
+  const [migrationResult, setMigrationResult] = useState<MigrationResult | null>(null);
 
   useEffect(() => {
     checkMigrationNeeded();

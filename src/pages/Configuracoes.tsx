@@ -55,6 +55,46 @@ import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 
+// Interfaces de tipos para dados do banco
+interface TeamUser {
+  id: string;
+  name: string;
+  full_name?: string | null;
+  email: string;
+  role: string;
+  avatar?: string | null;
+  phone?: string | null;
+  registration_date?: string;
+  created_at?: string;
+  first_login_at?: string | null;
+  last_login_at?: string | null;
+  session_count?: number;
+  is_active?: boolean;
+  can_edit?: boolean;
+  can_create?: boolean;
+  can_delete?: boolean;
+  can_manage_users?: boolean;
+  can_edit_backup?: boolean;
+  can_create_backup?: boolean;
+  can_delete_backup?: boolean;
+  can_manage_users_backup?: boolean;
+  deactivated_at?: string | null;
+}
+
+interface UserActivity {
+  id?: string;
+  user_id: string;
+  action_type: string;
+  action_description: string;
+  target_type?: string;
+  target_id?: string;
+  created_at?: string;
+}
+
+// Bypass controlado para tabelas não no schema gerado
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const untypedSupabase = supabase as any;
+
 export default function Configuracoes() {
   const { user, updateFullName, updatePermissions, logUserAction } = useAuth();
   const navigate = useNavigate();
@@ -88,14 +128,14 @@ export default function Configuracoes() {
   const [actualPassword, setActualPassword] = useState("");
 
   // Estados para administração da equipe
-  const [teamUsers, setTeamUsers] = useState<any[]>([]);
+  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
   const [loadingTeam, setLoadingTeam] = useState(false);
-  const [selectedMemberActions, setSelectedMemberActions] = useState<any>(null);
-  const [userActivities, setUserActivities] = useState<any[]>([]);
+  const [selectedMemberActions, setSelectedMemberActions] = useState<TeamUser | null>(null);
+  const [userActivities, setUserActivities] = useState<UserActivity[]>([]);
   const [showActionsModal, setShowActionsModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showDeactivateModal, setShowDeactivateModal] = useState(false);
-  const [selectedUserForAction, setSelectedUserForAction] = useState<any>(null);
+  const [selectedUserForAction, setSelectedUserForAction] = useState<TeamUser | null>(null);
   const [confirmText, setConfirmText] = useState("");
   const [isProcessingAction, setIsProcessingAction] = useState(false);
   const [activitiesPage, setActivitiesPage] = useState(1);
@@ -115,13 +155,13 @@ export default function Configuracoes() {
   const [showNewUserPassword, setShowNewUserPassword] = useState(false);
   const [showPromotionModal, setShowPromotionModal] = useState(false);
   const [isProcessingPromotion, setIsProcessingPromotion] = useState(false);
-  const [selectedUserForPromotion, setSelectedUserForPromotion] = useState<any>(null);
+  const [selectedUserForPromotion, setSelectedUserForPromotion] = useState<TeamUser | null>(null);
   const [promotionAction, setPromotionAction] = useState<'promote' | 'demote'>('promote');
   
   // Estados para alteração de senha de usuários
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [showAdminPasswordConfirmModal, setShowAdminPasswordConfirmModal] = useState(false);
-  const [selectedUserForPasswordChange, setSelectedUserForPasswordChange] = useState<any>(null);
+  const [selectedUserForPasswordChange, setSelectedUserForPasswordChange] = useState<TeamUser | null>(null);
   const [adminPasswordForConfirm, setAdminPasswordForConfirm] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
   const [confirmNewUserPassword, setConfirmNewUserPassword] = useState("");
@@ -204,7 +244,7 @@ export default function Configuracoes() {
   };
 
 
-  const handleInputChange = (section: string, field: string, value: any) => {
+  const handleInputChange = (section: string, field: string, value: unknown) => {
     switch (section) {
       case 'profile':
         setProfile(prev => ({ ...prev, [field]: value }));
@@ -219,7 +259,7 @@ export default function Configuracoes() {
     }
   };
 
-  const checkForChanges = (currentProfile: any) => {
+  const checkForChanges = (currentProfile: { name: string; phone: string; avatar: string | null }) => {
     const hasProfileChanges = 
       currentProfile.name !== originalData.name ||
       currentProfile.phone !== originalData.phone ||
@@ -235,8 +275,8 @@ export default function Configuracoes() {
       // Salvar no banco de dados
       // IMPORTANTE: full_name é salvo com o valor do campo "Nome Completo"
       // O campo "name" (usuário para login) NUNCA é alterado
-      const { error } = await supabase
-        .from('users' as any)
+      const { error } = await untypedSupabase
+        .from('users')
         .update({
           full_name: profile.name, // Este é o "Nome Completo" da interface
           phone: profile.phone,
@@ -314,8 +354,8 @@ export default function Configuracoes() {
       if (!user?.id) return;
       
       try {
-        const { data, error } = await supabase
-          .from('users' as any)
+        const { data, error } = await untypedSupabase
+          .from('users')
           .select('name, full_name, phone, avatar')
           .eq('id', user.id)
           .single();
@@ -331,9 +371,9 @@ export default function Configuracoes() {
             // Caso contrário, usar o "name" (usuário de login) como padrão para exibir
             // Isso permite que o usuário veja seu nome de login no campo "Nome Completo"
             // mas quando alterar, salva em "full_name" sem afetar o login
-            name: (data as any).full_name || (data as any).name || "",
-            phone: (data as any).phone || "",
-            avatar: (data as any).avatar || null
+            name: data.full_name || data.name || "",
+            phone: data.phone || "",
+            avatar: data.avatar || null
           };
 
           setProfile(prev => ({
@@ -350,7 +390,9 @@ export default function Configuracoes() {
 
     loadUserProfile();
     loadTeamUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
+  // loadTeamUsers não é memoizado - incluí-lo nas dependências causaria recriação do effect
 
   // Auto-refresh silencioso dos usuários da equipe a cada 5 minutos (sem animação visual)
   useEffect(() => {
@@ -360,13 +402,15 @@ export default function Configuracoes() {
     }, 5 * 60 * 1000); // 5 minutos (300 segundos)
 
     return () => clearInterval(refreshInterval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // loadTeamUsers não é memoizado - incluí-lo nas dependências causaria recriação do effect
 
   // Listener para atualizar automaticamente quando permissões forem alteradas
   useEffect(() => {
-    const handlePermissionsUpdate = (event: any) => {
+    const handlePermissionsUpdate = (event: Event) => {
       console.log('🔄 Evento de permissões recebido - atualizando lista de usuários');
-      console.log('📋 Detalhes do evento:', event.detail);
+      console.log('📋 Detalhes do evento:', (event as CustomEvent).detail);
       
       // Recarregar lista de usuários silenciosamente
       loadTeamUsers(false);
@@ -379,12 +423,16 @@ export default function Configuracoes() {
     return () => {
       window.removeEventListener('permissions-updated', handlePermissionsUpdate);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // loadTeamUsers não é memoizado - incluí-lo nas dependências causaria recriação do effect
 
   // Effect para detectar mudanças quando a imagem é alterada
   useEffect(() => {
     checkForChanges(profile);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile]);
+  // checkForChanges não é memoizado - incluí-lo nas dependências causaria loops de renderização
 
   const handlePasswordToggle = () => {
     if (showPassword) {
@@ -411,7 +459,7 @@ export default function Configuracoes() {
       }
 
       // Buscar as credenciais usando SQL raw para evitar problemas de tipagem
-      const { data, error } = await supabase.from('user_credentials' as any)
+      const { data, error } = await untypedSupabase.from('user_credentials')
         .select('password_hash')
         .eq('user_id', user?.id)
         .single();
@@ -426,7 +474,7 @@ export default function Configuracoes() {
         return;
       }
 
-      const passwordFromDB = (data as any).password_hash;
+      const passwordFromDB = data.password_hash;
       
       if (!passwordFromDB) {
         toast({
@@ -438,8 +486,8 @@ export default function Configuracoes() {
       }
 
       // Verificar se a senha corresponde usando RPC function (mesma lógica do login)
-      const { data: passwordMatch, error: verifyError } = await supabase
-        .rpc('verify_password' as any, {
+      const { data: passwordMatch, error: verifyError } = await untypedSupabase
+        .rpc('verify_password', {
           user_email: user?.email,
           user_password: currentPassword
         });
@@ -501,7 +549,7 @@ export default function Configuracoes() {
   };
 
   // Funções para ações dos membros
-  const handleViewUserActivity = async (member: any) => {
+  const handleViewUserActivity = async (member: TeamUser) => {
     setSelectedMemberActions(member);
     setActivitiesPage(1);
     await loadUserActivities(member.id, 1);
@@ -511,16 +559,16 @@ export default function Configuracoes() {
   const loadUserActivities = async (userId: string, page: number = 1) => {
     try {
       // Buscar total de atividades
-      const { count } = await supabase
-        .from('user_actions' as any)
+      const { count } = await untypedSupabase
+        .from('user_actions')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', userId);
 
       setTotalActivities(count || 0);
 
       // Buscar atividades paginadas
-      const { data, error } = await supabase
-        .from('user_actions' as any)
+      const { data, error } = await untypedSupabase
+        .from('user_actions')
         .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
@@ -562,8 +610,8 @@ export default function Configuracoes() {
 
     setIsClearingHistory(true);
     try {
-      const { error } = await supabase
-        .from('user_actions' as any)
+      const { error } = await untypedSupabase
+        .from('user_actions')
         .delete()
         .eq('user_id', selectedMemberActions.id);
 
@@ -674,8 +722,8 @@ export default function Configuracoes() {
     setIsAddingUser(true);
     try {
       // Verificar se email já existe
-      const { data: existingUsers } = await supabase
-        .from('users' as any)
+      const { data: existingUsers } = await untypedSupabase
+        .from('users')
         .select('email')
         .eq('email', newUser.email.trim().toLowerCase());
 
@@ -706,8 +754,8 @@ export default function Configuracoes() {
       const cleanPhone = phoneNumbers.length >= 10 ? phoneNumbers : null;
 
       // Criar usuário
-      const { data: userData, error: userError } = await supabase
-        .from('users' as any)
+      const { data: userData, error: userError } = await untypedSupabase
+        .from('users')
         .insert({
           name: newUser.name.trim(),
           full_name: newUser.fullName.trim() || newUser.name.trim(),
@@ -725,8 +773,8 @@ export default function Configuracoes() {
       if (userError) throw userError;
 
       // Criar credenciais usando RPC para hash seguro
-      const { error: credError } = await supabase
-        .rpc('create_user_password' as any, {
+      const { error: credError } = await untypedSupabase
+        .rpc('create_user_password', {
           user_email: newUser.email,
           user_password: newUser.password
         });
@@ -738,7 +786,7 @@ export default function Configuracoes() {
         'user_create',
         `Criou novo usuário: ${newUser.fullName || newUser.name} (${newUser.email}) - ${newUser.isAdmin ? 'Administrador' : 'Usuário'}`,
         'user',
-        (userData as any).id,
+        userData.id,
         { 
           created_by: user?.id, 
           user_name: newUser.name, 
@@ -773,7 +821,7 @@ export default function Configuracoes() {
   };
 
 
-  const handleDeactivateUser = (member: any) => {
+  const handleDeactivateUser = (member: TeamUser) => {
     // Verificar permissões antes de prosseguir
     if (!user?.permissions?.can_manage_users) {
       toast({
@@ -789,7 +837,7 @@ export default function Configuracoes() {
     setShowDeactivateModal(true);
   };
 
-  const handleDeleteUser = (member: any) => {
+  const handleDeleteUser = (member: TeamUser) => {
     // Verificar permissões antes de prosseguir
     if (!user?.permissions?.can_manage_users) {
       toast({
@@ -805,7 +853,7 @@ export default function Configuracoes() {
     setShowDeleteModal(true);
   };
 
-  const reactivateUser = async (member: any) => {
+  const reactivateUser = async (member: TeamUser) => {
     // Verificar permissões antes de prosseguir
     if (!user?.permissions?.can_manage_users) {
       toast({
@@ -820,8 +868,8 @@ export default function Configuracoes() {
     setIsProcessingAction(true);
     try {
       // Restaurar permissões dos campos de backup e reativar
-      const { error } = await supabase
-        .from('users' as any)
+      const { error } = await untypedSupabase
+        .from('users')
         .update({ 
           is_active: true,
           can_edit: member.can_edit_backup || true,
@@ -882,8 +930,8 @@ export default function Configuracoes() {
     setIsProcessingAction(true);
     try {
       // Salvar permissões atuais em campos de backup antes de desativar
-      const { error } = await supabase
-        .from('users' as any)
+      const { error } = await untypedSupabase
+        .from('users')
         .update({ 
           is_active: false,
           can_edit_backup: selectedUserForAction.can_edit,
@@ -899,7 +947,7 @@ export default function Configuracoes() {
       if (error) throw error;
 
       // Registrar ação
-      await supabase.from('user_actions' as any).insert({
+      await untypedSupabase.from('user_actions').insert({
         user_id: user?.id,
         action_type: 'user_deactivate',
         action_description: `Desativou o usuário ${selectedUserForAction.full_name || selectedUserForAction.name} (removeu permissões de edição)`,
@@ -953,7 +1001,7 @@ export default function Configuracoes() {
       const userName = selectedUserForAction.full_name || selectedUserForAction.name;
 
       // Registrar ação antes de excluir
-      await supabase.from('user_actions' as any).insert({
+      await untypedSupabase.from('user_actions').insert({
         user_id: user?.id,
         action_type: 'user_delete',
         action_description: `Excluiu permanentemente o usuário ${userName} (removido do sistema)`,
@@ -962,20 +1010,20 @@ export default function Configuracoes() {
       });
 
       // 1. Excluir ações do usuário
-      await supabase
-        .from('user_actions' as any)
+      await untypedSupabase
+        .from('user_actions')
         .delete()
         .eq('user_id', userIdToDelete);
 
       // 2. Excluir credenciais do usuário  
-      await supabase
-        .from('user_credentials' as any)
+      await untypedSupabase
+        .from('user_credentials')
         .delete()
         .eq('user_id', userIdToDelete);
 
       // 3. Excluir usuário da tabela principal
-      const { error } = await supabase
-        .from('users' as any)
+      const { error } = await untypedSupabase
+        .from('users')
         .delete()
         .eq('id', userIdToDelete);
 
@@ -1014,13 +1062,13 @@ export default function Configuracoes() {
   };
 
   // Função para verificar se usuário é administrador
-  const isUserAdmin = (member: any) => {
+  const isUserAdmin = (member: TeamUser) => {
     // Admin é determinado apenas pela permissão can_manage_users
     return member.can_manage_users === true;
   };
 
   // Função para promover usuário
-  const handlePromoteUser = (member: any) => {
+  const handlePromoteUser = (member: TeamUser) => {
     if (!user?.permissions?.can_manage_users) {
       toast({
         title: "Sem permissão",
@@ -1036,7 +1084,7 @@ export default function Configuracoes() {
   };
 
   // Função para despromover usuário
-  const handleDemoteUser = (member: any) => {
+  const handleDemoteUser = (member: TeamUser) => {
     if (!user?.permissions?.can_manage_users) {
       toast({
         title: "Sem permissão",
@@ -1079,8 +1127,8 @@ export default function Configuracoes() {
         updated_at: new Date().toISOString()
       };
 
-      const { data, error } = await supabase
-        .from('users' as any)
+      const { data, error } = await untypedSupabase
+        .from('users')
         .update(updateData)
         .eq('id', selectedUserForPromotion.id)
         .select();
@@ -1204,8 +1252,8 @@ export default function Configuracoes() {
       setLoadingTeam(true);
     }
     try {
-      const { data, error } = await supabase
-        .from('users' as any)
+      const { data, error } = await untypedSupabase
+        .from('users')
         .select('id, name, full_name, email, role, avatar, phone, registration_date, created_at, first_login_at, last_login_at, session_count, is_active, can_edit, can_create, can_delete, can_manage_users, can_edit_backup, can_create_backup, can_delete_backup, can_manage_users_backup, deactivated_at')
         .order('registration_date', { ascending: false, nullsFirst: false });
 
@@ -1216,7 +1264,7 @@ export default function Configuracoes() {
 
 
       // Validar e corrigir dados inconsistentes
-      const validatedData = (data || []).map((user: any) => {
+      const validatedData = (data || []).map((user: TeamUser) => {
         // Se first_login_at é null, last_login_at também deve ser null
         if (!user.first_login_at && user.last_login_at) {
           return { ...user, last_login_at: null };
@@ -1225,7 +1273,7 @@ export default function Configuracoes() {
       });
 
       // Ordenar: primeiro o próprio usuário, depois ativos online, depois por completude de dados, depois alfabética
-      const sortedData = validatedData.sort((a: any, b: any) => {
+      const sortedData = validatedData.sort((a: TeamUser, b: TeamUser) => {
         const aIsCurrentUser = a.id === user?.id;
         const bIsCurrentUser = b.id === user?.id;
         
@@ -1312,7 +1360,7 @@ export default function Configuracoes() {
   };
 
   // Funções para alteração de senha de usuários
-  const handleChangeUserPassword = (member: any) => {
+  const handleChangeUserPassword = (member: TeamUser) => {
     // Verificar se é administrador
     if (!user?.permissions?.can_manage_users) {
       toast({
@@ -1356,7 +1404,7 @@ export default function Configuracoes() {
       }
 
       // Buscar credenciais do administrador
-      const { data, error } = await supabase.from('user_credentials' as any)
+      const { data, error } = await untypedSupabase.from('user_credentials')
         .select('password_hash')
         .eq('user_id', user?.id)
         .single();
@@ -1372,8 +1420,8 @@ export default function Configuracoes() {
       }
 
       // Verificar senha do administrador
-      const { data: passwordMatch, error: verifyError } = await supabase
-        .rpc('verify_password' as any, {
+      const { data: passwordMatch, error: verifyError } = await untypedSupabase
+        .rpc('verify_password', {
           user_email: user?.email,
           user_password: adminPasswordForConfirm
         });
@@ -1443,8 +1491,8 @@ export default function Configuracoes() {
     
     try {
       // Primeiro deletar credenciais existentes
-      const { error: deleteError } = await supabase
-        .from('user_credentials' as any)
+      const { error: deleteError } = await untypedSupabase
+        .from('user_credentials')
         .delete()
         .eq('user_id', selectedUserForPasswordChange.id);
 
@@ -1454,8 +1502,8 @@ export default function Configuracoes() {
       }
 
       // Criar nova credencial com nova senha usando RPC function
-      const { error: createError } = await supabase
-        .rpc('create_user_password' as any, {
+      const { error: createError } = await untypedSupabase
+        .rpc('create_user_password', {
           user_email: selectedUserForPasswordChange.email,
           user_password: newUserPassword
         });

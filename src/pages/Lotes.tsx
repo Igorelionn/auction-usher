@@ -47,6 +47,7 @@ interface LoteExtendido extends Lot {
   quantidadeParcelas?: number;
   mesInicioPagamento?: string;
   valorEntrada?: string;
+  imagens?: string[]; // URLs das imagens do lote
 }
 
 interface LoteDocument {
@@ -104,6 +105,34 @@ function LoteImagesModal({
       });
       
       try {
+        const allImages: LoteDocument[] = [];
+
+        // 1. Buscar imagens do campo 'imagens' do lote
+        const { data: auctionData } = await supabaseClient
+          .from('auctions')
+          .select('lotes')
+          .eq('id', auctionId)
+          .single();
+
+        const lotes = (auctionData?.lotes as unknown as LoteInfo[]) || [];
+        const loteData = lotes.find((l: LoteInfo) => l.numero === loteNumero);
+        const imagensDoLote = loteData?.imagens || [];
+
+        if (imagensDoLote.length > 0) {
+          imagensDoLote.forEach((url: string, index: number) => {
+            allImages.push({
+              id: `img-${loteNumero}-${index}`,
+              nome: `Imagem ${index + 1}`,
+              tipo: 'image/jpeg',
+              tamanho: 0,
+              data_upload: new Date().toISOString(),
+              url: url
+            });
+          });
+          console.log('✅ [Modal] Imagens do campo imagens:', imagensDoLote.length);
+        }
+
+        // 2. Buscar imagens do banco de dados (documents)
         const { data, error } = await supabaseClient
           .from('documents')
           .select('id, nome, tipo, tamanho, data_upload, url')
@@ -113,12 +142,14 @@ function LoteImagesModal({
           .order('data_upload', { ascending: false });
 
         if (error) {
-          console.error('❌ [Modal] Erro ao buscar imagens do lote:', error);
-          setImages([]);
-        } else {
-          setImages(data || []);
-          console.log('✅ [Modal] Imagens carregadas:', data?.length || 0);
+          console.error('❌ [Modal] Erro ao buscar imagens do banco:', error);
+        } else if (data && data.length > 0) {
+          allImages.push(...data);
+          console.log('✅ [Modal] Imagens do banco carregadas:', data.length);
         }
+
+        setImages(allImages);
+        console.log('✅ [Modal] Total de imagens:', allImages.length);
       } catch (error) {
         console.error('❌ [Modal] Erro ao buscar imagens do lote:', error);
         setImages([]);
@@ -404,11 +435,13 @@ function Lotes() {
       if (searchTimeoutLotes.current) {
         clearTimeout(searchTimeoutLotes.current);
       }
-      // Limpar todas as URLs blob temporárias
-      tempBlobUrlsRef.current.forEach(url => {
+      // Limpar todas as URLs blob temporárias - copiado para variável local conforme best practice
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      const urlsToRevoke = tempBlobUrlsRef.current;
+      urlsToRevoke.forEach(url => {
         URL.revokeObjectURL(url);
       });
-      tempBlobUrlsRef.current.clear();
+      urlsToRevoke.clear();
     };
   }, [searchInputValueLotes, searchTermLotes]);
 
@@ -617,10 +650,23 @@ function Lotes() {
       loteId: lote.id,
       loteNumero: lote.numero,
       auctionId: lote.auctionId,
-      fotosMercadoriaCount: lote.fotosMercadoria?.length || 0
+      fotosMercadoriaCount: lote.fotosMercadoria?.length || 0,
+      imagensCount: (lote as LoteExtendido).imagens?.length || 0
     });
 
     try {
+      // Buscar o leilão para obter as imagens do lote
+      const { data: auctionData } = await supabaseClient
+        .from('auctions')
+        .select('lotes')
+        .eq('id', lote.auctionId)
+        .single();
+
+      // Encontrar o lote específico e suas imagens
+      const lotesData = (auctionData?.lotes as unknown as LoteInfo[]) || [];
+      const loteData = lotesData.find((l: LoteInfo) => l.numero === lote.numero);
+      const imagensDoLote = loteData?.imagens || [];
+
       // Buscar fotos específicas do lote (categoria: lote_fotos)
       const { data: fotosLote, error: errorLote } = await supabaseClient
         .from('documents')
@@ -634,13 +680,29 @@ function Lotes() {
         console.error('❌ Erro ao buscar fotos do lote:', errorLote);
       }
 
-      console.log("📷 Fotos do lote encontradas:", fotosLote?.length || 0);
+      console.log("📷 Imagens do lote (campo imagens):", imagensDoLote.length);
+      console.log("📷 Fotos do lote (banco de dados):", fotosLote?.length || 0);
       console.log("📷 Fotos da mercadoria disponíveis:", lote.fotosMercadoria?.length || 0);
 
-      // Combinar fotos do lote com fotos da mercadoria
+      // Combinar todas as fotos
       const todasFotos: DocumentoInfo[] = [];
 
-      // Adicionar fotos específicas do lote
+      // 1. Adicionar imagens do campo 'imagens' do lote
+      if (imagensDoLote && imagensDoLote.length > 0) {
+        imagensDoLote.forEach((url: string, index: number) => {
+          todasFotos.push({
+            id: `img-${lote.id}-${index}`,
+            nome: `Imagem ${index + 1}`,
+            tipo: 'image/jpeg',
+            tamanho: 0,
+            dataUpload: new Date().toISOString(),
+            url: url,
+            categoria: 'lote_imagem'
+          });
+        });
+      }
+
+      // 2. Adicionar fotos específicas do lote (banco de dados)
       if (fotosLote && fotosLote.length > 0) {
         fotosLote.forEach(foto => {
           todasFotos.push({
@@ -650,22 +712,23 @@ function Lotes() {
             tamanho: foto.tamanho,
             dataUpload: foto.data_upload,
             url: foto.url,
-            categoria: 'lote' // Marcar como foto do lote
+            categoria: 'lote'
           });
         });
       }
 
-      // Adicionar fotos da mercadoria (do leilão)
+      // 3. Adicionar fotos da mercadoria (do leilão)
       if (lote.fotosMercadoria && lote.fotosMercadoria.length > 0) {
         lote.fotosMercadoria.forEach(foto => {
           todasFotos.push({
             ...foto,
-            categoria: 'mercadoria' // Marcar como foto da mercadoria
+            categoria: 'mercadoria'
           });
         });
       }
 
       console.log("📸 Total de fotos combinadas:", todasFotos.length, {
+        imagensLote: imagensDoLote.length,
         fotosLote: fotosLote?.length || 0,
         fotosMercadoria: lote.fotosMercadoria?.length || 0
       });
@@ -1089,89 +1152,41 @@ function Lotes() {
   const handleEditLote = async (lote: LoteExtendido) => {
     setIsLoadingLoteData(true);
     try {
-      console.log("✏️ Iniciando edição do lote:", {
+      console.log("✏️ Redirecionando para edição do lote no formulário do leilão:", {
         loteId: lote.id,
         numero: lote.numero,
         auctionId: lote.auctionId,
         mercadorias: lote.mercadorias?.length || 0
       });
 
-      // Para edição, vamos pegar a primeira mercadoria como exemplo
-      const primeiraMercadoria = lote.mercadorias?.[0];
-      
-      // Buscar imagens existentes do banco de dados
-      let fotosExistentes: DocumentoInfo[] = [];
-      try {
-      console.log("🔍 Buscando imagens existentes do lote...", {
-        auctionId: lote.auctionId,
-        loteNumero: lote.numero,
-        searchPattern: `Lote ${lote.numero} - %`
-      });
+      // Buscar o leilão completo para encontrar o índice do lote
+      const { data: auction, error } = await supabaseClient
+        .from('auctions')
+        .select('*')
+        .eq('id', lote.auctionId)
+        .single();
 
-      const { data: imagens, error } = await supabaseClient
-        .from('documents')
-        .select('id, nome, tipo, tamanho, data_upload, url')
-        .eq('auction_id', lote.auctionId)
-        .eq('categoria', 'lote_fotos')
-        .like('descricao', `Lote ${lote.numero} - %`);
-
-      if (!error && imagens) {
-        fotosExistentes = imagens.map(img => ({
-          id: img.id,
-          nome: img.nome,
-          tipo: img.tipo,
-          tamanho: img.tamanho,
-          dataUpload: img.data_upload,
-          url: img.url // Carregar URL salva (base64)
-        }));
-        console.log(`✅ ${fotosExistentes.length} imagens carregadas para edição`);
-      } else if (error) {
-        console.error('❌ Erro ao buscar imagens existentes:', error);
-      } else {
-        console.log("ℹ️ Nenhuma imagem encontrada para este lote");
+      if (error || !auction) {
+        console.error('❌ Erro ao buscar leilão:', error);
+        return;
       }
-    } catch (error) {
-      console.error('❌ Erro ao buscar imagens existentes:', error);
-    }
-    
-    // Preparar dados do formulário
-    const formData = {
-      auctionId: lote.auctionId,
-      numero: lote.numero,
-      descricao: lote.descricao,
-      valorProduto: primeiraMercadoria?.valor || lote.valorInicial.toString(),
-      mercadoria: primeiraMercadoria?.tipo || "",
-      quantidade: primeiraMercadoria?.quantidade ? primeiraMercadoria.quantidade.toString() : "",
-      fotos: fotosExistentes,
-      documentos: lote.documentos || [],
-      certificados: lote.certificados || []
-    };
 
-    console.log("📝 Dados carregados no formulário:", {
-      numero: formData.numero,
-      descricao: formData.descricao,
-      valorProduto: formData.valorProduto,
-      mercadoria: formData.mercadoria,
-      fotosCount: formData.fotos.length
-    });
+      // Encontrar o índice do lote na lista de lotes do leilão
+      const lotes: LoteInfo[] = (auction.lotes as unknown as LoteInfo[]) || [];
+      const loteIndex = lotes.findIndex(l => l.numero === lote.numero);
 
-      setLoteForm(formData);
-      setSelectedLote(lote);
-      setIsEditingLote(true);
-      setIsLoteModalOpen(true);
+      console.log("📍 Índice do lote encontrado:", loteIndex);
       
-      // Debug: Verificar se as imagens foram carregadas corretamente
-      console.log("🖼️ Imagens carregadas no formulário:", {
-        fotosCount: formData.fotos.length,
-        fotos: formData.fotos.map(f => ({
-          id: f.id,
-          nome: f.nome,
-          hasUrl: !!f.url,
-          urlLength: f.url?.length || 0
-        }))
+      // Navegar para a página de leilões com o estado de edição
+      navigate('/leiloes', {
+        state: {
+          editAuctionId: lote.auctionId,
+          editLoteIndex: loteIndex >= 0 ? loteIndex : 0,
+          openStep: 2 // Step de "Configuração de Lotes"
+        }
       });
     } catch (error) {
-      console.error('❌ Erro ao carregar dados do lote:', error);
+      console.error('❌ Erro ao redirecionar para edição:', error);
     } finally {
       setIsLoadingLoteData(false);
     }
@@ -1598,11 +1613,11 @@ function Lotes() {
               <Table>
                 <TableHeader>
                   <TableRow className="border-gray-200">
-                    <TableHead className="font-semibold text-gray-700">Número</TableHead>
-                    <TableHead className="font-semibold text-gray-700">Mercadoria</TableHead>
-                    <TableHead className="font-semibold text-gray-700">Descrição</TableHead>
+                    <TableHead className="font-semibold text-gray-700">Número do lote</TableHead>
+                    <TableHead className="font-semibold text-gray-700">Descrição do lote</TableHead>
+                    <TableHead className="font-semibold text-gray-700">Mercadorias</TableHead>
+                    <TableHead className="font-semibold text-gray-700 text-center">Qtd. Mercadorias</TableHead>
                     <TableHead className="font-semibold text-gray-700">Leilão</TableHead>
-                    <TableHead className="font-semibold text-gray-700">Valor do Produto</TableHead>
                     <TableHead className="font-semibold text-gray-700">Status</TableHead>
                     <TableHead className="font-semibold text-gray-700 text-center">Ações</TableHead>
                   </TableRow>
@@ -1614,39 +1629,41 @@ function Lotes() {
                         <span className="font-semibold text-gray-900">#{lote.numero}</span>
                       </TableCell>
                       <TableCell>
-                        {lote.mercadorias && lote.mercadorias.length > 0 ? (
-                          <div className="space-y-1">
-                            {lote.mercadorias.slice(0, 2).map((mercadoria, index) => (
-                              <div key={index} className="text-sm">
-                                <span className="font-medium text-gray-900">{mercadoria.tipo}</span>
-                              </div>
-                            ))}
-                            {lote.mercadorias.length > 2 && (
-                              <div className="text-xs text-gray-500">
-                                +{lote.mercadorias.length - 2} mais
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
                         <div className="max-w-xs">
                           <p className="font-medium text-gray-900 truncate">{lote.descricao}</p>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm text-gray-600">{lote.leilaoNome}</span>
+                        {lote.mercadorias && lote.mercadorias.length > 0 ? (
+                          <Select defaultValue={lote.mercadorias[0].id || "0"}>
+                            <SelectTrigger className="w-auto min-w-[180px] max-w-[300px] h-8 border-0 shadow-none focus:ring-0 focus:ring-offset-0 hover:bg-gray-50 [&>svg]:h-4 [&>svg]:w-4">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="z-[100000]">
+                              {lote.mercadorias.map((mercadoria, index) => (
+                                <SelectItem 
+                                  key={mercadoria.id || index} 
+                                  value={mercadoria.id || index.toString()}
+                                  className="cursor-default"
+                                >
+                                  <span className="font-medium">
+                                    {mercadoria.titulo || mercadoria.tipo || mercadoria.nome || `Mercadoria ${index + 1}`}
+                          </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-gray-400">Sem mercadorias</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className="font-semibold text-gray-900">
+                          {lote.mercadorias?.length || 0}
+                        </span>
                       </TableCell>
                       <TableCell>
-                        {lote.mercadorias && lote.mercadorias.length > 0 ? (
-                          <span className="font-semibold text-black">
-                            {formatCurrency(lote.mercadorias.reduce((sum, m) => sum + m.valorNumerico, 0))}
-                          </span>
-                        ) : (
-                          <span className="font-semibold text-black">{formatCurrency(lote.valorInicial)}</span>
-                        )}
+                        <span className="text-sm text-gray-600">{lote.leilaoNome}</span>
                       </TableCell>
                       <TableCell>
                         <Badge className={`${getStatusBadgeColor(lote.statusLote)} border font-medium`}>
@@ -1761,46 +1778,68 @@ function Lotes() {
                 </div>
               </div>
 
+              <div>
+                <Label className="text-sm font-medium text-gray-700">Descrição do lote</Label>
+                <p className="mt-1 p-3 bg-gray-50 border border-gray-200 rounded-md text-sm">
+                  {selectedLote.descricao}
+                </p>
+              </div>
+
               {/* Mercadorias */}
               {selectedLote.mercadorias && selectedLote.mercadorias.length > 0 ? (
                 <div>
                   <Label className="text-sm font-medium text-gray-700 mb-3 block">
                     Mercadorias ({selectedLote.mercadorias.length})
                   </Label>
-                  <div className="space-y-4">
-                    {selectedLote.mercadorias.map((mercadoria, index) => (
-                      <div key={index} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                        <div className="grid grid-cols-3 gap-4 mb-3">
+                  {selectedLote.mercadorias.length === 1 ? (
+                    <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                      <div className="grid grid-cols-2 gap-4 mb-3">
                           <div>
-                            <Label className="text-xs font-medium text-gray-600">Tipo</Label>
-                            <p className="text-sm font-medium text-gray-900">{mercadoria.tipo}</p>
+                          <Label className="text-xs font-medium text-gray-600">Título</Label>
+                          <p className="text-sm font-medium text-gray-900">
+                            {selectedLote.mercadorias[0].titulo || selectedLote.mercadorias[0].tipo || selectedLote.mercadorias[0].nome || 'Mercadoria'}
+                          </p>
                           </div>
                           <div>
                             <Label className="text-xs font-medium text-gray-600">Quantidade</Label>
-                            <p className="text-sm font-medium text-gray-900">{mercadoria.quantidade || 'Não informado'}</p>
+                          <p className="text-sm font-medium text-gray-900">{selectedLote.mercadorias[0].quantidade || 'Não informado'}</p>
                           </div>
-                          <div>
-                            <Label className="text-xs font-medium text-gray-600">Valor</Label>
-                            <p className="text-sm font-semibold text-black">{formatCurrency(mercadoria.valorNumerico)}</p>
                           </div>
-                        </div>
-                        {mercadoria.descricao && (
+                      {selectedLote.mercadorias[0].descricao && (
                           <div>
                             <Label className="text-xs font-medium text-gray-600">Descrição</Label>
-                            <p className="text-sm text-gray-700 mt-1">{mercadoria.descricao}</p>
+                          <p className="text-sm text-gray-700 mt-1">{selectedLote.mercadorias[0].descricao}</p>
                           </div>
                         )}
                       </div>
-                    ))}
-                    <div className="pt-2 border-t border-gray-200">
-                      <div className="flex justify-between items-center">
-                        <Label className="text-sm font-medium text-gray-700">Valor Total das Mercadorias</Label>
-                        <p className="text-lg font-bold text-black">
-                          {formatCurrency(selectedLote.mercadorias.reduce((sum, m) => sum + m.valorNumerico, 0))}
-                        </p>
+                  ) : (
+                    <div className="space-y-4">
+                      <Select defaultValue={selectedLote.mercadorias[0].id || "0"}>
+                        <SelectTrigger className="w-full h-10 border-gray-300 focus:ring-0 focus:ring-offset-0">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="z-[100000]">
+                          {selectedLote.mercadorias.map((mercadoria, index) => (
+                            <SelectItem 
+                              key={mercadoria.id || index} 
+                              value={mercadoria.id || index.toString()}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">
+                                  {mercadoria.titulo || mercadoria.tipo || mercadoria.nome || `Mercadoria ${index + 1}`}
+                                </span>
+                                {mercadoria.quantidade && (
+                                  <span className="text-xs text-gray-500">
+                                    (Qtd: {mercadoria.quantidade})
+                                  </span>
+                                )}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       </div>
-                    </div>
-                  </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-6 border-2 border-dashed border-gray-200 rounded-lg">
@@ -1809,18 +1848,38 @@ function Lotes() {
               )}
 
               <div>
-                <Label className="text-sm font-medium text-gray-700">Descrição</Label>
-                <p className="mt-1 p-3 bg-gray-50 border border-gray-200 rounded-md text-sm">
-                  {selectedLote.descricao}
-                </p>
-              </div>
-
-              <div>
                 <Label className="text-sm font-medium text-gray-700">Leilão</Label>
                 <p className="mt-1 p-3 bg-gray-50 border border-gray-200 rounded-md text-sm">
                   {selectedLote.leilaoNome}
                 </p>
               </div>
+
+              {/* Imagens do Lote (do campo imagens) */}
+              {(() => {
+                const loteComImagens = selectedLote as LoteExtendido;
+                return loteComImagens.imagens && loteComImagens.imagens.length > 0 ? (
+              <div>
+                    <Label className="text-sm font-medium text-gray-700 mb-3 block">
+                      Imagens do Lote ({loteComImagens.imagens.length})
+                    </Label>
+                    <div className="grid grid-cols-4 gap-3">
+                      {loteComImagens.imagens.map((img: string, index: number) => (
+                        <div key={index} className="relative aspect-square group">
+                          <img
+                            src={img}
+                            alt={`Imagem ${index + 1}`}
+                            className="w-full h-full object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity"
+                            onClick={() => {
+                              setIsViewLoteModalOpen(false);
+                              handleViewPhotos(selectedLote);
+                            }}
+                          />
+              </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null;
+              })()}
 
               {/* Imagens do Lote */}
               <LoteImagesModal 
@@ -2116,10 +2175,9 @@ function Lotes() {
 
       {/* Modal de Visualização de Fotos */}
       <Dialog open={isPhotoViewerOpen} onOpenChange={setIsPhotoViewerOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden" hideCloseButton={true}>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Image className="h-5 w-5" />
+            <DialogTitle>
               Fotos do Lote - {selectedLoteForPhotos?.descricao}
             </DialogTitle>
           </DialogHeader>

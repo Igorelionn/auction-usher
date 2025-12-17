@@ -4,9 +4,11 @@ import { useToast } from "@/hooks/use-toast";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { useEmailNotifications } from "@/hooks/use-email-notifications";
 import { parseCurrencyToNumber } from "@/lib/utils";
-import { ArrematanteInfo, DocumentoInfo } from "@/lib/types";
+import { ArrematanteInfo, DocumentoInfo, Auction, LoteInfo } from "@/lib/types";
 import html2pdf from 'html2pdf.js';
 import { parseISO } from 'date-fns';
+import { obterValorTotalArrematante } from "@/lib/parcelamento-calculator";
+import { ArrematanteWizard } from "@/components/ArrematanteWizard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,9 +90,9 @@ function Arrematantes() {
   };
 
   // Função específica para calcular próxima data em entrada_parcelamento
-  const calculateNextPaymentDateEntradaParcelamento = (arrematante: ArrematanteInfo, auction: any) => {
+  const calculateNextPaymentDateEntradaParcelamento = (arrematante: ArrematanteInfo, auction: Auction) => {
     const parcelasPagas = arrematante.parcelasPagas || 0;
-    const loteArrematado = auction?.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+    const loteArrematado = auction?.lotes?.find((lote: LoteInfo) => lote.id === arrematante.loteId);
     
     // Se já quitou tudo, retorna null
     if (arrematante.pago) {
@@ -151,7 +153,7 @@ function Arrematantes() {
   };
 
   // Função para lidar com mudanças no formulário de edição completa
-  const handleFullEditFormChange = (field: string, value: any) => {
+  const handleFullEditFormChange = (field: string, value: unknown) => {
     const newForm = {
       ...fullEditForm,
       [field]: value
@@ -357,6 +359,9 @@ function Arrematantes() {
 
   // Limpar blob URLs quando componente desmontar
   useEffect(() => {
+    // Capturar o valor atual do ref no corpo do efeito
+    const currentBlobUrls = tempBlobUrlsRef.current;
+    
     return () => {
       // Limpar timeouts pendentes
       if (syncTimeoutRef.current) {
@@ -364,15 +369,15 @@ function Arrematantes() {
         syncTimeoutRef.current = null;
       }
       
-      // Limpar todas as URLs blob temporárias
-      tempBlobUrlsRef.current.forEach(url => {
+      // Limpar todas as URLs blob temporárias usando a captura
+      currentBlobUrls.forEach(url => {
         try {
           URL.revokeObjectURL(url);
         } catch (error) {
           // Erro silencioso ao revogar URL
         }
       });
-      tempBlobUrlsRef.current.clear();
+      currentBlobUrls.clear();
       
       // Resetar flags de controle
       isUpdatingRef.current = false;
@@ -438,7 +443,9 @@ function Arrematantes() {
         }));
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auctions, selectedArrematanteForFullEdit?.leilaoId, isFullEditModalOpen]);
+  // Nota: selectedArrematanteForFullEdit completo não é incluído para evitar loops quando ele muda
 
   // 🔄 SINCRONIZAÇÃO BIDIRECIONAL: Escutar mudanças do formulário do leilão
   useEffect(() => {
@@ -538,7 +545,9 @@ function Arrematantes() {
         }, 100); // Pequeno delay para garantir inicialização
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedArrematanteForFullEdit?.leilaoId, auctions.length, isFullEditModalOpen]);
+  // Nota: auctions e selectedArrematanteForFullEdit completo não são incluídos para evitar loops infinitos
 
   // Animação de loading
   useEffect(() => {
@@ -553,16 +562,27 @@ function Arrematantes() {
       
       return () => clearTimeout(timer);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm, statusFilter, showArchived]);
+  // Nota: searchInputValue não é incluído intencionalmente para evitar loops infinitos de renderização
 
   // Processar arrematantes de todos os leilões
   const processedArrematantes = (): ArrematanteExtendido[] => {
     const now = new Date();
 
-    return auctions
-      .filter(auction => auction.arrematante && (showArchived ? auction.arquivado : !auction.arquivado))
-      .map(auction => {
-        const arrematante = auction.arrematante!;
+    // Processar múltiplos arrematantes por leilão
+    const result: ArrematanteExtendido[] = [];
+    
+    for (const auction of auctions) {
+      // Filtrar por arquivado
+      if (showArchived ? !auction.arquivado : auction.arquivado) continue;
+      
+      // Obter arrematantes (novo array ou compatibilidade com antigo)
+      const arrematantes = auction.arrematantes || (auction.arrematante ? [auction.arrematante] : []);
+      
+      if (arrematantes.length === 0) continue;
+      
+      for (const arrematante of arrematantes) {
         
         // Verificar tipo de pagamento
         const loteArrematado = auction?.lotes?.find(lote => lote.id === arrematante.loteId);
@@ -600,16 +620,18 @@ function Arrematantes() {
           }
         }
 
-        return {
+        result.push({
           ...arrematante,
-          id: `${auction.id}-arrematante`,
+          id: arrematante.id || `${auction.id}-${arrematante.nome}`,
           leilaoNome: auction.nome,
           leilaoId: auction.id,
           dataLeilao: auction.dataInicio,
           statusPagamento
-        };
-      })
-      .sort((a, b) => {
+        });
+      }
+    }
+    
+    return result.sort((a, b) => {
         const today = new Date();
         
         // Calcular próximas datas de pagamento para comparação
@@ -814,28 +836,39 @@ function Arrematantes() {
       // Buscar o lote para copiar as datas de pagamento
       const loteArrematado = auction?.lotes?.find(lote => lote.id === selectedArrematante.loteId);
 
-      const updateData: any = {
-        arrematante: {
+      // Atualizar arrematante específico no array
+      const arrematantes = auction.arrematantes || (auction.arrematante ? [auction.arrematante] : []);
+      const arrematanteAtualizado = {
+        id: selectedArrematante.id,
           nome: editForm.nome,
           email: editForm.email,
-          documento: selectedArrematante.documento || "", // 🔧 SINCRONIZAÇÃO: Preservar documento
-          endereco: selectedArrematante.endereco || "",   // 🔧 SINCRONIZAÇÃO: Preservar endereço
+        documento: selectedArrematante.documento || "",
+        endereco: selectedArrematante.endereco || "",
           telefone: selectedArrematante.telefone,
           loteId: selectedArrematante.loteId,
           valorPagar: editForm.valorPagar,
           valorPagarNumerico: parseFloat(editForm.valorPagar.replace(/[R$\s.]/g, '').replace(',', '.')) || 0,
-          valorEntrada: selectedArrematante.valorEntrada, // 🔧 Preservar valor da entrada
+        valorEntrada: selectedArrematante.valorEntrada,
           diaVencimentoMensal: selectedArrematante.diaVencimentoMensal,
           quantidadeParcelas: selectedArrematante.quantidadeParcelas,
           parcelasPagas: selectedArrematante.parcelasPagas,
           mesInicioPagamento: selectedArrematante.mesInicioPagamento,
-          dataEntrada: loteArrematado?.dataEntrada || selectedArrematante.dataEntrada, // 🔧 Preservar data de entrada
-          dataVencimentoVista: loteArrematado?.dataVencimentoVista || selectedArrematante.dataVencimentoVista, // 🔧 Preservar data à vista
+        dataEntrada: loteArrematado?.dataEntrada || selectedArrematante.dataEntrada,
+        dataVencimentoVista: loteArrematado?.dataVencimentoVista || selectedArrematante.dataVencimentoVista,
           pago: selectedArrematante.pago,
-          percentualJurosAtraso: selectedArrematante.percentualJurosAtraso, // 🔧 Preservar percentual de juros
-          tipoJurosAtraso: selectedArrematante.tipoJurosAtraso, // 🔧 Preservar tipo de juros
+        percentualJurosAtraso: selectedArrematante.percentualJurosAtraso,
+        tipoJurosAtraso: selectedArrematante.tipoJurosAtraso,
           documentos: documentosProcessados
-        }
+      };
+      
+      const arrematantesAtualizados = arrematantes.map(a => 
+        a.id === selectedArrematante.id || (!a.id && a.nome === selectedArrematante.nome) 
+          ? arrematanteAtualizado 
+          : a
+      );
+
+      const updateData: Partial<Auction> = {
+        arrematantes: arrematantesAtualizados
       };
 
       // 🔄 SINCRONIZAÇÃO BIDIRECIONAL: Verificar se devemos atualizar os padrões do leilão
@@ -1090,7 +1123,7 @@ function Arrematantes() {
   };
 
   // Função para calcular juros compostos em parcelas atrasadas
-  const calcularJurosAtraso = (arrematante: any, auction: any, valorParcela: number) => {
+  const calcularJurosAtraso = (arrematante: ArrematanteInfo, auction: Auction, valorParcela: number) => {
     const percentualJuros = (arrematante.percentualJurosAtraso || 0) / 100; // Converter % para decimal
     
     if (percentualJuros === 0) {
@@ -1098,7 +1131,7 @@ function Arrematantes() {
     }
 
     const now = new Date();
-    const loteArrematado = auction?.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+    const loteArrematado = auction?.lotes?.find((lote: LoteInfo) => lote.id === arrematante.loteId);
     const tipoPagamento = loteArrematado?.tipoPagamento || auction?.tipoPagamento || "parcelamento";
     
     // Para entrada_parcelamento, verificar se é entrada ou parcela mensal
@@ -1145,12 +1178,25 @@ function Arrematantes() {
   const calcularValorTotalComJuros = (arrematante: ArrematanteExtendido) => {
     const auction = auctions.find(a => a.id === arrematante.leilaoId);
     if (!auction || !auction.arrematante) {
-      return arrematante.valorPagarNumerico || 0;
+      return obterValorTotalArrematante({
+        usaFatorMultiplicador: arrematante?.usaFatorMultiplicador,
+        valorLance: arrematante?.valorLance,
+        fatorMultiplicador: arrematante?.fatorMultiplicador,
+        valorPagarNumerico: arrematante.valorPagarNumerico || 0
+      });
     }
 
-    const loteArrematado = auction?.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+    const loteArrematado = auction?.lotes?.find((lote: LoteInfo) => lote.id === arrematante.loteId);
     const tipoPagamento = loteArrematado?.tipoPagamento || auction?.tipoPagamento || "parcelamento";
-    const valorTotal = arrematante.valorPagarNumerico || 0;
+    
+    // NOVO: Usar função que considera fator multiplicador se disponível
+    const valorTotal = obterValorTotalArrematante({
+      usaFatorMultiplicador: arrematante?.usaFatorMultiplicador,
+      valorLance: arrematante?.valorLance,
+      fatorMultiplicador: arrematante?.fatorMultiplicador || loteArrematado?.fatorMultiplicador,
+      valorPagarNumerico: arrematante.valorPagarNumerico || 0
+    });
+    
     const now = new Date();
     const parcelasPagas = arrematante.parcelasPagas || 0;
 
@@ -1272,7 +1318,7 @@ function Arrematantes() {
       }
       
       // Se NÃO está pago, calcular valor futuro com juros das parcelas atrasadas
-      let valorTotalComJuros = valorTotal;
+      const valorTotalComJuros = valorTotal;
       let jurosAcumulados = 0;
       
       // Verificar se entrada está atrasada
@@ -1357,7 +1403,7 @@ function Arrematantes() {
       }
       
       // Se NÃO está pago, calcular valor futuro com juros das parcelas atrasadas
-      let valorTotalComJuros = valorTotal;
+      const valorTotalComJuros = valorTotal;
       let jurosAcumulados = 0;
       
       if (arrematante.mesInicioPagamento && arrematante.diaVencimentoMensal) {
@@ -1841,7 +1887,11 @@ function Arrematantes() {
     if (!selectedArrematanteForFullEdit) return;
 
     const auction = auctions.find(a => a.id === selectedArrematanteForFullEdit.leilaoId);
-    if (!auction || !auction.arrematante) return;
+    if (!auction) return;
+    
+    // Obter arrematantes (compatibilidade com antigo)
+    const arrematantes = auction.arrematantes || (auction.arrematante ? [auction.arrematante] : []);
+    if (arrematantes.length === 0) return;
 
     setIsSavingFullEdit(true);
     
@@ -1920,10 +1970,9 @@ function Arrematantes() {
       // Buscar o lote para copiar as datas de pagamento
       const loteArrematado = auction.lotes?.find(lote => lote.id === fullEditForm.loteId);
 
-      // Preparar dados para atualização
-      const updateData: any = {
-        arrematante: {
-          ...auction.arrematante,
+      // Preparar arrematante atualizado
+      const arrematanteAtualizado = {
+        id: selectedArrematanteForFullEdit.id,
           nome: fullEditForm.nome,
           documento: fullEditForm.documento,
           endereco: fullEditForm.endereco,
@@ -1937,11 +1986,22 @@ function Arrematantes() {
           quantidadeParcelas: fullEditForm.quantidadeParcelas,
           parcelasPagas: fullEditForm.parcelasPagas,
           mesInicioPagamento: fullEditForm.mesInicioPagamento,
-          dataEntrada: loteArrematado?.dataEntrada, // 🔧 Copiar data de entrada do lote
-          dataVencimentoVista: loteArrematado?.dataVencimentoVista, // 🔧 Copiar data à vista do lote
+        dataEntrada: loteArrematado?.dataEntrada,
+        dataVencimentoVista: loteArrematado?.dataVencimentoVista,
           pago: fullEditForm.pago,
           documentos: documentosProcessados
-        }
+      };
+      
+      // Atualizar no array
+      const arrematantesAtualizados = arrematantes.map(a => 
+        a.id === selectedArrematanteForFullEdit.id || (!a.id && a.nome === selectedArrematanteForFullEdit.nome)
+          ? arrematanteAtualizado 
+          : a
+      );
+      
+      // Preparar dados para atualização
+      const updateData: Partial<Auction> = {
+        arrematantes: arrematantesAtualizados
       };
 
       // 🔄 SINCRONIZAÇÃO BIDIRECIONAL: Se valores do arrematante diferem, sincronizar leilão
@@ -2169,7 +2229,15 @@ function Arrematantes() {
     if (!selectedArrematanteForPayment) return;
 
     const auction = auctions.find(a => a.id === selectedArrematanteForPayment.leilaoId);
-    if (!auction || !auction.arrematante) return;
+    if (!auction) return;
+    
+    // Obter arrematantes (compatibilidade)
+    const arrematantes = auction.arrematantes || (auction.arrematante ? [auction.arrematante] : []);
+    if (arrematantes.length === 0) return;
+    
+    // Encontrar arrematante específico
+    const arrematanteAtual = arrematantes.find(a => a.id === selectedArrematanteForPayment.id || a.nome === selectedArrematanteForPayment.nome);
+    if (!arrematanteAtual) return;
 
     // 🔧 ADAPTAÇÃO: Verificar tipo de pagamento
     const loteArrematado = auction?.lotes?.find(lote => lote.id === selectedArrematanteForPayment.loteId);
@@ -2221,25 +2289,31 @@ function Arrematantes() {
       // Buscar o lote para copiar as datas de pagamento
       const loteArrematado = auction?.lotes?.find(lote => lote.id === selectedArrematanteForPayment.loteId);
       
+      // Atualizar arrematante específico no array
+      const arrematantesAtualizados = arrematantes.map(a => 
+        a.id === selectedArrematanteForPayment.id || (!a.id && a.nome === selectedArrematanteForPayment.nome)
+          ? {
+              ...a,
+              parcelasPagas: parcelasPagasValue,
+              pago: isFullyPaid,
+              dataEntrada: loteArrematado?.dataEntrada || a.dataEntrada,
+              dataVencimentoVista: loteArrematado?.dataVencimentoVista || a.dataVencimentoVista,
+              mesInicioPagamento: a.mesInicioPagamento || loteArrematado?.mesInicioPagamento,
+              diaVencimentoMensal: a.diaVencimentoMensal || loteArrematado?.diaVencimentoPadrao
+            }
+          : a
+      );
+      
       // Atualizar no banco de dados
       const updatePromise = updateAuction({
         id: auction.id,
         data: {
-          arrematante: {
-            ...auction.arrematante,
-            parcelasPagas: parcelasPagasValue,
-            pago: isFullyPaid,
-            // Preservar datas de pagamento do lote
-            dataEntrada: loteArrematado?.dataEntrada || auction.arrematante.dataEntrada,
-            dataVencimentoVista: loteArrematado?.dataVencimentoVista || auction.arrematante.dataVencimentoVista,
-            mesInicioPagamento: auction.arrematante.mesInicioPagamento || loteArrematado?.mesInicioPagamento,
-            diaVencimentoMensal: auction.arrematante.diaVencimentoMensal || loteArrematado?.diaVencimentoPadrao
-          }
+          arrematantes: arrematantesAtualizados
         }
       });
       
       // Log em paralelo (não bloquear UI)
-      const oldParcelasPagas = auction.arrematante.parcelasPagas || 0;
+      const oldParcelasPagas = arrematanteAtual.parcelasPagas || 0;
       const paymentDetails = `${oldParcelasPagas} → ${parcelasPagasValue} parcelas pagas${isFullyPaid ? ' (totalmente quitado)' : ''}`;
       
       const logPromise = logPaymentAction(
@@ -2406,7 +2480,7 @@ function Arrematantes() {
             id: auction.id,
             leilaoNome: auction.nome,
             leilaoId: auction.id,
-            dataLeilao: auction.data,
+            dataLeilao: auction.dataInicio,
             statusPagamento: 'pago' as const
           };
           const valorTotalComJuros = calcularValorTotalComJuros(arrematanteExtendido);
@@ -3135,7 +3209,7 @@ function Arrematantes() {
                               );
                             } else {
                               // Para parcelamento (lógica original)
-                              const loteArrematado = auction.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+                              const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante.loteId);
                               const tipoPagamento = loteArrematado?.tipoPagamento || auction.tipoPagamento || "parcelamento";
                               const quantidadeParcelas = arrematante.quantidadeParcelas || 0;
                               const parcelasPagas = arrematante.parcelasPagas || 0;
@@ -3181,7 +3255,7 @@ function Arrematantes() {
                                   </span>
                                   <span className="text-xs text-gray-500">
                                     {(() => {
-                                      const loteArrematado = auction.lotes?.find((lote: any) => lote.id === arrematante.loteId);
+                                      const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante.loteId);
                                       const tipoPagamento = loteArrematado?.tipoPagamento || auction.tipoPagamento || "parcelamento";
                                       const parcelasPagas = arrematante.parcelasPagas || 0;
                                       const quantidadeParcelas = arrematante.quantidadeParcelas || 0;
@@ -3251,15 +3325,6 @@ function Arrematantes() {
                             title="Editar"
                           >
                             <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleOpenFullEdit(arrematante)}
-                            className="h-8 w-8 p-0 text-gray-600 hover:text-black hover:bg-gray-100 btn-action-click"
-                            title="Editar Informações Completas"
-                          >
-                            <FileText className="h-4 w-4" />
                           </Button>
                           
                           {/* Dropdown com ações adicionais */}
@@ -3607,13 +3672,119 @@ function Arrematantes() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal de Edição */}
-      <Dialog open={isEditModalOpen} onOpenChange={(open) => {
-        setIsEditModalOpen(open);
-        if (!open) {
+      {/* Wizard de Edição de Arrematante */}
+      {isEditModalOpen && selectedArrematante && (() => {
+        const auction = auctions.find(a => a.id === selectedArrematante.leilaoId);
+        if (!auction) return null;
+
+        return (
+          <ArrematanteWizard
+            initial={{
+              arrematante: {
+                nome: selectedArrematante.nome,
+                documento: selectedArrematante.documento,
+                telefone: selectedArrematante.telefone,
+                email: selectedArrematante.email,
+                endereco: selectedArrematante.endereco,
+                loteId: selectedArrematante.loteId,
+                valorPagar: selectedArrematante.valorPagar,
+                valorPagarNumerico: selectedArrematante.valorPagarNumerico,
+                valorEntrada: selectedArrematante.valorEntrada,
+                quantidadeParcelas: selectedArrematante.quantidadeParcelas,
+                mesInicioPagamento: selectedArrematante.mesInicioPagamento,
+                diaVencimentoMensal: selectedArrematante.diaVencimentoMensal,
+                parcelasPagas: selectedArrematante.parcelasPagas,
+                percentualJurosAtraso: selectedArrematante.percentualJurosAtraso,
+                tipoJurosAtraso: selectedArrematante.tipoJurosAtraso,
+                documentos: selectedArrematante.documentos,
+                pago: selectedArrematante.pago,
+                valorLance: selectedArrematante.valorLance,
+                fatorMultiplicador: selectedArrematante.fatorMultiplicador,
+                usaFatorMultiplicador: selectedArrematante.usaFatorMultiplicador,
+                parcelasTriplas: selectedArrematante.parcelasTriplas,
+                parcelasDuplas: selectedArrematante.parcelasDuplas,
+                parcelasSimples: selectedArrematante.parcelasSimples,
+              },
+              lotes: auction.lotes || [],
+              auctionName: auction.nome,
+              auctionId: auction.id,
+              defaultDiaVencimento: auction.diaVencimentoPadrao,
+              defaultQuantidadeParcelas: auction.parcelasPadrao,
+              defaultMesInicio: auction.mesInicioPagamento,
+            }}
+            onSubmit={async (data) => {
+              if (!selectedArrematante) return;
+              
+              setIsSavingEdit(true);
+              try {
+                // Processar documentos blob para base64
+                const documentosProcessados = await Promise.all(
+                  (data.documentos || []).map(async (doc) => {
+                    if (doc.url && doc.url.startsWith('blob:')) {
+                      try {
+                        const response = await fetch(doc.url);
+                        const blob = await response.blob();
+                        const base64 = await new Promise<string>((resolve, reject) => {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            if (reader.result && typeof reader.result === 'string') {
+                              resolve(reader.result);
+                            } else {
+                              reject(new Error('FileReader retornou resultado inválido'));
+                            }
+                          };
+                          reader.onerror = () => reject(new Error('Erro no FileReader'));
+                          reader.readAsDataURL(blob);
+                        });
+                        URL.revokeObjectURL(doc.url);
+                        return { ...doc, url: base64 };
+                      } catch (error) {
+                        return { ...doc, url: null };
+                      }
+                    }
+                    return doc;
+                  })
+                );
+
+                await updateAuction({
+                  id: selectedArrematante.leilaoId,
+                  data: {
+                    arrematante: {
+                      ...data,
+                      nome: data.nome || selectedArrematante.nome, // Garantir que nome sempre existe
+                      documentos: documentosProcessados
+                    } as ArrematanteInfo
+                  }
+                });
+
+                toast({
+                  title: "Arrematante atualizado",
+                  description: "As informações foram salvas com sucesso.",
+                });
+
+                setIsEditModalOpen(false);
           setSelectedArrematante(null);
+              } catch (error) {
+                console.error("Erro ao salvar:", error);
+                toast({
+                  title: "Erro ao salvar",
+                  description: "Não foi possível atualizar o arrematante.",
+                  variant: "destructive",
+                });
+              } finally {
+                setIsSavingEdit(false);
         }
-      }}>
+            }}
+            onCancel={() => {
+              setIsEditModalOpen(false);
+              setSelectedArrematante(null);
+            }}
+          />
+        );
+      })()}
+
+      {/* Modal de Edição Antigo - REMOVIDO */}
+      <Dialog open={false}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto custom-scrollbar">
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold text-gray-900">
@@ -3726,7 +3897,7 @@ function Arrematantes() {
                         <p><strong>Parcelas:</strong> {selectedArrematante.quantidadeParcelas}x de R$ {(selectedArrematante.valorPagarNumerico / selectedArrematante.quantidadeParcelas).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                         <p><strong>Vencimento:</strong> Todo dia {selectedArrematante.diaVencimentoMensal} • {(() => {
                           const auction = auctions.find(a => a.arrematante && a.arrematante.nome === selectedArrematante.nome);
-                          const loteArrematado = auction?.lotes?.find((lote: any) => lote.id === selectedArrematante.loteId);
+                          const loteArrematado = auction?.lotes?.find((lote: LoteInfo) => lote.id === selectedArrematante.loteId);
                           const tipoPagamento = loteArrematado?.tipoPagamento || auction?.tipoPagamento || "parcelamento";
                           const parcelasPagas = selectedArrematante.parcelasPagas || 0;
                           const quantidadeParcelas = selectedArrematante.quantidadeParcelas || 0;
@@ -3923,7 +4094,7 @@ function Arrematantes() {
                     return `${selectedArrematanteForPayment.nome} • Pagamento à Vista`;
                   } else {
                     const auction = auctions.find(a => a.arrematante && a.arrematante.nome === selectedArrematanteForPayment.nome);
-                    const loteArrematado = auction?.lotes?.find((lote: any) => lote.id === selectedArrematanteForPayment.loteId);
+                    const loteArrematado = auction?.lotes?.find((lote: LoteInfo) => lote.id === selectedArrematanteForPayment.loteId);
                     const tipoPagamento = loteArrematado?.tipoPagamento || auction?.tipoPagamento || "parcelamento";
                     
                     if (tipoPagamento === "entrada_parcelamento") {
