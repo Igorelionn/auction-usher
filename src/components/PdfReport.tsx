@@ -1,368 +1,343 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Auction } from '@/lib/types';
-import { Calendar, MapPin, DollarSign, FileText, Clock, Building, Globe, Users, CreditCard, User, Package, Image } from 'lucide-react';
+import { supabaseClient } from '@/lib/supabase-client';
 
 interface PdfReportProps {
   auction: Auction;
 }
 
-export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
-  // Função para converter string de moeda para número
-  const parseCurrencyToNumber = (currencyString: string): number => {
-    if (!currencyString) return 0;
-    // Remove R$, espaços, pontos (milhares) e converte vírgula para ponto decimal
-    const cleanString = currencyString
-      .replace(/[R$\s]/g, '')
-      .replace(/\./g, '')
-      .replace(',', '.');
-    return parseFloat(cleanString) || 0;
-  };
+interface LoteImage {
+  id: string;
+  nome: string;
+  tipo: string;
+  url: string | null;
+}
 
-  const formatCurrency = (value: string | number | undefined) => {
-    if (!value && value !== 0) return 'R$ 0,00';
+export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
+  const formatCurrency = (value: number | string | undefined) => {
+    if (!value && value !== 0) return "R$ 0,00";
     
     if (typeof value === 'number') {
-      return new Intl.NumberFormat('pt-BR', {
-        style: 'currency',
-        currency: 'BRL'
+      return new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL"
       }).format(value);
     }
     
     if (typeof value === 'string') {
-      // Se já tem formatação R$, usa parseCurrencyToNumber para converter corretamente
-      if (value.startsWith('R$')) {
-        const numericValue = parseCurrencyToNumber(value);
-        return new Intl.NumberFormat('pt-BR', {
-          style: 'currency',
-          currency: 'BRL'
-        }).format(numericValue);
+      const cleaned = value.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
+      const num = parseFloat(cleaned);
+      if (!isNaN(num)) {
+        return new Intl.NumberFormat("pt-BR", {
+          style: "currency",
+          currency: "BRL"
+        }).format(num);
       }
-      
-      // Para strings sem R$, tenta converter diretamente
-      const numericValue = parseCurrencyToNumber(`R$ ${value}`);
-      if (!isNaN(numericValue) && numericValue > 0) {
-        return new Intl.NumberFormat('pt-BR', {
-          style: 'currency',
-          currency: 'BRL'
-        }).format(numericValue);
-      }
-      
-      // Se não conseguiu converter, adiciona R$ se não tiver
-      return `R$ ${value}`;
     }
     
-    return 'R$ 0,00';
+    return "R$ 0,00";
   };
 
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return 'Não informado';
-    try {
-      const date = new Date(dateString + 'T00:00:00');
-      return date.toLocaleDateString('pt-BR');
-    } catch {
-      return 'Data inválida';
-    }
-  };
-
-  const formatTime = (timeString?: string) => {
-    if (!timeString) return 'Não informado';
-    return timeString;
-  };
-
-  const formatMonthYear = (dateString?: string) => {
-    if (!dateString) return 'Não informado';
-    try {
-      const date = new Date(dateString + 'T00:00:00');
-      const monthNames = [
-        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-      ];
-      return `${monthNames[date.getMonth()]}/${date.getFullYear()}`;
-    } catch {
-      return 'Data inválida';
-    }
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString + 'T12:00:00.000Z');
+    return date.toLocaleDateString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit", 
+      year: "numeric",
+      timeZone: "UTC"
+    });
   };
 
   const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'agendado': return 'Agendado';
-      case 'em_andamento': return 'Em Andamento';
-      case 'finalizado': return 'Finalizado';
-      default: return status || 'Não informado';
-    }
+    const labels = {
+      agendado: "Agendado",
+      em_andamento: "Em Andamento",
+      finalizado: "Finalizado"
+    };
+    return labels[status as keyof typeof labels] || status;
+  };
+
+  const getStatusColor = (status: string) => {
+    if (status === 'em_andamento') return { bg: '#dcfce7', color: '#15803d', border: '#86efac' };
+    if (status === 'finalizado') return { bg: '#e5e7eb', color: '#1f2937', border: '#9ca3af' };
+    return { bg: '#f3f4f6', color: '#374151', border: '#d1d5db' }; // agendado
   };
 
   const getLocalLabel = (local: string) => {
-    switch (local) {
-      case 'presencial': return 'Presencial';
-      case 'online': return 'Online';
-      case 'hibrido': return 'Híbrido';
-      default: return local || 'Não informado';
-    }
+    const labels = {
+      presencial: "Presencial",
+      online: "Online",
+      hibrido: "Híbrido"
+    };
+    return labels[local as keyof typeof labels] || local;
   };
 
-  const getPaymentStatus = () => {
-    if (!auction.arrematante) return 'Não informado';
+  const todosArrematantes = auction.arrematantes && auction.arrematantes.length > 0 
+    ? auction.arrematantes 
+    : (auction.arrematante ? [auction.arrematante] : []);
+
+  const statusColors = getStatusColor(auction.status);
     
-    if (auction.arrematante.pago) return 'Pago';
-    
-    // Encontrar o lote arrematado baseado no loteId do arrematante
-    const loteArrematado = auction.arrematante?.loteId 
-      ? auction.lotes?.find(lote => lote.id === auction.arrematante.loteId)
-      : null;
-    
-    // Usar tipo de pagamento do lote específico ou fallback para global
-    const tipoPagamento = loteArrematado?.tipoPagamento || auction.tipoPagamento;
-    
-    // Verificar se está atrasado baseado no tipo de pagamento
-    const now = new Date();
-    
-    if (tipoPagamento === 'a_vista') {
-      const dataVencimento = loteArrematado?.dataVencimentoVista || auction.dataVencimentoVista;
-      if (dataVencimento) {
-        const dueDate = new Date(dataVencimento);
-        dueDate.setHours(23, 59, 59, 999);
-        return now > dueDate ? 'Atrasado' : 'Pendente';
-      }
-    }
-    
-    if (tipoPagamento === 'entrada_parcelamento') {
-      const dataEntrada = loteArrematado?.dataEntrada || auction.dataEntrada;
-      if (dataEntrada) {
-        const entryDueDate = new Date(dataEntrada);
-        entryDueDate.setHours(23, 59, 59, 999);
-        if (now > entryDueDate) return 'Atrasado';
-      }
-    }
-    
-    // Para parcelamento ou entrada+parcelamento, verificar primeira parcela
-    if (auction.arrematante.mesInicioPagamento && auction.arrematante.diaVencimentoMensal) {
-      try {
-        let year: number, month: number;
-        
-        if (auction.arrematante.mesInicioPagamento.includes('-')) {
-          [year, month] = auction.arrematante.mesInicioPagamento.split('-').map(Number);
-        } else {
-          year = new Date().getFullYear();
-          month = parseInt(auction.arrematante.mesInicioPagamento);
-        }
-        
-        const firstPaymentDate = new Date(year, month - 1, auction.arrematante.diaVencimentoMensal);
-        firstPaymentDate.setHours(23, 59, 59, 999);
-        
-        if (now > firstPaymentDate && (auction.arrematante.parcelasPagas || 0) === 0) {
-          return 'Atrasado';
+  // Hook para buscar imagens dos lotes
+  const [lotesComImagens, setLotesComImagens] = useState<Record<string, LoteImage[]>>({});
+
+  useEffect(() => {
+    const fetchAllLoteImages = async () => {
+      if (!auction.lotes || auction.lotes.length === 0) return;
+
+      const imagesMap: Record<string, LoteImage[]> = {};
+
+      for (const lote of auction.lotes) {
+        try {
+          const { data, error } = await supabaseClient
+            .from('documents')
+            .select('id, nome, tipo, url')
+            .eq('auction_id', auction.id)
+            .eq('categoria', 'lote_fotos')
+            .like('descricao', `%Lote ${lote.numero}%`)
+            .order('data_upload', { ascending: false })
+            .limit(4); // Limitar a 4 imagens por lote para PDF
+
+          if (!error && data && data.length > 0) {
+            imagesMap[lote.id] = data as LoteImage[];
         }
       } catch (error) {
-        console.error('Erro ao calcular status de pagamento:', error);
+          console.error(`Erro ao buscar imagens do lote ${lote.numero}:`, error);
       }
     }
     
-    return 'Pendente';
-  };
+      setLotesComImagens(imagesMap);
+    };
 
-  const getTipoPagamentoLabel = (tipoPagamento?: string) => {
-    switch (tipoPagamento) {
-      case 'a_vista': return 'À Vista';
-      case 'parcelamento': return 'Parcelamento';
-      case 'entrada_parcelamento': return 'Entrada + Parcelamento';
-      default: return 'Parcelamento (padrão)';
-    }
-  };
-
-
-  const formatFileSize = (bytes?: number) => {
-    if (!bytes || bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
+    fetchAllLoteImages();
+  }, [auction.id, auction.lotes]);
 
   return (
+    <div id="pdf-content" className="space-y-10" style={{ 
+      background: 'white', 
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+      padding: '40px',
+      fontSize: '14px',
+      lineHeight: '1.5',
+      color: '#111827'
+    }}>
+      
+      {/* ==================== CABEÇALHO ==================== */}
+      <div className="bg-gray-50 rounded-lg px-6 py-6 border border-gray-200" style={{ 
+        background: '#f9fafb', 
+        borderRadius: '8px', 
+        padding: '24px', 
+        border: '1px solid #e5e7eb',
+        marginBottom: '40px',
+        pageBreakInside: 'avoid'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
     <div>
-      <div id="pdf-content" className="bg-white text-black" style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif", padding: '48px 40px', maxWidth: '800px', margin: '0 auto', pageBreakInside: 'avoid' }}>
-        {/* Header Corporativo */}
-        <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid', pageBreakAfter: 'avoid' }}>
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <h1 className="text-3xl font-light text-slate-900 mb-2" style={{ letterSpacing: '-0.02em', fontWeight: 300 }}>
-                Relatório de Leilão
+            <h1 style={{ fontSize: '24px', fontWeight: '600', color: '#111827', margin: '0 0 8px 0' }}>
+              {auction.nome}
               </h1>
-              <p className="text-xs text-slate-500" style={{ fontSize: '11px' }}>
-                Data: {new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })} • Horário: {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+            {auction.identificacao && (
+              <p style={{ fontSize: '14px', color: '#6b7280', fontFamily: 'monospace', margin: 0 }}>
+                #{auction.identificacao}
               </p>
-            </div>
-            {(auction.identificacao || auction.nome) && (
-              <div className="text-right">
-                <div className="text-xs text-slate-400 uppercase tracking-wider mb-1" style={{ fontSize: '10px', letterSpacing: '0.1em' }}>Processo</div>
-                <div className="text-xl font-medium text-slate-900">
-                  {auction.identificacao || 'N/A'}
-                </div>
-              </div>
             )}
           </div>
-          <div className="text-xs text-slate-500 mt-2" style={{ borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
-            Documentação Completa do Leilão e Arrematações
-          </div>
+          <span style={{ 
+            padding: '6px 12px', 
+            borderRadius: '6px', 
+            fontSize: '14px', 
+            fontWeight: '500',
+            background: statusColors.bg,
+            color: statusColors.color,
+            border: `1px solid ${statusColors.border}`,
+            display: 'inline-block'
+          }}>
+            {getStatusLabel(auction.status)}
+          </span>
         </div>
 
-       {/* Identificação do Leilão */}
-       <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-         <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
-           Identificação do Leilão
-         </h2>
-         <div className="p-5 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
-           <div className="space-y-4 text-sm">
-             <div className="grid grid-cols-2 gap-6">
-               <div>
-                 <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Código de Identificação</div>
-                 <div className="text-base font-medium text-slate-900">{auction.identificacao || 'Não informado'}</div>
-               </div>
-               <div>
-                 <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Status do Leilão</div>
-                 <div className={`inline-flex items-center px-3 py-1 rounded text-sm font-medium ${
-                   auction.status === 'finalizado' ? 'bg-red-600 text-white border border-red-700' :
-                   auction.status === 'em_andamento' ? 'bg-green-50 text-green-700 border border-green-200' :
-                   'bg-slate-100 text-slate-700 border border-slate-200'
-                 }`}>
-                   {getStatusLabel(auction.status)}
-                 </div>
-               </div>
-             </div>
-             <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
-               <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Nome do Evento</div>
-               <div className="text-lg font-medium text-slate-900">{auction.nome || 'Não informado'}</div>
-             </div>
-           </div>
+        <div style={{ display: 'flex', gap: '24px', fontSize: '14px', color: '#6b7280' }}>
+          <span>Cadastrado em {formatDate(auction.dataInicio)}</span>
+          {auction.arquivado && (
+            <span style={{ color: '#d97706' }}>• Arquivado</span>
+          )}
          </div>
        </div>
 
-      {/* Cronograma e Local */}
-      <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-        <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
-          Cronograma e Local do Evento
+      {/* ==================== INFORMAÇÕES BÁSICAS ==================== */}
+      <div className="bg-white border border-gray-200 rounded-lg p-6" style={{ 
+        background: 'white', 
+        border: '1px solid #e5e7eb', 
+        borderRadius: '8px', 
+        padding: '24px',
+        marginBottom: '40px',
+        pageBreakInside: 'avoid'
+      }}>
+        <h2 style={{ 
+          fontSize: '18px', 
+          fontWeight: '600', 
+          color: '#111827', 
+          marginTop: 0,
+          marginBottom: '24px', 
+          paddingBottom: '12px', 
+          borderBottom: '1px solid #e5e7eb'
+        }}>
+          Informações Básicas
         </h2>
-        <div className="p-5 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
-          <div className="grid grid-cols-3 gap-6 mb-4 text-sm">
-            <div>
-              <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Data de Início</div>
-              <div className="text-base font-medium text-slate-900">{formatDate(auction.dataInicio)}</div>
-            </div>
-            <div>
-              <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Data de Encerramento</div>
-              <div className="text-base font-medium text-slate-900">{formatDate(auction.dataEncerramento || '')}</div>
-            </div>
-            <div>
-              <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Modalidade</div>
-              <div className="text-base font-medium text-slate-900">{getLocalLabel(auction.local)}</div>
-            </div>
-          </div>
-          <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
-            <div className="text-xs text-slate-500 uppercase tracking-wider mb-2" style={{ fontWeight: 500 }}>Endereço do Evento</div>
-            <div className="text-sm text-slate-900">{auction.endereco || 'Não informado'}</div>
-          </div>
-          {auction.historicoNotas?.join('; ') && (
-            <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px', marginTop: '16px' }}>
-              <div className="text-xs text-slate-500 uppercase tracking-wider mb-2" style={{ fontWeight: 500 }}>Observações</div>
-              <div className="text-sm text-slate-900 p-3 rounded" style={{ backgroundColor: '#fafafa', border: '1px solid #e2e8f0' }}>
-                {auction.historicoNotas?.join('; ') || 'Não informado'}
-              </div>
-            </div>
+        
+        <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
+          {/* Local do Evento */}
+          <div style={{ flex: '1 1 200px' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginTop: 0, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                <circle cx="12" cy="10" r="3"></circle>
+              </svg>
+              Local do Evento
+            </h3>
+            <p style={{ color: '#111827', textTransform: 'capitalize', margin: '0 0 8px 0' }}>
+              {getLocalLabel(auction.local)}
+            </p>
+            {auction.endereco && (
+              <p style={{ fontSize: '14px', color: '#6b7280', lineHeight: '1.6', margin: 0 }}>{auction.endereco}</p>
           )}
-        </div>
       </div>
 
-      {/* Informações Financeiras */}
-      <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-        <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
-          Informações Financeiras
-        </h2>
-        <div className="p-5 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
-          <div>
-            <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Custos do Leilão</div>
-            <div className="text-lg font-medium text-slate-900">
+          {/* Investimento Total */}
+          <div style={{ flex: '1 1 200px' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginTop: 0, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="1" x2="12" y2="23"></line>
+                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+              </svg>
+              Investimento Total
+            </h3>
+            <p style={{ fontSize: '24px', fontWeight: '300', color: '#111827', margin: '0 0 12px 0' }}>
               {(() => {
                 if (auction.custosNumerico && auction.custosNumerico > 0) {
                   return formatCurrency(auction.custosNumerico);
                 }
-
-                const custosValue = auction.custos;
-                if (custosValue && custosValue.toString().trim() !== "") {
-                  if (typeof custosValue === 'string') {
-                    return custosValue.startsWith('R$') ? custosValue : `R$ ${custosValue}`;
-                  } else {
-                    return `R$ ${(custosValue as number).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                if (auction.custos && auction.custos.toString().trim() !== "") {
+                  return formatCurrency(auction.custos);
                   }
-                }
-
                 return "R$ 0,00";
               })()}
-            </div>
-          </div>
-        </div>
-      </div>
+            </p>
 
-      {/* Especificação dos Custos */}
+            {/* Detalhamento dos Custos */}
       {auction.detalheCustos && auction.detalheCustos.length > 0 && (
-        <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-          <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
+                <h4 style={{ 
+                  fontSize: '10px', 
+                  fontWeight: '500', 
+                  color: '#9ca3af', 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '0.05em', 
+                  marginTop: 0,
+                  marginBottom: '12px' 
+                }}>
             Especificação dos Gastos
-          </h2>
-          <div className="p-5 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
-            <div className="space-y-2">
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {auction.detalheCustos.map((item, index) => (
-                <div key={item.id || index} className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded border border-gray-200">
-                  <div className="flex items-center gap-3">
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-gray-200 text-xs font-semibold text-gray-700">
+                    <div key={item.id || index} style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center', 
+                      padding: '8px 12px', 
+                      background: '#f9fafb', 
+                      borderRadius: '6px', 
+                      border: '1px solid #e5e7eb' 
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={{ 
+                          display: 'inline-flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center', 
+                          width: '24px', 
+                          height: '24px', 
+                          borderRadius: '4px', 
+                          background: '#e5e7eb', 
+                          fontSize: '12px', 
+                          fontWeight: '600', 
+                          color: '#374151' 
+                        }}>
                       {String(index + 1).padStart(2, '0')}
                     </span>
-                    <span className="text-sm text-gray-700">
+                        <span style={{ fontSize: '14px', color: '#374151' }}>
                       {item.descricao || 'Item de custo'}
                     </span>
                   </div>
-                  <span className="text-sm font-medium text-gray-900">
+                      <span style={{ fontSize: '14px', fontWeight: '500', color: '#111827' }}>
                     {formatCurrency(item.valorNumerico)}
                   </span>
                 </div>
               ))}
-            </div>
           </div>
         </div>
       )}
+          </div>
 
-      {/* Patrocínios Recebidos */}
+          {/* Patrocínios */}
       {auction.detalhePatrocinios && auction.detalhePatrocinios.length > 0 && (
-        <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-          <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
+            <div style={{ flex: '1 1 200px' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginTop: 0, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="9" cy="7" r="4"></circle>
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                </svg>
             Patrocínios Recebidos
-          </h2>
-          <div className="p-5 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
-            {/* Total de Patrocínios */}
-            <div className="mb-4 pb-3 border-b border-gray-200">
-              <div className="flex justify-between items-center">
-                <div className="text-xs text-slate-500 uppercase tracking-wider" style={{ fontWeight: 500 }}>Total de Patrocínios</div>
-                <div className="text-lg font-light text-slate-900 tracking-tight">
+              </h3>
+              <p style={{ fontSize: '24px', fontWeight: '300', color: '#111827', margin: '0 0 12px 0' }}>
                   {formatCurrency(auction.patrociniosTotal || 0)}
-                </div>
-              </div>
-            </div>
+              </p>
 
             {/* Lista de Patrocinadores */}
-            <div className="border-t border-gray-200 pt-4">
-              <div className="text-xs font-medium text-gray-600 uppercase tracking-wide mb-3">Patrocinadores</div>
-              <div className="space-y-2">
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
+                <h4 style={{ 
+                  fontSize: '10px', 
+                  fontWeight: '500', 
+                  color: '#9ca3af', 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '0.05em', 
+                  marginTop: 0,
+                  marginBottom: '12px' 
+                }}>
+                  Patrocinadores
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {auction.detalhePatrocinios.map((item, index) => (
-                  <div key={item.id || index} className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded border border-gray-200">
-                    <div className="flex items-center gap-3">
-                      <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-gray-200 text-xs font-semibold text-gray-700">
+                    <div key={item.id || index} style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center', 
+                      padding: '8px 12px', 
+                      background: '#f9fafb', 
+                      borderRadius: '6px', 
+                      border: '1px solid #e5e7eb' 
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={{ 
+                          display: 'inline-flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center', 
+                          width: '24px', 
+                          height: '24px', 
+                          borderRadius: '4px', 
+                          background: '#e5e7eb', 
+                          fontSize: '12px', 
+                          fontWeight: '600', 
+                          color: '#374151' 
+                        }}>
                         {String(index + 1).padStart(2, '0')}
                       </span>
-                      <span className="text-sm text-gray-700">
+                        <span style={{ fontSize: '14px', color: '#374151' }}>
                         {item.nomePatrocinador || 'Patrocinador'}
                       </span>
                     </div>
-                    <span className="text-sm font-medium text-gray-900">
+                      <span style={{ fontSize: '14px', fontWeight: '500', color: '#111827' }}>
                       {formatCurrency(item.valorNumerico)}
                     </span>
                   </div>
@@ -370,508 +345,634 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
               </div>
             </div>
 
+              {/* Resumo do Saldo Líquido */}
+              {auction.custosNumerico && (
+                <div style={{ 
+                  marginTop: '16px', 
+                  padding: '16px', 
+                  background: '#f9fafb', 
+                  borderRadius: '8px', 
+                  border: '1px solid #e5e7eb' 
+                }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px' }}>
+                      <span style={{ color: '#6b7280' }}>Custos Totais:</span>
+                      <span style={{ fontWeight: '500', color: '#111827' }}>
+                        {formatCurrency(auction.custosNumerico)}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px' }}>
+                      <span style={{ color: '#6b7280' }}>Patrocínios:</span>
+                      <span style={{ fontWeight: '500', color: '#374151' }}>
+                        {formatCurrency(auction.patrociniosTotal || 0)}
+                      </span>
+                    </div>
+                    <div style={{ borderTop: '1px solid #d1d5db', paddingTop: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '14px', fontWeight: '600', color: '#111827' }}>
+                          {(auction.patrociniosTotal || 0) > auction.custosNumerico ? 'Superávit:' : 'Saldo Líquido:'}
+                        </span>
+                        <span style={{ fontSize: '18px', fontWeight: '300', color: '#111827' }}>
+                          {formatCurrency(auction.custosNumerico - (auction.patrociniosTotal || 0))}
+                        </span>
+                      </div>
+                    </div>
           </div>
         </div>
       )}
+            </div>
+          )}
+        </div>
+      </div>
 
-      {/* Configurações de Pagamento por Mercadoria */}
-      <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-        <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
-          Configurações de Pagamento por Mercadoria
-        </h2>
+      {/* ==================== RESUMO DO PAGAMENTO ==================== */}
+      {(() => {
+        const totalArrecadado = todosArrematantes.reduce((sum, arr) => {
+          const valor = typeof arr.valorPagar === 'string' 
+            ? parseFloat(arr.valorPagar.replace(/[^\d,.-]/g, '').replace(',', '.')) || 0
+            : arr.valorPagar || 0;
+          return sum + valor;
+        }, 0);
         
-        {auction.lotes && auction.lotes.length > 0 ? (
-          <div className="space-y-4">
-            {auction.lotes.map((lote, loteIndex) => {
-              // Verificar se o lote tem mercadorias
-              if (!lote.mercadorias || lote.mercadorias.length === 0) {
+        const totalPago = todosArrematantes.reduce((sum, arr) => {
+          if (arr.pago) {
+            const valor = typeof arr.valorPagar === 'string' 
+              ? parseFloat(arr.valorPagar.replace(/[^\d,.-]/g, '').replace(',', '.')) || 0
+              : arr.valorPagar || 0;
+            return sum + valor;
+          }
+          return sum;
+        }, 0);
+        
+        const totalPendente = totalArrecadado - totalPago;
+        
+        if (todosArrematantes.length === 0) return null;
+        
                 return (
-                  <div key={lote.id || loteIndex} className="p-4 bg-gray-50 rounded border border-gray-200">
-                    <div className="flex justify-between items-start mb-2">
-                      <h3 className="font-semibold text-gray-800">Lote {lote.numero}</h3>
+          <div className="bg-white border border-gray-200 rounded-lg p-6" style={{ 
+            background: 'white', 
+            border: '1px solid #e5e7eb', 
+            borderRadius: '8px', 
+            padding: '24px',
+            marginBottom: '40px',
+            pageBreakInside: 'avoid'
+          }}>
+            <h2 style={{ 
+              fontSize: '18px', 
+              fontWeight: '600', 
+              color: '#111827', 
+              marginTop: 0,
+              marginBottom: '24px', 
+              paddingBottom: '12px', 
+              borderBottom: '1px solid #e5e7eb'
+            }}>
+              Resumo do Pagamento
+            </h2>
+            
+            <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap', marginBottom: '24px' }}>
+              <div style={{ flex: '1 1 200px' }}>
+                <p style={{ fontSize: '12px', fontWeight: '500', color: '#6b7280', marginTop: 0, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Total Arrecadado
+                </p>
+                <p style={{ fontSize: '20px', fontWeight: '400', color: '#374151', margin: 0 }}>
+                  {formatCurrency(totalArrecadado)}
+                </p>
                     </div>
-                    {lote.descricao && (
-                      <p className="text-gray-600 mb-3 text-sm">{lote.descricao}</p>
-                    )}
-                    <div className="bg-gray-100 border border-gray-300 p-3 rounded">
-                      <p className="text-gray-600 text-xs text-center">
-                        Nenhuma mercadoria cadastrada neste lote
+              
+              <div style={{ flex: '1 1 200px' }}>
+                <p style={{ fontSize: '12px', fontWeight: '500', color: '#6b7280', marginTop: 0, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Total Recebido
+                </p>
+                <p style={{ fontSize: '20px', fontWeight: '400', color: '#374151', margin: 0 }}>
+                  {formatCurrency(totalPago)}
                       </p>
                     </div>
+              
+              <div style={{ flex: '1 1 200px' }}>
+                <p style={{ fontSize: '12px', fontWeight: '500', color: '#6b7280', marginTop: 0, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Total Pendente
+                </p>
+                <p style={{ fontSize: '20px', fontWeight: '400', color: '#374151', margin: 0 }}>
+                  {formatCurrency(totalPendente)}
+                </p>
                   </div>
-                );
-              }
+            </div>
 
+            {/* Configuração específica por mercadoria */}
+            <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid #e5e7eb' }}>
+              <p style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginTop: 0, marginBottom: '12px' }}>
+                Configuração específica por mercadoria
+              </p>
+              
+              {(() => {
+                // Verificar se há pagamentos configurados
+                const temPagamentos = todosArrematantes.some(arr => arr.tipoPagamento);
+                
+                if (!temPagamentos) {
               return (
-                <div key={lote.id || loteIndex} className="p-4 bg-gray-50 rounded border border-gray-200">
-                  <div className="flex justify-between items-start mb-2">
-                    <h3 className="font-semibold text-gray-800">Lote {lote.numero}</h3>
+                    <div style={{ 
+                      padding: '32px 16px', 
+                      textAlign: 'center', 
+                      background: '#f9fafb', 
+                      borderRadius: '8px', 
+                      border: '1px solid #e5e7eb' 
+                    }}>
+                      <p style={{ fontSize: '14px', fontWeight: '500', color: '#374151', margin: '0 0 4px 0' }}>
+                        Nenhum pagamento configurado
+                      </p>
+                      <p style={{ fontSize: '12px', color: '#6b7280', margin: 0 }}>
+                        Ainda não há arrematantes com configuração de pagamento para este leilão
+                      </p>
                   </div>
-                  
-                  {lote.descricao && (
-                    <p className="text-gray-600 mb-3 text-sm">{lote.descricao}</p>
-                  )}
-
-                  {/* Mercadorias e suas configurações de pagamento */}
-                  <div className="space-y-3 mt-3">
-                    {lote.mercadorias.map((mercadoria, mercIndex) => {
-                      // Buscar arrematante associado a esta mercadoria específica
-                      const arrematante = auction.arrematantes?.find(
-                        arr => arr.mercadoriaId === mercadoria.id
-                      );
-
+                  );
+                }
+                
+                // Mapear mercadorias com seus arrematantes
+                const mercadoriasComPagamento: Array<{
+                  loteNumero: string;
+                  mercadoriaTitulo: string;
+                  arrematante: typeof todosArrematantes[0];
+                }> = [];
+                
+                auction.lotes?.forEach(lote => {
+                  lote.mercadorias?.forEach(mercadoria => {
+                    const arrematante = todosArrematantes.find(
+                      arr => arr.mercadoriaId === mercadoria.id && arr.tipoPagamento
+                    );
+                    if (arrematante) {
+                      mercadoriasComPagamento.push({
+                        loteNumero: lote.numero,
+                        mercadoriaTitulo: mercadoria.titulo || mercadoria.tipo || 'Mercadoria',
+                        arrematante
+                      });
+                    }
+                  });
+                });
+                
+                if (mercadoriasComPagamento.length === 0) {
                       return (
-                        <div key={mercadoria.id || mercIndex} className="bg-white border border-gray-300 p-3 rounded">
-                          {/* Título da Mercadoria */}
-                          <div className="mb-2 pb-2 border-b border-gray-200">
-                            <h4 className="text-sm font-medium text-gray-800">
-                              {mercadoria.titulo || mercadoria.tipo || 'Mercadoria'} 
-                              {mercadoria.quantidade && (
-                                <span className="text-xs text-gray-500 ml-2">(Qtd: {mercadoria.quantidade})</span>
-                              )}
-                            </h4>
-                            {mercadoria.descricao && (
-                              <p className="text-xs text-gray-600 mt-1">{mercadoria.descricao}</p>
-                            )}
+                    <div style={{ 
+                      padding: '32px 16px', 
+                      textAlign: 'center', 
+                      background: '#f9fafb', 
+                      borderRadius: '8px', 
+                      border: '1px solid #e5e7eb' 
+                    }}>
+                      <p style={{ fontSize: '14px', fontWeight: '500', color: '#374151', margin: '0 0 4px 0' }}>
+                        Nenhum pagamento configurado
+                      </p>
+                      <p style={{ fontSize: '12px', color: '#6b7280', margin: 0 }}>
+                        Ainda não há arrematantes com configuração de pagamento para este leilão
+                      </p>
                           </div>
-
-                          {/* Configurações de pagamento da mercadoria */}
-                          {arrematante && arrematante.tipoPagamento ? (
-                            <div>
-                              <p className="text-xs font-medium text-gray-700 mb-2">
-                                Arrematante: {arrematante.nome || 'Não informado'}
+                  );
+                }
+                
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {mercadoriasComPagamento.map((item, index) => {
+                      const arr = item.arrematante;
+                      return (
+                        <div key={arr.id || index} style={{ 
+                          padding: '12px 16px', 
+                          background: '#f9fafb', 
+                          borderRadius: '8px', 
+                          border: '1px solid #e5e7eb',
+                          pageBreakInside: 'avoid'
+                        }}>
+                          <div style={{ marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                              <p style={{ fontSize: '14px', fontWeight: '600', color: '#111827', margin: 0 }}>
+                                Lote {item.loteNumero}
                               </p>
-                              <div className="bg-blue-50 border border-blue-200 p-2 rounded">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-                                  {/* Tipo de Pagamento */}
-                                  <div>
-                                    <strong className="text-gray-700">Tipo:</strong>{' '}
-                                    <span className="text-gray-900">{getTipoPagamentoLabel(arrematante.tipoPagamento)}</span>
+                              <span style={{ color: '#9ca3af' }}>•</span>
+                              <p style={{ fontSize: '14px', color: '#6b7280', margin: 0 }}>{item.mercadoriaTitulo}</p>
                                   </div>
+                            <p style={{ fontSize: '12px', color: '#6b7280', margin: 0 }}>
+                              Arrematante: {arr.nome}
+                            </p>
+                                    </div>
 
-                                  {/* Configurações À Vista */}
-                                  {arrematante.tipoPagamento === 'a_vista' && arrematante.dataVencimentoVista && (
+                          <div style={{ fontSize: '14px', color: '#6b7280' }}>
+                            {arr.tipoPagamento === 'a_vista' && (
                                     <div>
-                                      <strong className="text-gray-700">Data de Pagamento:</strong>{' '}
-                                      <span className="text-gray-900">{formatDate(arrematante.dataVencimentoVista)}</span>
+                                <p style={{ fontWeight: '500', color: '#111827', margin: '0 0 4px 0' }}>
+                                  Pagamento à vista
+                                </p>
+                                {arr.dataVencimentoVista && (
+                                  <p style={{ fontSize: '12px', color: '#6b7280', margin: 0 }}>
+                                    Vencimento: {formatDate(arr.dataVencimentoVista)}
+                                  </p>
+                                )}
                                     </div>
                                   )}
 
-                                  {/* Configurações Entrada + Parcelamento */}
-                                  {arrematante.tipoPagamento === 'entrada_parcelamento' && arrematante.dataEntrada && (
-                                    <div>
-                                      <strong className="text-gray-700">Data da Entrada:</strong>{' '}
-                                      <span className="text-gray-900">{formatDate(arrematante.dataEntrada)}</span>
-                                    </div>
-                                  )}
-
-                                  {/* Configurações Parcelamento */}
-                                  {(arrematante.tipoPagamento === 'parcelamento' || arrematante.tipoPagamento === 'entrada_parcelamento') && (
-                                    <>
-                                      {arrematante.mesInicioPagamento && (
+                            {arr.tipoPagamento === 'parcelamento' && (
                                         <div>
-                                          <strong className="text-gray-700">Mês de Início:</strong>{' '}
-                                          <span className="text-gray-900">
-                                            {(() => {
-                                              const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-                                                            'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-                                              return meses[parseInt(arrematante.mesInicioPagamento) - 1] || arrematante.mesInicioPagamento;
+                                <p style={{ fontWeight: '500', color: '#111827', margin: '0 0 4px 0' }}>
+                                  Parcelamento em {arr.quantidadeParcelas || 12} parcelas
+                                </p>
+                                {arr.mesInicioPagamento && arr.diaVencimentoMensal && (
+                                  <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                                    <p style={{ margin: '2px 0' }}>
+                                      • Primeira parcela: {(() => {
+                                        const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+                                        const [ano, mes] = arr.mesInicioPagamento.split('-');
+                                        const mesNumero = parseInt(mes);
+                                        return `${meses[mesNumero - 1]}/${ano}`;
                                             })()}
-                                          </span>
+                                    </p>
+                                    <p style={{ margin: '2px 0' }}>
+                                      • Vencimento mensal: todo dia {arr.diaVencimentoMensal} de cada mês
+                                    </p>
+                                    <p style={{ margin: '2px 0' }}>
+                                      • Total de parcelas: {arr.quantidadeParcelas}
+                                    </p>
+                                        </div>
+                                      )}
                                         </div>
                                       )}
                                       
-                                      {arrematante.diaVencimentoMensal && (
+                            {arr.tipoPagamento === 'entrada_parcelamento' && (
                                         <div>
-                                          <strong className="text-gray-700">Dia do Vencimento:</strong>{' '}
-                                          <span className="text-gray-900">Dia {arrematante.diaVencimentoMensal}</span>
-                                        </div>
-                                      )}
-                                      
-                                      {arrematante.quantidadeParcelas && (
-                                        <div>
-                                          <strong className="text-gray-700">Parcelas:</strong>{' '}
-                                          <span className="text-gray-900">
-                                            {arrematante.quantidadeParcelas}x
-                                            {arrematante.tipoPagamento === 'entrada_parcelamento' ? ' (após entrada)' : ''}
-                                          </span>
-                                        </div>
-                                      )}
+                                <p style={{ fontWeight: '500', color: '#111827', margin: '0 0 4px 0' }}>
+                                  Entrada + Parcelamento em {arr.quantidadeParcelas || 12} parcelas
+                                </p>
+                                <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                                  {arr.dataEntrada && (
+                                    <p style={{ margin: '2px 0' }}>
+                                      • Data da entrada: {formatDate(arr.dataEntrada)}
+                                    </p>
+                                  )}
+                                  {arr.mesInicioPagamento && arr.diaVencimentoMensal && (
+                                    <>
+                                      <p style={{ margin: '2px 0' }}>
+                                        • Primeira parcela: {(() => {
+                                          const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+                                          const [ano, mes] = arr.mesInicioPagamento.split('-');
+                                          const mesNumero = parseInt(mes);
+                                          return `${meses[mesNumero - 1]}/${ano}`;
+                                        })()}
+                                      </p>
+                                      <p style={{ margin: '2px 0' }}>
+                                        • Vencimento mensal: todo dia {arr.diaVencimentoMensal} de cada mês
+                                      </p>
+                                      <p style={{ margin: '2px 0' }}>
+                                        • Total de parcelas: {arr.quantidadeParcelas}
+                                      </p>
                                     </>
                                   )}
                                 </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="bg-white border border-gray-300 p-2 rounded">
-                              <p className="text-gray-600 text-xs text-center">
-                                Configurações de pagamento não definidas para esta mercadoria
-                              </p>
                             </div>
                           )}
+                          </div>
                         </div>
                       );
                     })}
-                  </div>
                 </div>
               );
-            })}
+              })()}
           </div>
-        ) : (
-          <div className="p-4 bg-gray-50 rounded border border-gray-200">
-            <p className="text-gray-600 text-center">Nenhum lote cadastrado neste leilão</p>
           </div>
-        )}
+        );
+      })()}
 
-      </div>
-
-       {/* Arrematante */}
-       {auction.arrematante && (
-         <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-           <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
-             Informações do Arrematante
+      {/* ==================== CRONOGRAMA ==================== */}
+      <div className="bg-white border border-gray-200 rounded-lg p-6" style={{ 
+        background: 'white', 
+        border: '1px solid #e5e7eb', 
+        borderRadius: '8px', 
+        padding: '24px',
+        marginBottom: '40px',
+        pageBreakInside: 'avoid'
+      }}>
+        <h2 style={{ 
+          fontSize: '18px', 
+          fontWeight: '600', 
+          color: '#111827', 
+          marginTop: 0,
+          marginBottom: '24px', 
+          paddingBottom: '12px', 
+          borderBottom: '1px solid #e5e7eb',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="16" y1="2" x2="16" y2="6"></line>
+            <line x1="8" y1="2" x2="8" y2="6"></line>
+            <line x1="3" y1="10" x2="21" y2="10"></line>
+          </svg>
+          Cronograma do Evento
            </h2>
 
-           {/* Dados Pessoais */}
-           <div className="mb-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-             <h3 className="text-sm font-medium text-gray-700 mb-3 border-l-4 border-gray-400 pl-3 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>Dados Pessoais</h3>
-             <div className="grid grid-cols-2 gap-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-               <div>
-                 <strong>Nome Completo:</strong>{' '}
-                 {auction.arrematante.nome || 'Não informado'}
-               </div>
-               <div>
-                 <strong>CPF/CNPJ:</strong>{' '}
-                 {auction.arrematante.documento || 'Não informado'}
-               </div>
-               <div>
-                 <strong>Email:</strong>{' '}
-                 {auction.arrematante.email || 'Não informado'}
-               </div>
-               <div>
-                 <strong>Telefone:</strong>{' '}
-                 {auction.arrematante.telefone || 'Não informado'}
-               </div>
-               <div className="col-span-2">
-                 <strong>Endereço Completo:</strong>{' '}
-                 {auction.arrematante.endereco || 'Não informado'}
-               </div>
-             </div>
+        <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 200px' }}>
+            <p style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginTop: 0, marginBottom: '8px' }}>
+              Data de Início
+            </p>
+            <p style={{ color: '#111827', fontWeight: '500', margin: 0 }}>{formatDate(auction.dataInicio)}</p>
            </div>
 
-           {/* Informações Financeiras */}
-           <div className="mb-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-             <h3 className="text-sm font-medium text-gray-700 mb-3 border-l-4 border-gray-400 pl-3 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>Informações Financeiras</h3>
-             <div className="grid grid-cols-2 gap-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-               <div>
-                 <strong>Valor Total a Pagar:</strong>{' '}
-                 {formatCurrency(auction.arrematante.valorPagar)}
+          {auction.status === 'em_andamento' && (
+            <div style={{ flex: '1 1 200px' }}>
+              <p style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginTop: 0, marginBottom: '8px' }}>
+                Em Andamento
+              </p>
+              <p style={{ color: '#111827', fontWeight: '500', margin: 0 }}>{formatDate(auction.dataInicio)}</p>
                </div>
-               <div>
-                 <strong>Status Pagamento:</strong> {getPaymentStatus()}
-               </div>
-              {/* Valor por Parcela - apenas para tipos com parcelamento */}
-              {(() => {
-                // Encontrar o lote arrematado baseado no loteId do arrematante
-                const loteArrematado = auction.arrematante?.loteId 
-                  ? auction.lotes?.find(lote => lote.id === auction.arrematante.loteId)
-                  : null;
-                
-                // Usar tipo de pagamento do lote específico ou fallback para global
-                const tipoPagamento = loteArrematado?.tipoPagamento || auction.tipoPagamento;
-                
-                // Mostrar valor por parcela apenas se não for pagamento à vista
-                if (tipoPagamento !== 'a_vista') {
-                  return (
-                    <div className="col-span-2">
-                      <strong>Valor por Parcela:</strong> {formatCurrency(auction.arrematante.valorPagarNumerico / auction.arrematante.quantidadeParcelas)}
+          )}
+          
+          {auction.dataEncerramento && (
+            <div style={{ flex: '1 1 200px' }}>
+              <p style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginTop: 0, marginBottom: '8px' }}>
+                Encerramento
+              </p>
+              <p style={{ color: '#111827', fontWeight: '500', margin: 0 }}>{formatDate(auction.dataEncerramento)}</p>
                     </div>
-                  );
-                }
-                return null;
-              })()}
+          )}
              </div>
            </div>
 
-          {/* Configurações de Pagamento do Arrematante */}
-          <div className="mb-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-            <h3 className="text-sm font-medium text-gray-700 mb-3 border-l-4 border-gray-400 pl-3 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-              Configurações de Pagamento
-            </h3>
-            
-            {(() => {
-              // Encontrar o lote arrematado baseado no loteId do arrematante
-              const loteArrematado = auction.arrematante?.loteId 
-                ? auction.lotes?.find(lote => lote.id === auction.arrematante.loteId)
-                : null;
-              
-              // Usar tipo de pagamento do lote específico ou fallback para global
-              const tipoPagamento = loteArrematado?.tipoPagamento || auction.tipoPagamento;
-              
-              if (tipoPagamento === 'a_vista') {
-                const dataVencimento = loteArrematado?.dataVencimentoVista || auction.dataVencimentoVista;
+      {/* ==================== ARREMATANTES ==================== */}
+      {todosArrematantes.length > 0 && todosArrematantes.map((arrematanteAtual, arrIndex) => {
+        const lote = (auction.lotes || []).find(l => l.id === arrematanteAtual.loteId);
+        const mercadoria = lote?.mercadorias?.find(m => m.id === arrematanteAtual.mercadoriaId);
+        
                 return (
-                  <div className="grid grid-cols-1 gap-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                    <div>
-                      <strong>Modalidade:</strong> Pagamento à Vista
-                    </div>
-                    {dataVencimento && (
-                      <div>
-                        <strong>Data de Vencimento:</strong> {formatDate(dataVencimento)}
-                      </div>
+          <div key={arrematanteAtual.id || arrIndex} className="bg-white border border-gray-200 rounded-lg p-6" style={{ 
+            background: 'white', 
+            border: '1px solid #e5e7eb', 
+            borderRadius: '8px', 
+            padding: '24px',
+            marginBottom: '40px',
+            pageBreakInside: 'avoid'
+          }}>
+            <div style={{ marginBottom: '24px', paddingBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
+              <h2 style={{ 
+                fontSize: '18px', 
+                fontWeight: '600', 
+                color: '#111827',
+                marginTop: 0,
+                marginBottom: todosArrematantes.length > 1 && mercadoria ? '4px' : 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                Informações do{todosArrematantes.length > 1 ? 's' : ''} Arrematante{todosArrematantes.length > 1 ? 's' : ''}
+                {todosArrematantes.length > 1 && ` ${arrIndex + 1}`}
+              </h2>
+              {todosArrematantes.length > 1 && mercadoria && (
+                <p style={{ fontSize: '14px', color: '#6b7280', margin: 0 }}>
+                  {mercadoria.titulo || mercadoria.tipo || 'Mercadoria'}
+                </p>
                     )}
                   </div>
-                );
-              }
-              
-              if (tipoPagamento === 'entrada_parcelamento') {
-                const dataEntrada = loteArrematado?.dataEntrada || auction.dataEntrada;
-                return (
-                  <div className="space-y-3">
-                    <div>
-                      <strong>Modalidade:</strong> Entrada + Parcelamento
+            
+            <div style={{ display: 'flex', gap: '32px', marginBottom: '24px', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 200px' }}>
+                <p style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginTop: 0, marginBottom: '8px' }}>
+                  Nome Completo
+                </p>
+                <p style={{ color: '#111827', fontWeight: '500', margin: 0 }}>{arrematanteAtual.nome}</p>
                     </div>
                     
-                    {dataEntrada && (
-                      <div className="p-2 bg-gray-50 rounded border">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <strong>Data de Vencimento:</strong> {formatDate(dataEntrada)}
-                          </div>
-                          {auction.arrematante?.valorEntrada && (
-                            <div>
-                              <strong>Valor da Entrada:</strong> {formatCurrency(auction.arrematante.valorEntrada)}
+              {arrematanteAtual.documento && (
+                <div style={{ flex: '1 1 200px' }}>
+                  <p style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginTop: 0, marginBottom: '8px' }}>
+                    CPF/CNPJ
+                  </p>
+                  <p style={{ color: '#111827', fontFamily: 'monospace', margin: 0 }}>{arrematanteAtual.documento}</p>
                             </div>
                           )}
                         </div>
-                      </div>
-                    )}
-                    
-                    <div className="p-2 bg-gray-50 rounded border">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <strong>Dia das Parcelas:</strong> Dia {auction.arrematante.diaVencimentoMensal}
-                        </div>
-                        <div>
-                          <strong>Parcelas (após entrada):</strong> {auction.arrematante.quantidadeParcelas}x
-                        </div>
-                        <div>
-                          <strong>Parcelas Pagas:</strong> {auction.arrematante.parcelasPagas || 0}
-                        </div>
-                        <div>
-                          <strong>Parcelas Restantes:</strong> {auction.arrematante.quantidadeParcelas - (auction.arrematante.parcelasPagas || 0)}
-                        </div>
-                        <div className="col-span-2">
-                          <strong>Mês Início das Parcelas:</strong> {auction.arrematante.mesInicioPagamento}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-              
-              // Default para parcelamento
-              return (
-                <div className="grid grid-cols-2 gap-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                  <div>
-                    <strong>Modalidade:</strong> Parcelamento
-                  </div>
-                  <div></div>
-                  <div>
-                    <strong>Dia Vencimento Mensal:</strong> Dia {auction.arrematante.diaVencimentoMensal}
-                  </div>
-                  <div>
-                    <strong>Total de Parcelas:</strong> {auction.arrematante.quantidadeParcelas}x
-                  </div>
-                  <div>
-                    <strong>Parcelas Pagas:</strong> {auction.arrematante.parcelasPagas || 0}
-                  </div>
-                  <div>
-                    <strong>Parcelas Restantes:</strong> {auction.arrematante.quantidadeParcelas - (auction.arrematante.parcelasPagas || 0)}
-                  </div>
-                  <div>
-                    <strong>Mês Início Pagamento:</strong> {auction.arrematante.mesInicioPagamento}
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
 
-           {/* Documentos do Arrematante */}
-           {auction.arrematante.documentos && auction.arrematante.documentos.length > 0 && (
-             <div className="mb-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-               <h3 className="text-sm font-medium text-gray-700 mb-3 border-l-4 border-gray-400 pl-3 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-                 Documentos do Arrematante ({auction.arrematante.documentos.length})
+            <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 200px' }}>
+                <p style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginTop: 0, marginBottom: '8px' }}>
+                  Valor Total
+                </p>
+                <p style={{ fontSize: '20px', fontWeight: '600', color: '#111827', margin: 0 }}>
+                  {formatCurrency(
+                    typeof arrematanteAtual.valorPagar === 'string'
+                      ? parseFloat(arrematanteAtual.valorPagar.replace(/[^\d,.-]/g, '').replace(',', '.'))
+                      : arrematanteAtual.valorPagar
+                  )}
+                </p>
+              </div>
+
+              <div style={{ flex: '1 1 200px' }}>
+                <p style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginTop: 0, marginBottom: '8px' }}>
+                  Situação do Pagamento
+                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ 
+                    width: '12px', 
+                    height: '12px', 
+                    borderRadius: '50%', 
+                    background: arrematanteAtual.pago ? '#4b5563' : '#f59e0b' 
+                  }}></div>
+                  <span style={{ color: '#111827', fontWeight: '500' }}>
+                    {arrematanteAtual.pago ? 'Quitado' : 'Pendente'}
+                  </span>
+                        </div>
+                        </div>
+                        </div>
+
+            {/* Informações de contato */}
+            {(arrematanteAtual.email || arrematanteAtual.telefone || arrematanteAtual.endereco) && (
+              <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid #e5e7eb' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#111827', marginTop: 0, marginBottom: '16px' }}>
+                  Informações de Contato
+                </h3>
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                  {arrematanteAtual.email && (
+                    <div style={{ flex: '1 1 200px' }}>
+                      <p style={{ fontSize: '12px', color: '#6b7280', marginTop: 0, marginBottom: '4px' }}>Email</p>
+                      <p style={{ fontSize: '14px', color: '#111827', margin: 0 }}>{arrematanteAtual.email}</p>
+                  </div>
+                  )}
+                  {arrematanteAtual.telefone && (
+                    <div style={{ flex: '1 1 200px' }}>
+                      <p style={{ fontSize: '12px', color: '#6b7280', marginTop: 0, marginBottom: '4px' }}>Telefone</p>
+                      <p style={{ fontSize: '14px', color: '#111827', margin: 0 }}>{arrematanteAtual.telefone}</p>
+                  </div>
+                  )}
+                  {arrematanteAtual.endereco && (
+                    <div style={{ flex: '1 1 100%' }}>
+                      <p style={{ fontSize: '12px', color: '#6b7280', marginTop: 0, marginBottom: '4px' }}>Endereço</p>
+                      <p style={{ fontSize: '14px', color: '#111827', margin: 0 }}>{arrematanteAtual.endereco}</p>
+                  </div>
+                  )}
+                  </div>
+                  </div>
+            )}
+
+            {/* Informações de parcelamento */}
+            {arrematanteAtual.quantidadeParcelas && arrematanteAtual.quantidadeParcelas > 1 && (
+              <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid #e5e7eb' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#111827', marginTop: 0, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
+                    <line x1="1" y1="10" x2="23" y2="10"></line>
+                  </svg>
+                  Informações de Parcelamento
                </h3>
-               <div className="grid grid-cols-3 gap-4">
-                 {auction.arrematante.documentos.map((doc, index) => {
-                   // Determinar cor e ícone baseado no tipo de documento
-                   let bgGradient = 'linear-gradient(135deg, #64748b 0%, #475569 100%)'; // Cinza corporativo
-                   let tipoLabel = 'DOC';
-                   
-                   const tipo = doc.tipo?.toLowerCase() || '';
-                   if (tipo === 'pdf') {
-                     bgGradient = 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)'; // Vermelho corporativo
-                     tipoLabel = 'PDF';
-                   } else if (['doc', 'docx'].includes(tipo)) {
-                     bgGradient = 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)'; // Azul corporativo
-                     tipoLabel = 'DOC';
-                   } else if (['xls', 'xlsx'].includes(tipo)) {
-                     bgGradient = 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)'; // Verde corporativo
-                     tipoLabel = 'XLS';
-                   } else if (['txt', 'text'].includes(tipo)) {
-                     bgGradient = 'linear-gradient(135deg, #78716c 0%, #57534e 100%)'; // Marrom/Cinza
-                     tipoLabel = 'TXT';
-                   } else if (['zip', 'rar', '7z'].includes(tipo)) {
-                     bgGradient = 'linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)'; // Roxo corporativo
-                     tipoLabel = 'ZIP';
-                   }
-                   
-                   return (
-                     <div key={index} className="bg-gray-50 rounded border border-gray-200 overflow-hidden break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                       <div className="w-full h-32 flex flex-col items-center justify-center" style={{ background: bgGradient }}>
-                         <FileText className="h-12 w-12 text-white opacity-90 mb-2" />
-                         <span className="text-white font-bold text-lg opacity-90">{tipoLabel}</span>
+                <div style={{ background: '#f9fafb', borderRadius: '8px', padding: '16px', border: '1px solid #e5e7eb' }}>
+                  <div style={{ display: 'flex', gap: '16px', fontSize: '14px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '1 1 150px' }}>
+                      <p style={{ color: '#6b7280', marginTop: 0, marginBottom: '4px' }}>Parcelas:</p>
+                      <p style={{ fontWeight: '500', color: '#111827', margin: 0 }}>{arrematanteAtual.quantidadeParcelas}x</p>
                        </div>
-                       <div className="p-3">
-                         <h4 className="font-semibold text-gray-900 text-sm mb-2 truncate" title={doc.nome}>
-                           {doc.nome}
-                         </h4>
-                         <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                           <div>
-                             <span className="font-medium">Tipo:</span> {doc.tipo}
+                    {arrematanteAtual.mesInicioPagamento && (
+                      <div style={{ flex: '1 1 150px' }}>
+                        <p style={{ color: '#6b7280', marginTop: 0, marginBottom: '4px' }}>Primeira parcela:</p>
+                        <p style={{ fontWeight: '500', color: '#111827', margin: 0 }}>
+                          {(() => {
+                            // mesInicioPagamento pode ser "YYYY-MM" ou "YYYY-MM-DD"
+                            const mesInicio = arrematanteAtual.mesInicioPagamento;
+                            const [ano, mes] = mesInicio.split('-');
+                            const data = new Date(parseInt(ano), parseInt(mes) - 1);
+                            return data.toLocaleDateString('pt-BR', { 
+                              month: 'long', 
+                              year: 'numeric' 
+                            }).replace(/^\w/, c => c.toUpperCase());
+                          })()}
+                        </p>
                            </div>
-                           <div>
-                             <span className="font-medium">Tamanho:</span> {formatFileSize(doc.tamanho)}
+                    )}
+                    {arrematanteAtual.diaVencimentoMensal && (
+                      <div style={{ flex: '1 1 150px' }}>
+                        <p style={{ color: '#6b7280', marginTop: 0, marginBottom: '4px' }}>Vencimento mensal:</p>
+                        <p style={{ fontWeight: '500', color: '#111827', margin: 0 }}>
+                          Todo dia {arrematanteAtual.diaVencimentoMensal}
+                        </p>
                            </div>
+                    )}
                          </div>
-                       </div>
-                     </div>
-                   );
-                 })}
                </div>
              </div>
            )}
          </div>
-       )}
+        );
+      })}
 
-       {/* Lotes */}
+      {/* ==================== LOTES ==================== */}
        {auction.lotes && auction.lotes.length > 0 && (
-         <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-           <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
+        <div className="bg-white border border-gray-200 rounded-lg p-6" style={{ 
+          background: 'white', 
+          border: '1px solid #e5e7eb', 
+          borderRadius: '8px', 
+          padding: '24px',
+          marginBottom: '40px',
+          pageBreakInside: 'avoid'
+        }}>
+          <h2 style={{ 
+            fontSize: '18px', 
+            fontWeight: '600', 
+            color: '#111827', 
+            marginTop: 0,
+            marginBottom: '24px', 
+            paddingBottom: '12px', 
+            borderBottom: '1px solid #e5e7eb'
+          }}>
              Lotes do Leilão ({auction.lotes.length})
            </h2>
            
-           {/* Resumo dos Lotes */}
-           <div className="mb-4 bg-gray-50 p-4 rounded border border-gray-200 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-             <h3 className="text-sm font-medium text-gray-700 mb-3 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>Resumo Geral dos Lotes</h3>
-             <div className="grid grid-cols-4 gap-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-               {(() => {
-                 let totalMercadorias = 0;
-                 let qtdDisponivel = 0;
-                 let qtdArrematado = 0;
-                 let qtdArquivado = 0;
-
-                 auction.lotes!.forEach(lote => {
-                   if (lote.mercadorias) {
-                     totalMercadorias += lote.mercadorias.length;
-                   }
-                   if (lote.status === 'arrematado') qtdArrematado++;
-                   else if (lote.status === 'disponivel') qtdDisponivel++;
-                   else if (lote.status === 'arquivado') qtdArquivado++;
-                 });
-
-                 return (
-                   <>
-                     <div className="text-center">
-                       <p className="text-2xl font-bold text-gray-800">{auction.lotes!.length}</p>
-                       <p className="text-sm text-gray-600 uppercase tracking-wide">Total Lotes</p>
-                     </div>
-                     <div className="text-center">
-                       <p className="text-2xl font-bold text-gray-800">{qtdArrematado}</p>
-                       <p className="text-sm text-gray-600 uppercase tracking-wide">Arrematados</p>
-                     </div>
-                     <div className="text-center">
-                       <p className="text-2xl font-bold text-gray-800">{qtdDisponivel}</p>
-                       <p className="text-sm text-gray-600 uppercase tracking-wide">Disponíveis</p>
-                     </div>
-                     <div className="text-center">
-                       <p className="text-2xl font-bold text-gray-800">{totalMercadorias}</p>
-                       <p className="text-sm text-gray-600 uppercase tracking-wide">Total Mercadorias</p>
-                     </div>
-                   </>
-                 );
-               })()}
-             </div>
-           </div>
-
-           {/* Lista Detalhada dos Lotes */}
-           <div className="space-y-6">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
              {auction.lotes.map((lote, index) => (
-               <div key={lote.id || index} className="border border-gray-200 rounded-lg overflow-hidden mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                 
-                 {/* Cabeçalho do Lote */}
-                 <div className="bg-gray-50 p-4 border-b border-gray-200 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-                   <div className="flex justify-between items-center">
-                     <h3 className="text-lg font-semibold text-gray-900">LOTE {lote.numero}</h3>
-                     <span className="px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-800 border">
-                       {lote.status === 'arrematado' ? 'ARREMATADO' :
-                        lote.status === 'arquivado' ? 'ARQUIVADO' :
-                        'DISPONÍVEL'}
-                     </span>
-                   </div>
+              <div key={lote.id || index} style={{ 
+                padding: '16px', 
+                border: '1px solid #e5e7eb', 
+                borderRadius: '8px',
+                pageBreakInside: 'avoid'
+              }}>
+                <div style={{ marginBottom: '12px' }}>
+                  <h4 style={{ fontWeight: '600', color: '#111827', marginTop: 0, marginBottom: '4px' }}>
+                    Lote {lote.numero}
+                  </h4>
+                  <p style={{ color: '#374151', margin: 0 }}>{lote.descricao}</p>
                  </div>
 
-                 {/* Conteúdo do Lote */}
-                 <div className="p-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                   
-                   {/* Descrição Geral */}
-                   <div className="mb-4 p-3 rounded border border-gray-200 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                     <p className="text-sm font-semibold text-gray-700 uppercase mb-2 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>Descrição Geral do Lote</p>
-                     <p className="text-gray-800">{lote.descricao || 'Não informada'}</p>
-                   </div>
-
-                   {/* Mercadorias do Lote */}
+                {/* Mercadorias */}
                    {lote.mercadorias && lote.mercadorias.length > 0 && (
-                     <div className="mb-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                       <h4 className="text-sm font-medium text-gray-700 mb-3 border-l-4 border-gray-400 pl-3 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-                         Mercadorias Incluídas ({lote.mercadorias.length})
-                       </h4>
-                       <div className="space-y-3">
-                         {lote.mercadorias.map((mercadoria, mercIndex) => (
-                           <div key={mercadoria.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                             
-                             {/* Cabeçalho da Mercadoria */}
-                             <div className="flex justify-between items-start mb-3">
-                               <div>
-                                 <h5 className="text-lg font-semibold text-gray-900">
-                                   {mercadoria.nome || `Mercadoria ${mercIndex + 1}`}
+                  <div style={{ marginBottom: '16px' }}>
+                    <h5 style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginTop: 0, marginBottom: '8px' }}>
+                      Mercadorias:
                                  </h5>
-                                 <p className="text-gray-700 font-medium">{mercadoria.tipo}</p>
-                               </div>
-                             </div>
-
-                             {/* Detalhes da Mercadoria */}
-                             <div className="grid grid-cols-1 gap-3">
-                               <div className="bg-white p-2 rounded border border-gray-200">
-                                 <p className="text-sm font-semibold text-gray-700 uppercase mb-1">Quantidade</p>
-                                 <p className="font-bold text-gray-900">{mercadoria.quantidade || 'Não especificada'}</p>
-                               </div>
-                             </div>
-
-                             {/* Descrição Detalhada */}
-                             {mercadoria.descricao && (
-                               <div className="mt-3 bg-white p-3 rounded border border-gray-200">
-                                 <p className="text-sm font-semibold text-gray-700 uppercase mb-2">Descrição Detalhada</p>
-                                 <p className="text-gray-900">{mercadoria.descricao}</p>
-                               </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {lote.mercadorias.map((mercadoria, mercIndex) => (
+                        <div key={mercadoria.id || mercIndex} style={{ fontSize: '14px', color: '#6b7280' }}>
+                          • {mercadoria.titulo || mercadoria.tipo || 'Mercadoria'} - {mercadoria.descricao}
+                          {mercadoria.quantidade && (
+                            <span style={{ color: '#9ca3af' }}> (Qtd: {mercadoria.quantidade})</span>
                              )}
                            </div>
                          ))}
                        </div>
+                  </div>
+                )}
 
+                {/* Imagens do Lote */}
+                {lotesComImagens[lote.id] && lotesComImagens[lote.id].length > 0 && (
+                  <div style={{ marginBottom: '16px' }}>
+                    <h5 style={{ fontSize: '14px', fontWeight: '500', color: '#374151', marginTop: 0, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                        <polyline points="21 15 16 10 5 21"></polyline>
+                      </svg>
+                      Imagens do Lote ({lotesComImagens[lote.id].length})
+                    </h5>
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(2, 1fr)', 
+                      gap: '12px',
+                      marginBottom: '12px'
+                    }}>
+                      {lotesComImagens[lote.id].slice(0, 4).map((image, imgIndex) => (
+                        <div key={image.id || imgIndex} style={{ 
+                          border: '1px solid #e5e7eb', 
+                          borderRadius: '6px',
+                          overflow: 'hidden',
+                          background: '#f9fafb'
+                        }}>
+                          {image.url ? (
+                            <img 
+                              src={image.url} 
+                              alt={image.nome}
+                              style={{ 
+                                width: '100%', 
+                                height: '150px', 
+                                objectFit: 'cover',
+                                display: 'block'
+                              }}
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <div style={{ 
+                              width: '100%', 
+                              height: '150px', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center',
+                              background: 'linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%)'
+                            }}>
+                              <p style={{ fontSize: '12px', color: '#9ca3af', margin: 0 }}>Imagem não disponível</p>
                      </div>
                    )}
+                          <div style={{ padding: '8px' }}>
+                            <p style={{ fontSize: '11px', color: '#6b7280', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {image.nome}
+                            </p>
                  </div>
                </div>
              ))}
@@ -879,198 +980,219 @@ export const PdfReport: React.FC<PdfReportProps> = ({ auction }) => {
          </div>
        )}
 
-       {/* Documentos e Anexos */}
-       {((auction.documentos && auction.documentos.length > 0) || 
-         (auction.fotosMercadoria && auction.fotosMercadoria.length > 0)) && (
-         <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-           <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
-             Anexos e Documentação
-           </h2>
-
-          {/* Documentos do Leilão */}
-          {auction.documentos && auction.documentos.length > 0 && (
-            <div className="mb-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-              <h3 className="text-sm font-medium text-gray-700 mb-3 border-l-4 border-gray-400 pl-3 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-                Documentos Oficiais do Leilão ({auction.documentos.length})
-              </h3>
-              <div className="grid grid-cols-3 gap-4">
-                 {auction.documentos.map((doc, index) => {
-                   // Determinar cor e ícone baseado no tipo de documento
-                   let bgGradient = 'linear-gradient(135deg, #64748b 0%, #475569 100%)'; // Cinza corporativo
-                   let tipoLabel = 'DOC';
-                   
-                   const tipo = doc.tipo?.toLowerCase() || '';
-                   if (tipo === 'pdf') {
-                     bgGradient = 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)'; // Vermelho corporativo
-                     tipoLabel = 'PDF';
-                   } else if (['doc', 'docx'].includes(tipo)) {
-                     bgGradient = 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)'; // Azul corporativo
-                     tipoLabel = 'DOC';
-                   } else if (['xls', 'xlsx'].includes(tipo)) {
-                     bgGradient = 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)'; // Verde corporativo
-                     tipoLabel = 'XLS';
-                   } else if (['txt', 'text'].includes(tipo)) {
-                     bgGradient = 'linear-gradient(135deg, #78716c 0%, #57534e 100%)'; // Marrom/Cinza
-                     tipoLabel = 'TXT';
-                   } else if (['zip', 'rar', '7z'].includes(tipo)) {
-                     bgGradient = 'linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)'; // Roxo corporativo
-                     tipoLabel = 'ZIP';
-                   }
-                  
-                  return (
-                    <div key={index} className="bg-gray-50 rounded border border-gray-200 overflow-hidden break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                      <div className="w-full h-32 flex flex-col items-center justify-center" style={{ background: bgGradient }}>
-                        <FileText className="h-12 w-12 text-white opacity-90 mb-2" />
-                        <span className="text-white font-bold text-lg opacity-90">{tipoLabel}</span>
+                {/* Configurações de Pagamento do Lote */}
+                {lote.tipoPagamento && (
+                  <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: '12px', marginTop: '12px' }}>
+                    <h5 style={{ 
+                      fontSize: '14px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      marginTop: 0,
+                      marginBottom: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}>
+                      <span style={{ 
+                        display: 'inline-block', 
+                        width: '8px', 
+                        height: '8px', 
+                        background: '#6b7280', 
+                        borderRadius: '50%' 
+                      }}></span>
+                      Pagamento Específico deste Lote
+                    </h5>
+                    
+                    <div style={{ 
+                      display: 'flex', 
+                      gap: '12px', 
+                      fontSize: '12px',
+                      flexWrap: 'wrap'
+                    }}>
+                      {/* Tipo de Pagamento */}
+                      <div style={{ background: '#f9fafb', padding: '8px', borderRadius: '4px', border: '1px solid #d1d5db', flex: '1 1 150px' }}>
+                        <span style={{ color: '#6b7280', fontWeight: '500', display: 'block', marginBottom: '2px' }}>
+                          Tipo:
+                        </span>
+                        <span style={{ color: '#1f2937' }}>
+                          {lote.tipoPagamento === 'a_vista' ? 'À vista' :
+                           lote.tipoPagamento === 'parcelamento' ? 'Parcelamento' :
+                           'Entrada + Parcelamento'}
+                        </span>
                       </div>
-                      <div className="p-3">
-                        <h4 className="font-semibold text-gray-900 text-sm mb-2 truncate" title={doc.nome}>
-                          {doc.nome}
-                        </h4>
-                        <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                          <div>
-                            <span className="font-medium">Tipo:</span> {doc.tipo}
-                          </div>
-                          <div>
-                            <span className="font-medium">Tamanho:</span> {formatFileSize(doc.tamanho)}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
-          {/* Fotos da Mercadoria */}
-          {auction.fotosMercadoria && auction.fotosMercadoria.length > 0 && (
-            <div className="mb-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-              <h3 className="text-sm font-medium text-gray-700 mb-3 border-l-4 border-gray-400 pl-3 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>
-                Fotos da Mercadoria ({auction.fotosMercadoria.length})
-              </h3>
-              <div className="grid grid-cols-2 gap-4">
-                {auction.fotosMercadoria.map((foto, index) => {
-                  // Verificar se é uma imagem
-                  const tipoImagem = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
-                  const isImage = tipoImagem.includes(foto.tipo?.toLowerCase() || '');
-                  
-                  return (
-                    <div key={index} className="bg-gray-50 rounded border border-gray-200 overflow-hidden break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                      {isImage && foto.url ? (
-                        <div className="w-full">
-                          <img 
-                            src={foto.url} 
-                            alt={foto.nome}
-                            className="w-full h-48 object-cover"
-                            style={{ width: '100%', height: '192px', objectFit: 'cover' }}
-                            onError={(e) => {
-                              // Se erro ao carregar, mostrar placeholder
-                              e.currentTarget.style.display = 'none';
-                              const parent = e.currentTarget.parentElement;
-                              if (parent) {
-                                parent.innerHTML = `
-                                  <div style="width: 100%; height: 192px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                                    <svg style="width: 64px; height: 64px; color: white; opacity: 0.8;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                                    </svg>
-                                  </div>
-                                `;
-                              }
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <div className="w-full h-48 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
-                          <Image className="h-16 w-16 text-white opacity-80" />
+                      {/* Data à Vista */}
+                      {lote.tipoPagamento === 'a_vista' && lote.dataVencimentoVista && (
+                        <div style={{ background: '#f3f4f6', padding: '8px', borderRadius: '4px', border: '1px solid #d1d5db', flex: '1 1 150px' }}>
+                          <span style={{ color: '#6b7280', fontWeight: '500', display: 'block', marginBottom: '2px' }}>
+                            Data de Pagamento:
+                          </span>
+                          <span style={{ color: '#1f2937' }}>
+                            {formatDate(lote.dataVencimentoVista)}
+                          </span>
                         </div>
                       )}
-                      <div className="p-3">
-                        <h4 className="font-semibold text-gray-900 text-sm mb-2 truncate" title={foto.nome}>
-                          {foto.nome}
-                        </h4>
-                        <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                          <div>
-                            <span className="font-medium">Tipo:</span> {foto.tipo}
-                          </div>
-                          <div>
-                            <span className="font-medium">Tamanho:</span> {formatFileSize(foto.tamanho)}
-                          </div>
-                        </div>
+
+                      {/* Data da Entrada */}
+                      {lote.tipoPagamento === 'entrada_parcelamento' && lote.dataEntrada && (
+                        <div style={{ background: '#f3f4f6', padding: '8px', borderRadius: '4px', border: '1px solid #d1d5db', flex: '1 1 150px' }}>
+                          <span style={{ color: '#6b7280', fontWeight: '500', display: 'block', marginBottom: '2px' }}>
+                            Data da Entrada:
+                          </span>
+                          <span style={{ color: '#1f2937' }}>
+                            {formatDate(lote.dataEntrada)}
+                          </span>
                       </div>
-                    </div>
-                  );
-                })}
+                      )}
+
+                      {/* Configurações de Parcelamento */}
+                      {(lote.tipoPagamento === 'parcelamento' || lote.tipoPagamento === 'entrada_parcelamento') && (
+                        <>
+                          {lote.mesInicioPagamento && (
+                            <div style={{ background: '#f3f4f6', padding: '8px', borderRadius: '4px', border: '1px solid #d1d5db', flex: '1 1 150px' }}>
+                              <span style={{ color: '#6b7280', fontWeight: '500', display: 'block', marginBottom: '2px' }}>
+                                Mês de Início:
+                              </span>
+                              <span style={{ color: '#1f2937' }}>
+                                {(() => {
+                                  const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                                                'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+                                  return meses[parseInt(lote.mesInicioPagamento) - 1] || 'N/A';
+                                })()}
+                              </span>
+                          </div>
+                          )}
+                          
+                          {lote.diaVencimentoPadrao && (
+                            <div style={{ background: '#f3f4f6', padding: '8px', borderRadius: '4px', border: '1px solid #d1d5db', flex: '1 1 150px' }}>
+                              <span style={{ color: '#6b7280', fontWeight: '500', display: 'block', marginBottom: '2px' }}>
+                                Dia do Vencimento:
+                              </span>
+                              <span style={{ color: '#1f2937' }}>Dia {lote.diaVencimentoPadrao}</span>
+            </div>
+          )}
+
+                          {lote.parcelasPadrao && (
+                            <div style={{ background: '#f3f4f6', padding: '8px', borderRadius: '4px', border: '1px solid #d1d5db', flex: '1 1 150px' }}>
+                              <span style={{ color: '#6b7280', fontWeight: '500', display: 'block', marginBottom: '2px' }}>
+                                Parcelas:
+                              </span>
+                              <span style={{ color: '#1f2937' }}>
+                                {lote.parcelasPadrao}x{lote.tipoPagamento === 'entrada_parcelamento' ? ' (após entrada)' : ''}
+                              </span>
+                                  </div>
+                          )}
+                        </>
+                      )}
+                        </div>
+                        </div>
+                      )}
+                          </div>
+            ))}
               </div>
             </div>
           )}
 
-           {/* Resumo de Anexos */}
-           <div className="bg-gray-50 p-4 rounded border break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-             <h3 className="text-sm font-medium text-gray-700 mb-3 break-after-avoid" style={{ pageBreakAfter: 'avoid' }}>Resumo da Documentação</h3>
-             <div className="grid grid-cols-2 gap-4">
-               <div>
-                 <strong>Total de Documentos:</strong> {auction.documentos?.length || 0}
+      {/* ==================== ANEXOS ==================== */}
+      {((auction.documentos && auction.documentos.length > 0) || 
+        (auction.fotosMercadoria && auction.fotosMercadoria.length > 0)) && (
+        <div className="bg-white border border-gray-200 rounded-lg p-6" style={{ 
+          background: 'white', 
+          border: '1px solid #e5e7eb', 
+          borderRadius: '8px', 
+          padding: '24px',
+          marginBottom: '40px',
+          pageBreakInside: 'avoid'
+        }}>
+          <h2 style={{ 
+            fontSize: '18px', 
+            fontWeight: '600', 
+            color: '#111827', 
+            marginTop: 0,
+            marginBottom: '24px', 
+            paddingBottom: '12px', 
+            borderBottom: '1px solid #e5e7eb',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+            </svg>
+            Anexos e Documentação
+          </h2>
+
+          <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 200px' }}>
+              <p style={{ fontWeight: '600', color: '#374151', marginTop: 0, marginBottom: '4px' }}>Total de Documentos:</p>
+              <p style={{ fontSize: '24px', color: '#111827', margin: 0 }}>{auction.documentos?.length || 0}</p>
                </div>
-               <div>
-                 <strong>Total de Fotos:</strong> {auction.fotosMercadoria?.length || 0}
-               </div>
+            <div style={{ flex: '1 1 200px' }}>
+              <p style={{ fontWeight: '600', color: '#374151', marginTop: 0, marginBottom: '4px' }}>Total de Fotos:</p>
+              <p style={{ fontSize: '24px', color: '#111827', margin: 0 }}>{auction.fotosMercadoria?.length || 0}</p>
              </div>
            </div>
          </div>
        )}
 
-      {/* Observações Históricas */}
+      {/* ==================== OBSERVAÇÕES ==================== */}
       {auction.historicoNotas && auction.historicoNotas.length > 0 && (
-        <div className="mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-          <h2 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-4 break-after-avoid" style={{ fontSize: '10px', letterSpacing: '0.1em', pageBreakAfter: 'avoid' }}>
-            Histórico de Observações
+        <div className="bg-white border border-gray-200 rounded-lg p-6" style={{ 
+          background: 'white', 
+          border: '1px solid #e5e7eb', 
+          borderRadius: '8px', 
+          padding: '24px',
+          marginBottom: '40px',
+          pageBreakInside: 'avoid'
+        }}>
+          <h2 style={{ 
+            fontSize: '18px', 
+            fontWeight: '600', 
+            color: '#111827', 
+            marginTop: 0,
+            marginBottom: '24px', 
+            paddingBottom: '12px', 
+            borderBottom: '1px solid #e5e7eb',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+            Observações
           </h2>
-          <div className="space-y-3">
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {auction.historicoNotas.map((nota, index) => (
-              <div key={index} className="border-l-4 border-gray-300 pl-4 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                <p className="text-gray-700">{nota}</p>
+              <div key={index} style={{ 
+                borderLeft: '4px solid #d1d5db', 
+                paddingLeft: '16px',
+                pageBreakInside: 'avoid'
+              }}>
+                <p style={{ color: '#374151', lineHeight: '1.6', margin: 0 }}>{nota}</p>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Rodapé Corporativo */}
-      <div className="mt-12 pt-6 break-inside-avoid" style={{ borderTop: '1px solid #e2e8f0', pageBreakInside: 'avoid' }}>
-        <div className="text-center mb-6">
-          <p className="text-xs text-slate-500 mb-4" style={{ fontWeight: 300, lineHeight: '1.6' }}>
+      {/* ==================== RODAPÉ ==================== */}
+      <div style={{ 
+        marginTop: '48px', 
+        paddingTop: '24px', 
+        borderTop: '1px solid #e5e7eb',
+        textAlign: 'center',
+        pageBreakInside: 'avoid'
+      }}>
+        <p style={{ fontSize: '12px', color: '#9ca3af', margin: '0 0 16px 0' }}>
             Este documento foi gerado automaticamente pelo sistema de gestão de leilões.<br />
             Informações atualizadas em {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.
           </p>
-        </div>
-      </div>
-
-      {/* Logos no Rodapé */}
-      <div className="mt-8 flex justify-center items-center -ml-20 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-        <img 
-          src="/logo-elionx-softwares.png" 
-          alt="Elionx Softwares" 
-          className="max-h-80 object-contain opacity-90"
-          style={{ maxHeight: '320px', maxWidth: '620px' }}
-          onError={(e) => {
-            console.error('Erro ao carregar logo da Elionx:', e);
-            e.currentTarget.style.display = 'none';
-          }}
-          onLoad={() => console.log('Logo da Elionx carregado com sucesso')}
-        />
-        <img 
-          src="/arthur-lira-logo.png" 
-          alt="Arthur Lira Leilões" 
-          className="max-h-14 object-contain opacity-90 -mt-2 -ml-16"
-          style={{ maxHeight: '55px', maxWidth: '110px' }}
-          onError={(e) => {
-            console.error('Erro ao carregar logo do Arthur Lira:', e);
-            e.currentTarget.style.display = 'none';
-          }}
-          onLoad={() => console.log('Logo do Arthur Lira carregado com sucesso')}
-        />
-      </div>
       </div>
     </div>
   );

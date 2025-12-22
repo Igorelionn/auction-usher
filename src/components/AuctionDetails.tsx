@@ -18,7 +18,8 @@ import {
   FileImage,
   Eye,
   Info,
-  Image
+  Image,
+  ChevronDown
 } from "lucide-react";
 
 interface AuctionDetailsProps {
@@ -292,6 +293,15 @@ function LoteImages({ loteId, loteNumero, auctionId }: { loteId: string; loteNum
 }
 
 export function AuctionDetails({ auction }: AuctionDetailsProps) {
+  // Estados para gerenciar arrematantes
+  const [arrematanteSelecionadoIndex, setArrematanteSelecionadoIndex] = useState(0);
+  const [isSelectOpen, setIsSelectOpen] = useState(false);
+  
+  // Calcular todos os arrematantes (compatibilidade com formato antigo e novo)
+  const todosArrematantes = auction.arrematantes && auction.arrematantes.length > 0 
+    ? auction.arrematantes 
+    : (auction.arrematante ? [auction.arrematante] : []);
+  
   const formatCurrency = (value: number | undefined) => {
     if (!value) return "R$ 0,00";
     return new Intl.NumberFormat("pt-BR", {
@@ -676,7 +686,6 @@ export function AuctionDetails({ auction }: AuctionDetailsProps) {
           </div>
         </div>
       </div>
-
       {/* ==================== CRONOGRAMA ==================== */}
       <div className="bg-white border border-gray-200 rounded-lg p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-3 border-b border-gray-200 flex items-center gap-2">
@@ -708,99 +717,158 @@ export function AuctionDetails({ auction }: AuctionDetailsProps) {
 
 
 
-      {/* ==================== LOTES ==================== */}
-      {auction.lotes && auction.lotes.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-3 border-b border-gray-200">
-            Lotes do Leilão ({auction.lotes.length})
-          </h2>
-          
-          <div className="space-y-4">
-            {auction.lotes.map((lote, index) => {
-              return (
-                <div key={lote.id || index} className="p-4 border border-gray-200 rounded-lg">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-1">Lote {lote.numero}</h4>
-                      <p className="text-gray-700">{lote.descricao}</p>
-                    </div>
-                    {lote.status === 'arrematado' && (
-                      <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-medium">Arrematado</span>
-                    )}
-                  </div>
-
-                  {/* Mercadorias */}
-                  {lote.mercadorias && lote.mercadorias.length > 0 && (
-                    <div className="mb-4">
-                      <h5 className="text-sm font-medium text-gray-700 mb-2">Mercadorias:</h5>
-                      <div className="space-y-1">
-                        {lote.mercadorias.map((mercadoria, mercIndex) => (
-                          <div key={mercadoria.id || mercIndex} className="text-sm text-gray-600">
-                            • {mercadoria.titulo || mercadoria.tipo || 'Mercadoria'} - {mercadoria.descricao}
-                            {mercadoria.quantidade && (
-                              <span className="text-gray-500"> (Qtd: {mercadoria.quantidade})</span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ==================== CRONOGRAMA ==================== */}
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-3 border-b border-gray-200 flex items-center gap-2">
-          <Calendar className="h-5 w-5" />
-          Cronograma do Evento
-        </h2>
+      {/* ==================== ARREMATANTES ==================== */}
+      {todosArrematantes.length > 0 && (() => {
+        // Arrematante atualmente selecionado
+        const arrematanteAtual = todosArrematantes[arrematanteSelecionadoIndex];
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div>
-            <p className="text-sm font-medium text-gray-700 mb-2">Data de Início</p>
-            <p className="text-gray-900 font-medium">{formatDate(auction.dataInicio)}</p>
-          </div>
-          
-          {auction.status === 'em_andamento' && (
-            <div>
-              <p className="text-sm font-medium text-gray-700 mb-2">Em Andamento</p>
-              <p className="text-gray-900 font-medium">{formatDate(auction.dataInicio)}</p>
-            </div>
-          )}
-          
-          {auction.dataEncerramento && (
-            <div>
-              <p className="text-sm font-medium text-gray-700 mb-2">Encerramento</p>
-              <p className="text-gray-900 font-medium">{formatDate(auction.dataEncerramento)}</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-
-
-      {/* ==================== ARREMATANTE ==================== */}
-      {auction.arrematante && (
+              return (
         <div className="bg-white border border-gray-200 rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-3 border-b border-gray-200 flex items-center gap-2">
+            <div className="flex items-center justify-between mb-6 pb-3 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
             <User className="h-5 w-5" />
-            Informações do Arrematante
+                Informações do{todosArrematantes.length > 1 ? 's' : ''} Arrematante{todosArrematantes.length > 1 ? 's' : ''}
+                {todosArrematantes.length > 1 && (
+                  <span className="text-sm font-normal text-gray-500">
+                    ({todosArrematantes.length} cadastrado{todosArrematantes.length > 1 ? 's' : ''})
+                  </span>
+                    )}
           </h2>
+
+              {/* Seletor de Arrematante */}
+              {todosArrematantes.length > 1 && (
+                <>
+                  <style>{`
+                    .arrematante-selector {
+                      position: relative;
+                      display: inline-block;
+                    }
+                    
+                    .arrematante-selector select {
+                      appearance: none;
+                      -webkit-appearance: none;
+                      -moz-appearance: none;
+                      padding: 0.5rem 2.5rem 0.5rem 1rem;
+                      border: 1px solid #e5e7eb;
+                      border-radius: 0.5rem;
+                      font-size: 0.875rem;
+                      color: #374151;
+                      background-color: white;
+                      cursor: pointer;
+                      transition: all 0.2s;
+                      outline: none;
+                      min-width: 280px;
+                    }
+                    
+                    .arrematante-selector select:hover {
+                      background-color: #f9fafb;
+                      border-color: #d1d5db;
+                    }
+                    
+                    .arrematante-selector select:focus {
+                      border-color: #9ca3af;
+                      box-shadow: none;
+                      outline: none;
+                    }
+                    
+                    .arrematante-selector select option {
+                      background-color: white !important;
+                      color: #374151 !important;
+                      padding: 8px !important;
+                    }
+                    
+                    .arrematante-selector select option:hover {
+                      background-color: #f3f4f6 !important;
+                      color: #111827 !important;
+                    }
+                    
+                    .arrematante-selector select option:checked {
+                      background-color: #e5e7eb !important;
+                      color: #111827 !important;
+                      font-weight: 500;
+                    }
+                    
+                    .arrematante-selector-icon {
+                      position: absolute;
+                      right: 0.75rem;
+                      top: 50%;
+                      pointer-events: none;
+                      color: #6b7280;
+                    }
+                    
+                    .arrematante-selector select::-webkit-scrollbar {
+                      width: 8px;
+                    }
+                    
+                    .arrematante-selector select::-webkit-scrollbar-track {
+                      background: #f3f4f6;
+                    }
+                    
+                    .arrematante-selector select::-webkit-scrollbar-thumb {
+                      background: #d1d5db;
+                      border-radius: 4px;
+                    }
+                    
+                    .arrematante-selector select::-webkit-scrollbar-thumb:hover {
+                      background: #9ca3af;
+                    }
+                  `}</style>
+        
+                  <div className="flex items-center gap-3">
+                    <label className="text-sm text-gray-600">Visualizar:</label>
+                    <div className="arrematante-selector">
+                      <select
+                        value={arrematanteSelecionadoIndex}
+                        onChange={(e) => {
+                          setArrematanteSelecionadoIndex(Number(e.target.value));
+                          setIsSelectOpen(false);
+                        }}
+                        onClick={(e) => {
+                          const target = e.target as HTMLSelectElement;
+                          // Toggle apenas se clicar no select fechado ou clicar na mesma opção
+                          setIsSelectOpen(!isSelectOpen);
+                        }}
+                        onBlur={() => setIsSelectOpen(false)}
+                      >
+                        {todosArrematantes.map((arr, idx) => {
+                          const lote = (auction.lotes || []).find(l => l.id === arr.loteId);
+                          const mercadoria = lote?.mercadorias?.find(m => m.id === arr.mercadoriaId);
+                          const mercadoriaNome = mercadoria?.titulo || mercadoria?.tipo || 'Mercadoria';
+                          
+                          return (
+                            <option 
+                              key={arr.id || idx} 
+                              value={idx}
+                            >
+                              {mercadoriaNome} - {arr.nome}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <ChevronDown 
+                        className="arrematante-selector-icon" 
+                        size={16}
+                        style={{
+                          transform: `translateY(-50%) rotate(${isSelectOpen ? '180deg' : '0deg'})`,
+                          transition: 'transform 0.2s ease'
+                        }}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
             <div>
               <p className="text-sm font-medium text-gray-700 mb-2">Nome Completo</p>
-              <p className="text-gray-900 font-medium">{auction.arrematante.nome}</p>
+                <p className="text-gray-900 font-medium">{arrematanteAtual.nome}</p>
             </div>
             
-            {auction.arrematante.documento && (
+              {arrematanteAtual.documento && (
               <div>
                 <p className="text-sm font-medium text-gray-700 mb-2">Documento</p>
-                <p className="text-gray-900 font-mono">{auction.arrematante.documento}</p>
+                  <p className="text-gray-900 font-mono">{arrematanteAtual.documento}</p>
               </div>
         )}
       </div>
@@ -809,13 +877,11 @@ export function AuctionDetails({ auction }: AuctionDetailsProps) {
             <div>
               <p className="text-sm font-medium text-gray-700 mb-2">Valor Total</p>
               <p className="text-xl font-semibold text-gray-900">
-                {auction.arrematante.valorPagar
-                  ? (typeof auction.arrematante.valorPagar === 'string'
-                      ? (auction.arrematante.valorPagar.startsWith('R$') 
-                          ? auction.arrematante.valorPagar 
-                          : `R$ ${auction.arrematante.valorPagar}`)
-                      : `R$ ${auction.arrematante.valorPagar}`)
-                  : "R$ 0,00"}
+                  {formatCurrency(
+                    typeof arrematanteAtual.valorPagar === 'string'
+                      ? parseFloat(arrematanteAtual.valorPagar.replace(/[^\d,.-]/g, '').replace(',', '.'))
+                      : arrematanteAtual.valorPagar
+                  )}
               </p>
       </div>
 
@@ -823,31 +889,63 @@ export function AuctionDetails({ auction }: AuctionDetailsProps) {
               <p className="text-sm font-medium text-gray-700 mb-2">Situação do Pagamento</p>
               <div className="flex items-center gap-3">
                 <div className={`w-3 h-3 rounded-full ${
-                  auction.arrematante.pago ? 'bg-gray-600' : 'bg-amber-500'
+                    arrematanteAtual.pago ? 'bg-gray-600' : 'bg-amber-500'
                 }`}></div>
                 <span className="text-gray-900 font-medium">
-                  {auction.arrematante.pago ? 'Quitado' : 'Pendente'}
+                    {arrematanteAtual.pago ? 'Quitado' : 'Pendente'}
                 </span>
               </div>
               <p className="text-sm text-gray-600 mt-1">
-                {auction.arrematante.parcelasPagas || 0} de {auction.arrematante.quantidadeParcelas} parcelas pagas
+                  {arrematanteAtual.parcelasPagas || 0} de {arrematanteAtual.quantidadeParcelas} parcelas pagas
               </p>
               </div>
             </div>
             
-          {auction.arrematante.loteId && (
+            {/* Mercadoria e Lote Arrematado */}
+            {arrematanteAtual.mercadoriaId && (
             <div className="mt-6 pt-6 border-t border-gray-200">
-              <p className="text-sm font-medium text-gray-700 mb-2">Lote Arrematado</p>
-              <p className="text-gray-900 font-medium">
+                <p className="text-sm font-medium text-gray-700 mb-3">Mercadoria Arrematada</p>
                 {(() => {
-                  const lote = (auction.lotes || []).find(l => l.id === auction.arrematante?.loteId);
-                  return lote ? `Lote ${lote.numero} - ${lote.descricao}` : "Lote não encontrado";
-                })()}
+                  const lote = (auction.lotes || []).find(l => l.id === arrematanteAtual.loteId);
+                  const mercadoria = lote?.mercadorias?.find(m => m.id === arrematanteAtual.mercadoriaId);
+                  
+                  return (
+                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                      {mercadoria ? (
+                        <>
+                          <p className="text-gray-900 font-semibold text-base mb-2">
+                            {mercadoria.titulo || mercadoria.tipo || 'Mercadoria'}
+                          </p>
+                          {mercadoria.descricao && (
+                            <p className="text-gray-600 text-sm mb-3">
+                              {mercadoria.descricao}
+                            </p>
+                          )}
+                          {mercadoria.quantidade && (
+                            <p className="text-gray-500 text-sm mb-3">
+                              Quantidade: <span className="font-medium text-gray-700">{mercadoria.quantidade}</span>
+                            </p>
+                          )}
+                          {lote && (
+                            <div className="pt-3 mt-3 border-t border-gray-200">
+                              <p className="text-xs text-gray-500 mb-1">Pertence ao:</p>
+                              <p className="text-gray-800 font-medium text-sm">
+                                Lote {lote.numero} - {lote.descricao}
               </p>
             </div>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-gray-500 text-sm">Mercadoria não encontrada</p>
           )}
+                    </div>
+                  );
+                })()}
         </div>
       )}
+          </div>
+        );
+      })()}
 
       {/* ==================== LOTES ==================== */}
       {auction.lotes && auction.lotes.length > 0 && (
@@ -865,9 +963,6 @@ export function AuctionDetails({ auction }: AuctionDetailsProps) {
                       <h4 className="font-semibold text-gray-900 mb-1">Lote {lote.numero}</h4>
                       <p className="text-gray-700">{lote.descricao}</p>
                     </div>
-                    {lote.status === 'arrematado' && (
-                      <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-medium">Arrematado</span>
-                    )}
                   </div>
 
                   {/* Mercadorias */}

@@ -285,7 +285,11 @@ function Relatorios() {
         a.custos || 0;
       return sum + custos;
     }, 0) || 0,
-    totalArrematantes: auctions?.filter(a => a.arrematante && !a.arquivado).length || 0
+    totalArrematantes: auctions?.reduce((sum, a) => {
+      if (a.arquivado) return sum;
+      const arrematantes = a.arrematantes || (a.arrematante ? [a.arrematante] : []);
+      return sum + arrematantes.length;
+    }, 0) || 0
   };
 
   const formatCurrency = (value: number) => {
@@ -695,11 +699,26 @@ function Relatorios() {
         
       } else if (type === 'faturas') {
         titulo = 'RELATÓRIO DE FATURAS';
-        const comFinanceiro = auctions.filter(a => a.arrematante && !a.arquivado);
         
-        dadosRelatorio = comFinanceiro.map(auction => {
+        // Obter todas as faturas (múltiplos arrematantes por leilão)
+        const todasFaturas: Array<{auction: Auction, arrematante: ArrematanteInfo}> = [];
+        
+        auctions.forEach(auction => {
+          if (auction.arquivado) return;
+          
+          // Verificar se há múltiplos arrematantes
+          if (auction.arrematantes && auction.arrematantes.length > 0) {
+            auction.arrematantes.forEach(arr => {
+              todasFaturas.push({ auction, arrematante: arr });
+            });
+          } else if (auction.arrematante) {
+            // Suporte para formato antigo
+            todasFaturas.push({ auction, arrematante: auction.arrematante });
+          }
+        });
+        
+        dadosRelatorio = todasFaturas.map(({ auction, arrematante }) => {
           // Calcular valor total com juros
-          const arrematante = auction.arrematante;
           let valorTotalStr = arrematante?.valorPagar || 'N/A';
           const detalhamentoJuros = '';
           
@@ -770,24 +789,38 @@ function Relatorios() {
             }
           }
           
+          // Obter informações da mercadoria
+          const loteComprado = arrematante?.loteId 
+            ? auction.lotes?.find(lote => lote.id === arrematante.loteId)
+            : null;
+          const mercadoriaComprada = loteComprado && arrematante?.mercadoriaId
+            ? loteComprado.mercadorias?.find(m => m.id === arrematante.mercadoriaId)
+            : null;
+          
           return `
           <div style="margin-bottom: 20px; border: 1px solid #ddd; border-radius: 8px; padding: 15px; page-break-inside: avoid;">
             <h3 style="font-size: 16px; font-weight: bold; margin-bottom: 10px;">
               Fatura - ${auction.identificacao ? `#${auction.identificacao}` : auction.nome || 'Leilão sem nome'}
             </h3>
             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 12px;">
-              <div><strong>Cliente:</strong> ${auction.arrematante?.nome || 'N/A'}</div>
-              <div><strong>CPF/CNPJ:</strong> ${auction.arrematante?.documento || 'N/A'}</div>
+              <div><strong>Cliente:</strong> ${arrematante?.nome || 'N/A'}</div>
+              <div><strong>CPF/CNPJ:</strong> ${arrematante?.documento || 'N/A'}</div>
                 <div><strong>Valor Total:</strong> ${valorTotalStr}${detalhamentoJuros}</div>
-              <div><strong>Status:</strong> ${auction.arrematante?.pago ? 'Pago' : (isOverdue(auction.arrematante, auction) ? 'ATRASADO' : 'Pendente')}</div>
+              <div><strong>Status:</strong> ${arrematante?.pago ? 'Pago' : (isOverdue(arrematante, auction) ? 'ATRASADO' : 'Pendente')}</div>
               <div><strong>Data Leilão:</strong> ${auction.dataInicio ? new Date(auction.dataInicio + 'T00:00:00').toLocaleDateString('pt-BR') : 'N/A'}</div>
-              <div><strong>Parcelas:</strong> ${auction.arrematante?.parcelasPagas || 0}/${auction.arrematante?.quantidadeParcelas || 0}</div>
+              <div><strong>Parcelas:</strong> ${arrematante?.parcelasPagas || 0}/${arrematante?.quantidadeParcelas || 0}</div>
             </div>
-            ${auction.arrematante?.valorPagarNumerico && auction.arrematante?.quantidadeParcelas ? `
+            ${mercadoriaComprada ? `
+              <div style="margin-top: 10px; padding: 8px; background: #f9fafb; border-radius: 4px; font-size: 11px; border-left: 3px solid #6b7280;">
+                <strong>Mercadoria Arrematada:</strong> ${mercadoriaComprada.titulo || mercadoriaComprada.tipo || 'Mercadoria'}<br>
+                <strong>Lote:</strong> Lote ${loteComprado.numero} - ${loteComprado.descricao || 'Sem descrição'}
+              </div>
+            ` : ''}
+            ${arrematante?.valorPagarNumerico && arrematante?.quantidadeParcelas ? `
               <div style="margin-top: 10px; padding: 8px; background: #f0f9ff; border-radius: 4px; font-size: 11px;">
                 <strong>Detalhamento:</strong><br>
-                  Valor por parcela base: ${(auction.arrematante.valorPagarNumerico / auction.arrematante.quantidadeParcelas).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}<br>
-                  Dia vencimento: ${auction.arrematante?.diaVencimentoMensal || 'N/A'}${auction.arrematante?.percentualJurosAtraso ? `<br>Juros de atraso: ${auction.arrematante.percentualJurosAtraso}% ao mês` : ''}
+                  Valor por parcela base: ${(arrematante.valorPagarNumerico / arrematante.quantidadeParcelas).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}<br>
+                  Dia vencimento: ${arrematante?.diaVencimentoMensal || 'N/A'}${arrematante?.percentualJurosAtraso ? `<br>Juros de atraso: ${arrematante.percentualJurosAtraso}% ao mês` : ''}
               </div>
             ` : ''}
           </div>
@@ -2285,15 +2318,15 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                 <div className="mb-2">
                   <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
                     Leilão #{String(index + 1).padStart(2, '0')}
-                  </span>
-                </div>
+                        </span>
+                    </div>
                 <h2 className="text-2xl font-light text-slate-900 mb-1">
-                  {auction.identificacao || auction.nome || `Leilão ${index + 1}`}
+                      {auction.identificacao || auction.nome || `Leilão ${index + 1}`}
                 </h2>
-                {auction.nome && auction.identificacao && (
+                    {auction.nome && auction.identificacao && (
                   <p className="text-sm text-slate-600">{auction.nome}</p>
-                )}
-              </div>
+                    )}
+                  </div>
 
               {/* Identificação do Leilão */}
               <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
@@ -2323,7 +2356,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                   </div>
                 </div>
               </div>
-
+              
               {/* Cronograma e Local */}
               <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
                 <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em' }}>
@@ -2331,30 +2364,30 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                 </h3>
                 <div className="p-4" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
                   <div className="grid grid-cols-3 gap-4 mb-3 text-sm">
-                    <div>
+                <div>
                       <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Data de Início</div>
                       <div className="text-base font-medium text-slate-900">{formatDate(auction.dataInicio)}</div>
-                    </div>
+                      </div>
                     <div>
                       <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Data de Encerramento</div>
                       <div className="text-base font-medium text-slate-900">{formatDate(auction.dataEncerramento || '')}</div>
-                    </div>
+                      </div>
                     <div>
                       <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Modalidade</div>
                       <div className="text-base font-medium text-slate-900">{getLocalLabel(auction.local)}</div>
+                      </div>
                     </div>
-                  </div>
                   <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
                     <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Endereço do Evento</div>
                     <div className="text-sm text-slate-900">{auction.endereco || 'Não informado'}</div>
-                  </div>
+                    </div>
                   {auction.historicoNotas?.join('; ') && (
                     <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '12px', marginTop: '12px' }}>
                       <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Observações</div>
                       <div className="text-sm text-slate-900 p-2 rounded" style={{ backgroundColor: '#fafafa', border: '1px solid #e2e8f0' }}>
                         {auction.historicoNotas?.join('; ') || 'Não informado'}
                       </div>
-                    </div>
+                      </div>
                   )}
                 </div>
               </div>
@@ -2370,15 +2403,15 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                     <div className="text-lg font-medium text-slate-900">
                       {formatCurrency(auction.custosNumerico || auction.custos)}
                     </div>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Especificação dos Custos */}
-              {auction.detalheCustos && auction.detalheCustos.length > 0 && (
+                {/* Especificação dos Custos */}
+                {auction.detalheCustos && auction.detalheCustos.length > 0 && (
                 <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
                   <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em' }}>
-                    Especificação dos Gastos
+                      Especificação dos Gastos
                   </h3>
                   <div className="p-4 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
                     <div className="space-y-2">
@@ -2398,15 +2431,15 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                         </div>
                       ))}
                     </div>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Patrocínios Recebidos */}
-              {auction.detalhePatrocinios && auction.detalhePatrocinios.length > 0 && (
+                {/* Patrocínios Recebidos */}
+                {auction.detalhePatrocinios && auction.detalhePatrocinios.length > 0 && (
                 <div className="mb-6 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
                   <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wider mb-3" style={{ letterSpacing: '0.1em' }}>
-                    Patrocínios Recebidos
+                      Patrocínios Recebidos
                   </h3>
                   <div className="p-4 break-inside-avoid" style={{ background: 'linear-gradient(to bottom, #f8fafc, #ffffff)', border: '1px solid #e2e8f0', borderRadius: '4px', pageBreakInside: 'avoid' }}>
                     {/* Total de Patrocínios */}
@@ -2423,22 +2456,22 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                     <div className="border-t border-gray-200 pt-4">
                       <div className="text-xs font-medium text-gray-600 uppercase tracking-wide mb-3">Patrocinadores</div>
                       <div className="space-y-2">
-                        {auction.detalhePatrocinios.map((item: ItemPatrocinioInfo, index: number) => (
-                          <div key={item.id || index} className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded border border-gray-200">
-                            <div className="flex items-center gap-3">
-                              <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-gray-200 text-xs font-semibold text-gray-700">
-                                {String(index + 1).padStart(2, '0')}
-                              </span>
-                              <span className="text-sm text-gray-700">
-                                {item.nomePatrocinador || 'Patrocinador'}
-                              </span>
-                            </div>
-                            <span className="text-sm font-medium text-gray-900">
-                              {formatCurrency(item.valorNumerico)}
+                      {auction.detalhePatrocinios.map((item: ItemPatrocinioInfo, index: number) => (
+                        <div key={item.id || index} className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded border border-gray-200">
+                          <div className="flex items-center gap-3">
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-gray-200 text-xs font-semibold text-gray-700">
+                              {String(index + 1).padStart(2, '0')}
+                            </span>
+                            <span className="text-sm text-gray-700">
+                              {item.nomePatrocinador || 'Patrocinador'}
                             </span>
                           </div>
-                        ))}
-                      </div>
+                          <span className="text-sm font-medium text-gray-900">
+                            {formatCurrency(item.valorNumerico)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                     </div>
                   </div>
                 </div>
@@ -2451,14 +2484,14 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                 </h3>
                 
                 {auction.lotes && auction.lotes.length > 0 ? (
-                  <div className="space-y-3">
+                        <div className="space-y-3">
                     {auction.lotes.map((lote, loteIndex) => {
                       if (!lote.mercadorias || lote.mercadorias.length === 0) {
                         return (
                           <div key={lote.id || loteIndex} className="p-3" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
                             <div className="mb-2">
                               <h4 className="font-medium text-slate-800 text-sm">Lote {lote.numero}</h4>
-                            </div>
+                          </div>
                             {lote.descricao && <p className="text-xs text-slate-600 mb-2">{lote.descricao}</p>}
                             <div className="bg-gray-100 border border-gray-300 p-2 rounded">
                               <p className="text-gray-600 text-xs text-center">Nenhuma mercadoria cadastrada neste lote</p>
@@ -2487,7 +2520,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                                       {mercadoria.quantidade && <span className="text-xs text-gray-500 ml-2">(Qtd: {mercadoria.quantidade})</span>}
                                     </h5>
                                     {mercadoria.descricao && <p className="text-xs text-gray-600 mt-1">{mercadoria.descricao}</p>}
-                                  </div>
+                            </div>
 
                                   {arrematante && arrematante.tipoPagamento ? (
                                     <div>
@@ -2504,21 +2537,21 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                                                arrematante.tipoPagamento === 'entrada_parcelamento' ? 'Entrada + Parcelamento' :
                                                'Não definido'}
                                             </span>
-                                          </div>
+                          </div>
 
                                           {arrematante.tipoPagamento === 'a_vista' && arrematante.dataVencimentoVista && (
                                             <div>
                                               <strong className="text-gray-700">Data de Pagamento:</strong>{' '}
                                               <span className="text-gray-900">{formatDate(arrematante.dataVencimentoVista)}</span>
-                                            </div>
-                                          )}
+                      </div>
+                    )}
 
                                           {arrematante.tipoPagamento === 'entrada_parcelamento' && arrematante.dataEntrada && (
                                             <div>
                                               <strong className="text-gray-700">Data da Entrada:</strong>{' '}
                                               <span className="text-gray-900">{formatDate(arrematante.dataEntrada)}</span>
-                                            </div>
-                                          )}
+                  </div>
+                )}
 
                                           {(arrematante.tipoPagamento === 'parcelamento' || arrematante.tipoPagamento === 'entrada_parcelamento') && (
                                             <>
@@ -2526,35 +2559,35 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                                                 <div>
                                                   <strong className="text-gray-700">Mês de Início:</strong>{' '}
                                                   <span className="text-gray-900">
-                                                    {(() => {
+                            {(() => {
                                                       const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
                                                                     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
                                                       return meses[parseInt(arrematante.mesInicioPagamento) - 1] || arrematante.mesInicioPagamento;
-                                                    })()}
-                                                  </span>
-                                                </div>
-                                              )}
+                            })()}
+                            </span>
+                        </div>
+                      )}
                                               
                                               {arrematante.diaVencimentoMensal && (
                                                 <div>
                                                   <strong className="text-gray-700">Dia do Vencimento:</strong>{' '}
                                                   <span className="text-gray-900">Dia {arrematante.diaVencimentoMensal}</span>
-                                                </div>
-                                              )}
-                                              
+                  </div>
+                )}
+
                                               {arrematante.quantidadeParcelas && (
                                                 <div>
                                                   <strong className="text-gray-700">Parcelas:</strong>{' '}
                                                   <span className="text-gray-900">
                                                     {arrematante.quantidadeParcelas}x
                                                     {arrematante.tipoPagamento === 'entrada_parcelamento' ? ' (após entrada)' : ''}
-                                                  </span>
+                              </span>
                                                 </div>
                                               )}
                                             </>
-                                          )}
-                                        </div>
-                                      </div>
+                            )}
+                          </div>
+                            </div>
                                     </div>
                                   ) : (
                                     <div className="bg-white border border-gray-300 p-2 rounded">
@@ -2566,11 +2599,11 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                                 </div>
                               );
                             })}
+                              </div>
                           </div>
-                        </div>
                       );
                     })}
-                  </div>
+                        </div>
                 ) : (
                   <div className="p-3 bg-gray-50 rounded border border-gray-200">
                     <p className="text-gray-600 text-center text-sm">Nenhum lote cadastrado neste leilão</p>
@@ -3791,7 +3824,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                                 );
                               })()}
                             </span></div>
-                            <div><span className="text-slate-500">Status:</span><br /><span className={`font-medium ${auction.arrematante?.pago ? 'text-green-700' : 'text-red-700'}`}>{auction.arrematante?.pago ? 'Quitado' : 'Inadimplente'}</span></div>
+                            <div><span className="text-slate-500">Status:</span><br /><span className={`font-medium ${auction.arrematante?.pago ? 'text-green-700' : isOverdue(auction.arrematante, auction) ? 'text-red-700' : 'text-yellow-600'}`}>{auction.arrematante?.pago ? 'Quitado' : isOverdue(auction.arrematante, auction) ? 'Inadimplente' : 'Pendente'}</span></div>
                             <div><span className="text-slate-500">Modalidade:</span><br /><span className="text-slate-900">{(() => {
                               const loteArrematado = auction.arrematante?.loteId 
                                 ? auction.lotes?.find(lote => lote.id === auction.arrematante.loteId)
@@ -3815,11 +3848,23 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                           const loteComprado = auction.arrematante?.loteId 
                             ? auction.lotes?.find(lote => lote.id === auction.arrematante.loteId)
                             : null;
+                          const mercadoriaComprada = loteComprado && auction.arrematante?.mercadoriaId
+                            ? loteComprado.mercadorias?.find(m => m.id === auction.arrematante.mercadoriaId)
+                            : null;
+                          
                           return loteComprado ? (
                             <div className="mt-4 pt-4 border-t border-slate-300">
-                              <div className="text-sm font-light">
-                                <span className="text-slate-500">Lote Arrematado:</span><br />
+                              <div className="text-sm font-light space-y-2">
+                                {mercadoriaComprada && (
+                                  <div>
+                                    <span className="text-slate-500">Mercadoria Arrematada:</span><br />
+                                    <span className="text-slate-900">{mercadoriaComprada.titulo || mercadoriaComprada.tipo || 'Mercadoria'}</span>
+                                  </div>
+                                )}
+                                <div>
+                                  <span className="text-slate-500">Lote:</span><br />
                                 <span className="text-slate-900">Lote {loteComprado.numero} - {loteComprado.descricao || 'Sem descrição'}</span>
+                                </div>
                               </div>
                             </div>
                           ) : null;
@@ -4375,17 +4420,33 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
   }
 
   if (type === 'faturas') {
-    const comFaturas = auctions.filter(a => a.arrematante && !a.arquivado);
-    const faturasPagas = comFaturas.filter(a => a.arrematante?.pago);
-    const faturasReceber = comFaturas.filter(a => !a.arrematante?.pago);
+    // Obter todas as faturas (múltiplos arrematantes por leilão)
+    const todasFaturas: Array<{auction: Auction, arrematante: ArrematanteInfo}> = [];
+    
+    auctions.forEach(auction => {
+      if (auction.arquivado) return;
+      
+      // Verificar se há múltiplos arrematantes
+      if (auction.arrematantes && auction.arrematantes.length > 0) {
+        auction.arrematantes.forEach(arr => {
+          todasFaturas.push({ auction, arrematante: arr });
+        });
+      } else if (auction.arrematante) {
+        // Suporte para formato antigo
+        todasFaturas.push({ auction, arrematante: auction.arrematante });
+      }
+    });
+    
+    const faturasPagas = todasFaturas.filter(f => f.arrematante?.pago);
+    const faturasReceber = todasFaturas.filter(f => !f.arrematante?.pago);
     
     // Calcular valor total a receber COM juros progressivos
-    const valorTotalReceber = faturasReceber.reduce((sum, a) => {
-      return sum + calcularValorTotalComJuros(a.arrematante, a);
+    const valorTotalReceber = faturasReceber.reduce((sum, f) => {
+      return sum + calcularValorTotalComJuros(f.arrematante, f.auction);
     }, 0);
     
-    const valorTotalRecebido = faturasPagas.reduce((sum, a) => {
-      const valor = parseFloat(a.arrematante?.valorPagar?.replace(/[^\d,]/g, '').replace(',', '.') || '0');
+    const valorTotalRecebido = faturasPagas.reduce((sum, f) => {
+      const valor = parseFloat(f.arrematante?.valorPagar?.replace(/[^\d,]/g, '').replace(',', '.') || '0');
       return sum + valor;
     }, 0);
 
@@ -4412,7 +4473,7 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
         </div>
 
         {/* Controle de Faturas */}
-        {comFaturas.length > 0 ? (
+        {todasFaturas.length > 0 ? (
           <div className="space-y-6">
             <div className="pb-3 mb-4" style={{ borderBottom: '1px solid #cbd5e1', pageBreakAfter: 'avoid' }}>
               <h2 className="text-lg font-medium text-slate-900 tracking-tight">
@@ -4423,8 +4484,8 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
               </p>
             </div>
             
-            {comFaturas.slice(0, 3).map((auction, index) => (
-              <div key={auction.id} className="mb-6" style={{ pageBreakBefore: index > 0 ? 'auto' : 'avoid', border: '1px solid #cbd5e1', borderRadius: '4px', overflow: 'hidden' }}>
+            {todasFaturas.slice(0, 10).map(({ auction, arrematante }, index) => (
+              <div key={`${auction.id}-${arrematante.id || index}`} className="mb-6" style={{ pageBreakBefore: index > 0 ? 'auto' : 'avoid', border: '1px solid #cbd5e1', borderRadius: '4px', overflow: 'hidden' }}>
                 <div className="px-6 py-4" style={{ background: 'linear-gradient(to right, #f1f5f9, #ffffff)', borderBottom: '1px solid #e2e8f0', pageBreakAfter: 'avoid' }}>
                   <div className="flex justify-between items-start">
                     <div>
@@ -4438,15 +4499,15 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                     <div className="text-right">
                       <div className="text-xs text-slate-500 uppercase tracking-wider mb-1" style={{ fontWeight: 500 }}>Situação</div>
                       <div className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
-                        auction.arrematante?.pago 
+                        arrematante?.pago 
                           ? 'bg-green-50 text-green-700 border border-green-200' 
-                          : isOverdue(auction.arrematante, auction) 
+                          : isOverdue(arrematante, auction) 
                             ? 'bg-red-50 text-red-700 border border-red-200' 
                             : 'bg-slate-100 text-slate-700 border border-slate-300'
                       }`}>
-                        {auction.arrematante?.pago 
+                        {arrematante?.pago 
                           ? 'Quitada' 
-                          : isOverdue(auction.arrematante, auction) 
+                          : isOverdue(arrematante, auction) 
                             ? 'Atrasado' 
                             : 'Em Aberto'
                         }
@@ -4462,24 +4523,35 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                     </h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm font-light">
                       <div className="space-y-3">
-                        <div className="flex"><span className="text-slate-500 w-24">Cliente:</span> <span className="text-slate-900">{auction.arrematante?.nome || 'Não informado'}</span></div>
-                        <div className="flex"><span className="text-slate-500 w-24">Documento:</span> <span className="text-slate-900">{auction.arrematante?.documento || 'Não informado'}</span></div>
+                        <div className="flex"><span className="text-slate-500 w-24">Cliente:</span> <span className="text-slate-900">{arrematante?.nome || 'Não informado'}</span></div>
+                        <div className="flex"><span className="text-slate-500 w-24">Documento:</span> <span className="text-slate-900">{arrematante?.documento || 'Não informado'}</span></div>
                         <div className="flex"><span className="text-slate-500 w-24">Data:</span> <span className="text-slate-900">{formatDate(auction.dataInicio)}</span></div>
-                        <div className="flex"><span className="text-slate-500 w-24">Telefone:</span> <span className="text-slate-900">{auction.arrematante?.telefone || 'Não informado'}</span></div>
+                        <div className="flex"><span className="text-slate-500 w-24">Telefone:</span> <span className="text-slate-900">{arrematante?.telefone || 'Não informado'}</span></div>
                         {(() => {
-                          const loteComprado = auction.arrematante?.loteId 
-                            ? auction.lotes?.find(lote => lote.id === auction.arrematante.loteId)
+                          const loteComprado = arrematante?.loteId 
+                            ? auction.lotes?.find(lote => lote.id === arrematante.loteId)
                             : null;
-                          return loteComprado ? (
+                          const mercadoriaComprada = loteComprado && arrematante?.mercadoriaId
+                            ? loteComprado.mercadorias?.find(m => m.id === arrematante.mercadoriaId)
+                            : null;
+                          
+                          return (
+                            <>
+                              {mercadoriaComprada && (
+                                <div className="flex"><span className="text-slate-500 w-24">Mercadoria:</span> <span className="text-slate-900">{mercadoriaComprada.titulo || mercadoriaComprada.tipo || 'Mercadoria'}</span></div>
+                              )}
+                              {loteComprado && (
                             <div className="flex"><span className="text-slate-500 w-24">Lote:</span> <span className="text-slate-900">Lote {loteComprado.numero} - {loteComprado.descricao || 'Sem descrição'}</span></div>
-                          ) : null;
+                              )}
+                            </>
+                          );
                         })()}
                       </div>
                       <div className="space-y-3">
                         <div className="flex"><span className="text-slate-500 w-24">Valor:</span> <span className="text-slate-900 font-medium">
                           {(() => {
-                            const valorComJuros = calcularValorTotalComJuros(auction.arrematante, auction);
-                            const valorBase = auction.arrematante?.valorPagarNumerico || parseFloat(auction.arrematante?.valorPagar?.replace(/[^\d,]/g, '').replace(',', '.') || '0');
+                            const valorComJuros = calcularValorTotalComJuros(arrematante, auction);
+                            const valorBase = arrematante?.valorPagarNumerico || parseFloat(arrematante?.valorPagar?.replace(/[^\d,]/g, '').replace(',', '.') || '0');
                             const temJuros = valorComJuros > valorBase;
                             
                             if (temJuros) {
@@ -4496,8 +4568,8 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                           })()}
                         </span></div>
                         <div className="flex"><span className="text-slate-500 w-24">Modalidade:</span> <span className="text-slate-900">{(() => {
-                          const loteArrematado = auction.arrematante?.loteId 
-                            ? auction.lotes?.find(lote => lote.id === auction.arrematante.loteId)
+                          const loteArrematado = arrematante?.loteId 
+                            ? auction.lotes?.find(lote => lote.id === arrematante.loteId)
                             : null;
                           const tipoPagamento = loteArrematado?.tipoPagamento || auction.tipoPagamento;
                           
@@ -4513,8 +4585,8 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                           }
                         })()}</span></div>
                         {(() => {
-                          const loteComprado = auction.arrematante?.loteId 
-                            ? auction.lotes?.find(lote => lote.id === auction.arrematante.loteId)
+                          const loteComprado = arrematante?.loteId 
+                            ? auction.lotes?.find(lote => lote.id === arrematante.loteId)
                             : null;
                           const tipoPagamento = loteComprado?.tipoPagamento || auction.tipoPagamento;
                           
@@ -4522,25 +4594,25 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                             return null; // Não mostrar parcelas para pagamento à vista
                           }
                           
-                          const valorTotal = auction.arrematante?.valorPagarNumerico || 
-                            (typeof auction.arrematante?.valorPagar === 'number' ? auction.arrematante.valorPagar : 
-                             (typeof auction.arrematante?.valorPagar === 'string' ? parseFloat(auction.arrematante.valorPagar.replace(/[^\d,]/g, '').replace(',', '.')) || 0 : 0));
-                          const quantidadeParcelas = auction.arrematante?.quantidadeParcelas || 12;
-                          const parcelasPagas = auction.arrematante?.parcelasPagas || 0;
+                          const valorTotal = arrematante?.valorPagarNumerico || 
+                            (typeof arrematante?.valorPagar === 'number' ? arrematante.valorPagar : 
+                             (typeof arrematante?.valorPagar === 'string' ? parseFloat(arrematante.valorPagar.replace(/[^\d,]/g, '').replace(',', '.')) || 0 : 0));
+                          const quantidadeParcelas = arrematante?.quantidadeParcelas || 12;
+                          const parcelasPagas = arrematante?.parcelasPagas || 0;
                           
                           if (tipoPagamento === 'entrada_parcelamento') {
                             // Para entrada + parcelamento
-                            const valorEntradaBase = auction.arrematante?.valorEntrada ? 
-                              (typeof auction.arrematante.valorEntrada === 'string' ? 
-                                parseFloat(auction.arrematante.valorEntrada.replace(/[^\d,]/g, '').replace(',', '.')) : 
-                                auction.arrematante.valorEntrada) : 
+                            const valorEntradaBase = arrematante?.valorEntrada ? 
+                              (typeof arrematante.valorEntrada === 'string' ? 
+                                parseFloat(arrematante.valorEntrada.replace(/[^\d,]/g, '').replace(',', '.')) : 
+                                arrematante.valorEntrada) : 
                               valorTotal * 0.3;
                             const valorRestante = valorTotal - valorEntradaBase;
                             const valorPorParcelaBase = valorRestante / quantidadeParcelas;
                             
                             // Calcular valor da entrada com juros se atrasada
                             const dataEntrada = loteComprado?.dataEntrada || auction.dataEntrada;
-                            const percentualJuros = auction.arrematante?.percentualJurosAtraso || 0;
+                            const percentualJuros = arrematante?.percentualJurosAtraso || 0;
                             let valorEntradaComJuros = valorEntradaBase;
                             let entradaAtrasada = false;
                             
@@ -4552,8 +4624,8 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                             // Calcular quantas parcelas estão atrasadas
                             let parcelasAtrasadas = 0;
                             let parcelasPendentes = 0;
-                            const mesInicio = auction.arrematante?.mesInicioPagamento;
-                            const diaVencimento = auction.arrematante?.diaVencimentoMensal || 15;
+                            const mesInicio = arrematante?.mesInicioPagamento;
+                            const diaVencimento = arrematante?.diaVencimentoMensal || 15;
                             const hoje = new Date();
                             
                             if (mesInicio) {
@@ -4637,15 +4709,14 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                   
                   {/* Detalhamento das Parcelas */}
                   {(() => {
-                    const loteComprado = auction.arrematante?.loteId 
-                      ? auction.lotes?.find(lote => lote.id === auction.arrematante.loteId)
+                    const loteComprado = arrematante?.loteId 
+                      ? auction.lotes?.find(lote => lote.id === arrematante.loteId)
                       : null;
                     const tipoPagamento = loteComprado?.tipoPagamento || auction.tipoPagamento;
                     
                     // Só mostrar detalhamento para modalidades com parcelamento
                     if (tipoPagamento === 'a_vista') return null;
                     
-                    const arrematante = auction.arrematante;
                     if (!arrematante) return null;
                     
                     const valorTotal = arrematante.valorPagarNumerico || 
@@ -4784,13 +4855,13 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                     );
                   })()}
                   
-                  {auction.arrematante?.endereco && (
+                  {arrematante?.endereco && (
                     <div className="border-t border-slate-200 pt-6" style={{ pageBreakInside: 'avoid' }}>
                       <h4 className="text-sm font-light text-slate-700 uppercase tracking-wider mb-3 border-b border-slate-200 pb-2">
                         Endereço de Cobrança
                       </h4>
                       <div className="bg-slate-50 border border-slate-200 p-4 text-sm font-light text-slate-800">
-                        {auction.arrematante.endereco}
+                        {arrematante.endereco}
                       </div>
                     </div>
                   )}
@@ -4798,15 +4869,15 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
               </div>
             ))}
             
-            {comFaturas.length > 3 && (
+            {todasFaturas.length > 10 && (
               <div className="text-center bg-slate-50 border-2 border-slate-300 p-8 font-sans">
                 <div className="text-lg font-light text-slate-900 tracking-wide">
                   Documento Completo
                 </div>
                 <div className="text-sm text-slate-600 font-light mt-3 leading-relaxed">
-                  Esta visualização apresenta as primeiras 3 faturas.
+                  Esta visualização apresenta as primeiras 10 faturas.
                   <br />
-                  O documento final compreenderá todas as {comFaturas.length} obrigações financeiras.
+                  O documento final compreenderá todas as {todasFaturas.length} obrigações financeiras.
                 </div>
               </div>
             )}

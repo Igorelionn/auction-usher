@@ -514,11 +514,14 @@ Atenciosamente,
     const documentoArrematante = currentAuction.arrematante.documento;
     
     // Buscar TODOS os leilões deste arrematante (por nome e documento)
-    const allArrematanteAuctions = auctions.filter(auction => 
-        auction.arrematante && 
-      (auction.arrematante.nome === nomeArrematante || 
-       (documentoArrematante && auction.arrematante.documento === documentoArrematante))
-    );
+    const allArrematanteAuctions = auctions.flatMap(auction => {
+      const arrematantes = auction.arrematantes || (auction.arrematante ? [auction.arrematante] : []);
+      const matchingArrematantes = arrematantes.filter(arr => 
+        arr.nome === nomeArrematante || 
+        (documentoArrematante && arr.documento === documentoArrematante)
+      );
+      return matchingArrematantes.map(arr => ({ ...auction, arrematante: arr }));
+    });
 
     const overduePayments = [];
     const onTimePayments = [];
@@ -1162,13 +1165,17 @@ Atenciosamente,
     });
     
     const overdueResults = activeAuctions
-      .filter(auction => {
-        const arrematante = auction.arrematante;
-        if (!arrematante) {
-          console.log(`⚠️ [Inadimplência] Leilão ${auction.nome} sem arrematante`);
-          return false;
+      .flatMap(auction => {
+        // Obter todos os arrematantes (compatibilidade com estrutura antiga e nova)
+        const arrematantes = auction.arrematantes || (auction.arrematante ? [auction.arrematante] : []);
+        
+        if (arrematantes.length === 0) {
+          console.log(`⚠️ [Inadimplência] Leilão ${auction.nome} sem arrematantes`);
+          return [];
         }
         
+        // Filtrar apenas os arrematantes inadimplentes
+        const inadimplentes = arrematantes.filter(arrematante => {
         const isOverdueResult = isOverdue(arrematante, auction);
         console.log(`🔍 [Inadimplência] Leilão ${auction.nome}:`, {
           arrematante: arrematante.nome,
@@ -1181,6 +1188,13 @@ Atenciosamente,
         });
         
         return isOverdueResult;
+        });
+        
+        // Retornar um objeto auction com cada arrematante inadimplente
+        return inadimplentes.map(arrematante => ({
+          ...auction,
+          arrematante: arrematante
+        }));
       });
       
     console.log('✅ [Inadimplência] Resultado final:', {
@@ -1193,7 +1207,7 @@ Atenciosamente,
     
     return overdueResults
       .map(auction => {
-        const arrematante = auction.arrematante;
+        const arrematante = auction.arrematante!
         const overdueInfo = calculateOverdueInfo(arrematante, auction);
         const daysOverdue = overdueInfo.maxDays;
         

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Check, X as XIcon, Upload, Trash2, Plus, AlertCircle, Eye } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, X as XIcon, Upload, Trash2, Plus, AlertCircle, Eye, Users } from "lucide-react";
 import { StringDatePicker } from "@/components/ui/date-picker";
 import { parseCurrencyToNumber } from "@/lib/utils";
 import { calcularValorTotal, obterQuantidadeTotalParcelas } from "@/lib/parcelamento-calculator";
@@ -484,9 +484,32 @@ interface ArrematanteWizardProps {
   };
   onSubmit: (values: Partial<ArrematanteInfo>) => Promise<void> | void;
   onCancel?: () => void;
+  isNewArrematante?: boolean; // Indica se está criando novo (não editando)
+}
+
+// Interface para resposta da API ViaCEP
+interface ViaCepResponse {
+  cep: string;
+  logradouro: string;
+  complemento: string;
+  bairro: string;
+  localidade: string;
+  uf: string;
+  erro?: boolean;
+}
+
+// Interface para resposta da BrasilAPI
+interface BrasilApiResponse {
+  cep: string;
+  state: string;
+  city: string;
+  neighborhood: string;
+  street: string;
+  service: string;
 }
 
 interface FormValues {
+  id?: string; // ID do arrematante quando estiver editando
   nome: string;
   documento: string;
   telefone: string;
@@ -524,14 +547,39 @@ interface FormValues {
   parcelasSimples?: number;
 }
 
-export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWizardProps) {
-  const [currentStep, setCurrentStep] = useState(0);
+export function ArrematanteWizard({ initial, onSubmit, onCancel, isNewArrematante = false }: ArrematanteWizardProps) {
+  // Verificar se deve mostrar seleção de arrematante (quando há múltiplos)
+  const arrematantesExistentes = useMemo(() => initial.auction?.arrematantes || [], [initial.auction?.arrematantes]);
+  const shouldShowSelection = arrematantesExistentes.length > 1 && !initial.arrematante && !isNewArrematante;
+  
+  console.log('🔍 [ArrematanteWizard] Verificando seleção:', {
+    qtdArrematantes: arrematantesExistentes.length,
+    hasArrematanteInicial: !!initial.arrematante,
+    isNewArrematante,
+    shouldShowSelection,
+    startStep: shouldShowSelection ? -1 : 0
+  });
+  
+  const [currentStep, setCurrentStep] = useState(shouldShowSelection ? -1 : 0); // -1 = etapa de seleção
+  const [selectedArrematanteId, setSelectedArrematanteId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [selectedDocIndex, setSelectedDocIndex] = useState(0);
   const [loadingCep, setLoadingCep] = useState(false);
+  const [cepError, setCepError] = useState<string | null>(null);
   const [attemptedNext, setAttemptedNext] = useState(false);
   const [tentouDataIncompativel, setTentouDataIncompativel] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [searchCpf, setSearchCpf] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [showAllBidders, setShowAllBidders] = useState(false);
+  const [isHoveringButton, setIsHoveringButton] = useState(false);
+  
+  // Estados para busca na etapa de seleção
+  const [searchCpfSelection, setSearchCpfSelection] = useState("");
+  const [isTypingSelection, setIsTypingSelection] = useState(false);
+  const [showAllBiddersSelection, setShowAllBiddersSelection] = useState(false);
+  const [isHoveringButtonSelection, setIsHoveringButtonSelection] = useState(false);
   
   // Declarar values primeiro
   const [values, setValues] = useState<FormValues>(() => {
@@ -611,6 +659,7 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
     }
     
     return {
+      id: arr?.id, // ID do arrematante quando estiver editando
       nome: arr?.nome || "",
       documento: arr?.documento || "",
       telefone: telefoneNum,
@@ -695,6 +744,33 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
     // Incluir ambas as dependências: o efeito precisa rodar quando qualquer uma mudar
   }, [values.diaVencimentoMensal, values.mesInicioPagamento]);
 
+  // ✅ Detectar quando está digitando no campo de busca
+  useEffect(() => {
+    if (searchCpf && !showAllBidders) {
+      setIsTyping(true);
+      const timer = setTimeout(() => {
+        setIsTyping(false);
+      }, 800); // Espera 800ms após parar de digitar
+      
+      return () => clearTimeout(timer);
+    } else {
+      setIsTyping(false);
+    }
+  }, [searchCpf, showAllBidders]);
+
+  // ✅ Detectar quando está digitando no campo de busca da seleção
+  useEffect(() => {
+    if (searchCpfSelection) {
+      setIsTypingSelection(true);
+      const timer = setTimeout(() => {
+        setIsTypingSelection(false);
+      }, 800);
+      return () => clearTimeout(timer);
+    } else {
+      setIsTypingSelection(false);
+    }
+  }, [searchCpfSelection]);
+
   // ✅ Atualizar endereço completo sempre que os campos de endereço mudarem
   useEffect(() => {
     if (values.rua || values.numero || values.bairro || values.cidade || values.estado) {
@@ -715,29 +791,84 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
     }
   }, [values.rua, values.numero, values.complemento, values.bairro, values.cidade, values.estado, values.endereco]);
 
-  // Buscar CEP na API ViaCEP
+  // Buscar CEP usando API mundial (OpenCEP + BrasilAPI como fallback)
   const buscarCep = async (cep: string) => {
     const cepNumeros = cep.replace(/\D/g, '');
     
     if (cepNumeros.length !== 8) return;
     
     setLoadingCep(true);
+    setCepError(null);
+    
     try {
-      const response = await fetch(`https://viacep.com.br/ws/${cepNumeros}/json/`);
-      const data = await response.json();
+      let data: ViaCepResponse | null = null;
       
-      if (!data.erro) {
+      // Tentar com BrasilAPI (API mais mundial e moderna)
+      try {
+        const response = await fetch(`https://brasilapi.com.br/api/cep/v1/${cepNumeros}`);
+        
+        if (response.ok) {
+          const brasilData: BrasilApiResponse = await response.json();
+          
+          // Converter para formato padrão
+          data = {
+            cep: brasilData.cep,
+            logradouro: brasilData.street || "",
+            complemento: "",
+            bairro: brasilData.neighborhood || "",
+            localidade: brasilData.city || "",
+            uf: brasilData.state || ""
+          };
+        }
+      } catch (error) {
+        console.warn("BrasilAPI falhou, tentando ViaCEP...");
+      }
+      
+      // Fallback: ViaCEP
+      if (!data) {
+      const response = await fetch(`https://viacep.com.br/ws/${cepNumeros}/json/`);
+        if (response.ok) {
+          data = await response.json();
+        }
+      }
+      
+      // Se nenhuma API funcionou
+      if (!data) {
+        setCepError("Não foi possível conectar aos serviços de CEP. Preencha manualmente.");
+        return;
+      }
+      
+      // Verifica se o CEP foi encontrado
+      if (data.erro) {
+        setCepError("CEP não encontrado. Por favor, verifique o CEP digitado.");
+        return;
+      }
+      
+      // Monta o endereço completo
+      const enderecoCompleto = [
+        data.logradouro,
+        data.bairro,
+        data.localidade,
+        data.uf
+      ]
+        .filter(parte => parte && parte.trim())
+        .join(", ");
+      
+      // Atualiza os campos
         setValues(prev => ({
           ...prev,
           rua: data.logradouro || "",
           bairro: data.bairro || "",
           cidade: data.localidade || "",
           estado: data.uf || "",
-          endereco: `${data.logradouro}, ${data.bairro}, ${data.localidade} - ${data.uf}`
+        endereco: enderecoCompleto
         }));
-      }
+      
+      console.log("✅ CEP encontrado com sucesso:", cepNumeros);
+      setCepError(null);
     } catch (error) {
-      console.error("Erro ao buscar CEP:", error);
+      console.error("❌ Erro ao buscar CEP:", error);
+      setCepError("Erro ao buscar CEP. Por favor, preencha manualmente.");
     } finally {
       setLoadingCep(false);
     }
@@ -820,7 +951,9 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
         if (values.tipoPagamento === "a_vista") return true; // Pular validação se for à vista
         // Validar quantidade calculada OU manual (compatibilidade)
         const qtdParcelas = quantidadeParcelasCalculada > 0 ? quantidadeParcelasCalculada : values.quantidadeParcelas;
-        return !!(qtdParcelas > 0 && values.diaVencimentoMensal);
+        // ✅ Validar que o dia esteja entre 1 e 31
+        const diaValido = values.diaVencimentoMensal && values.diaVencimentoMensal >= 1 && values.diaVencimentoMensal <= 31;
+        return !!(qtdParcelas > 0 && diaValido);
       }
       case 6: { // Mês de Início (só se não for à vista)
         if (values.tipoPagamento === "a_vista") return true; // Pular validação se for à vista
@@ -918,6 +1051,7 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
       });
 
       const arrematanteData: Partial<ArrematanteInfo> = {
+        id: selectedArrematanteId || initial.arrematante?.id || undefined, // ✅ Incluir ID do arrematante selecionado
         nome: values.nome,
         documento: values.documento || undefined,
         telefone: values.telefone ? `${values.codigoPais} ${values.telefone}` : undefined,
@@ -952,9 +1086,10 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
           valorLance: parseBrazilianNumber(values.valorLance),
           fatorMultiplicador: parseBrazilianNumber(values.fatorMultiplicador),
           usaFatorMultiplicador: true,
-          parcelasTriplas: values.parcelasTriplas,
-          parcelasDuplas: values.parcelasDuplas,
-          parcelasSimples: values.parcelasSimples,
+          // ✅ CORREÇÃO: Garantir que sejam números válidos ou undefined (nunca strings ou arrays)
+          parcelasTriplas: typeof values.parcelasTriplas === 'number' ? values.parcelasTriplas : undefined,
+          parcelasDuplas: typeof values.parcelasDuplas === 'number' ? values.parcelasDuplas : undefined,
+          parcelasSimples: typeof values.parcelasSimples === 'number' ? values.parcelasSimples : undefined,
         }),
       };
       
@@ -970,12 +1105,16 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
         parcelasSimples: arrematanteData.parcelasSimples
       });
       
+      console.log('📋 DADOS COMPLETOS DO ARREMATANTE:', arrematanteData);
+      
       await onSubmit(arrematanteData);
       
-      // Pequeno delay para garantir que o cache seja atualizado antes de fechar
-      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('✅ [Wizard] onSubmit concluído com sucesso');
       
-      handleClose();
+      // ✅ NÃO chamar handleClose() - o componente pai vai fechar
+      // handleClose() pode causar conflitos com o fechamento do pai
+    } catch (error) {
+      console.error('❌ [Wizard] Erro ao submeter formulário:', error);
     } finally {
       setIsSubmitting(false);
     }
@@ -1026,6 +1165,19 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
       title: "Identificação",
       content: (
         <div className="space-y-8">
+          {/* Botão Importar (apenas se for novo arrematante E existirem arrematantes) */}
+          {isNewArrematante && initial.auction?.arrematantes && initial.auction.arrematantes.length > 0 && (
+            <div className="pb-4">
+              <button
+                type="button"
+                onClick={() => setShowImportModal(true)}
+                className="text-gray-700 hover:text-gray-900 font-medium text-sm hover:underline decoration-gray-700 underline-offset-4 transition-all"
+              >
+                Importar Dados de Arrematante Existente
+              </button>
+            </div>
+          )}
+          
           <div className="space-y-3">
             <Label className="text-lg font-normal text-gray-600">Qual o nome do arrematante?</Label>
             <Input
@@ -1163,6 +1315,7 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
               onChange={(e) => {
                 const formatted = formatCep(e.target.value);
                 updateField("cep", formatted);
+                setCepError(null);
                 if (formatted.replace(/\D/g, '').length === 8) {
                   buscarCep(formatted);
                 }
@@ -1171,6 +1324,12 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
               className="wizard-input h-14 text-base border-0 border-b-2 border-gray-200 rounded-none focus-visible:border-gray-800 focus-visible:ring-0 focus-visible:outline-none px-0 bg-transparent placeholder:text-gray-400"
             />
             {loadingCep && <p className="text-sm text-gray-500">Buscando CEP...</p>}
+            {cepError && (
+              <p className="text-sm text-red-600 flex items-center gap-1">
+                <AlertCircle className="h-4 w-4" />
+                {cepError}
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -1284,7 +1443,46 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
                     </p>
                   </AlertDescription>
                 </Alert>
-              ) : (
+              ) : (() => {
+                // Verificar se todas as mercadorias já foram arrematadas
+                const arrematantesExistentes = initial.auction?.arrematantes || [];
+                
+                // ID do arrematante atual sendo editado (pode vir de várias fontes)
+                const arrematanteAtualId = values.id || initial.arrematante?.id || selectedArrematanteId;
+                
+                // Obter IDs das mercadorias já arrematadas (exceto a do arrematante atual se estiver editando)
+                const mercadoriasArrematadas = arrematantesExistentes
+                  .filter(arr => {
+                    // Se estiver editando, permitir a mercadoria atual deste arrematante
+                    if (arrematanteAtualId) {
+                      return arr.id !== arrematanteAtualId;
+                    }
+                    return true;
+                  })
+                  .map(arr => arr.mercadoriaId)
+                  .filter(Boolean);
+                
+                // Filtrar mercadorias disponíveis do lote
+                const mercadoriasDisponiveis = infoLoteSelecionado.lote.mercadorias?.filter(
+                  m => !mercadoriasArrematadas.includes(m.id)
+                ) || [];
+                
+                const totalMercadorias = infoLoteSelecionado.lote.mercadorias?.length || 0;
+                
+                // Se todas as mercadorias já foram arrematadas
+                if (totalMercadorias > 0 && mercadoriasDisponiveis.length === 0) {
+                  return (
+                    <p className="text-sm text-red-600 mt-2 flex items-start gap-1.5">
+                      <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                      <span>
+                        Todas as mercadorias deste lote já foram arrematadas. Por favor, selecione outro lote ou edite um arrematante existente deste lote.
+                      </span>
+                    </p>
+                  );
+                }
+                
+                // Caso contrário, mostrar a seleção de mercadorias normalmente
+                return (
                 <div className="space-y-3">
                   <Label className="text-lg font-normal text-gray-600">Selecione a mercadoria</Label>
                   <Select
@@ -1295,15 +1493,101 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
                       <SelectValue placeholder="Selecione a mercadoria" />
                     </SelectTrigger>
                     <SelectContent position="popper" sideOffset={5} className="z-[100000] max-h-[300px] overflow-auto">
-                      {infoLoteSelecionado.lote.mercadorias?.map((mercadoria) => (
-                        <SelectItem key={mercadoria.id} value={mercadoria.id}>
-                          {mercadoria.titulo || mercadoria.descricao}
-                        </SelectItem>
-                      ))}
+                      {(() => {
+                        // Obter todos os arrematantes existentes do leilão
+                        const arrematantesExistentes = initial.auction?.arrematantes || [];
+                        
+                        // ID do arrematante atual sendo editado (pode vir de várias fontes)
+                        const arrematanteAtualId = values.id || initial.arrematante?.id || selectedArrematanteId;
+                        
+                        // Obter IDs das mercadorias já arrematadas (exceto a do arrematante atual se estiver editando)
+                        const mercadoriasArrematadas = arrematantesExistentes
+                          .filter(arr => {
+                            // Se estiver editando, permitir a mercadoria atual deste arrematante
+                            if (arrematanteAtualId) {
+                              return arr.id !== arrematanteAtualId;
+                            }
+                            return true;
+                          })
+                          .map(arr => arr.mercadoriaId)
+                          .filter(Boolean);
+                        
+                        // Filtrar mercadorias disponíveis
+                        const mercadoriasDisponiveis = infoLoteSelecionado.lote.mercadorias?.filter(
+                          m => !mercadoriasArrematadas.includes(m.id)
+                        ) || [];
+                        
+                        const mercadoriasIndisponiveis = infoLoteSelecionado.lote.mercadorias?.filter(
+                          m => mercadoriasArrematadas.includes(m.id)
+                        ) || [];
+                        
+                        return (
+                          <>
+                            {mercadoriasDisponiveis.map((mercadoria) => (
+                              <SelectItem key={mercadoria.id} value={mercadoria.id}>
+                                {mercadoria.titulo || mercadoria.descricao}
+                              </SelectItem>
+                            ))}
+                            {mercadoriasIndisponiveis.length > 0 && mercadoriasDisponiveis.length > 0 && (
+                              <div className="px-2 py-1.5">
+                                <div className="border-t border-gray-200 my-1"></div>
+                              </div>
+                            )}
+                            {mercadoriasIndisponiveis.map((mercadoria) => (
+                              <SelectItem 
+                                key={mercadoria.id} 
+                                value={mercadoria.id}
+                                disabled
+                                className="opacity-50"
+                              >
+                                {mercadoria.titulo || mercadoria.descricao} (Já arrematada)
+                              </SelectItem>
+                            ))}
+                          </>
+                        );
+                      })()}
                     </SelectContent>
                   </Select>
+                  {(() => {
+                    // Mostrar aviso se houver mercadorias já arrematadas
+                    const arrematantesExistentes = initial.auction?.arrematantes || [];
+                    
+                    // ID do arrematante atual sendo editado (pode vir de várias fontes)
+                    const arrematanteAtualId = values.id || initial.arrematante?.id || selectedArrematanteId;
+                    
+                    const mercadoriasArrematadas = arrematantesExistentes
+                      .filter(arr => {
+                        // Se estiver editando, permitir a mercadoria atual deste arrematante
+                        if (arrematanteAtualId) {
+                          return arr.id !== arrematanteAtualId;
+                        }
+                        return true;
+                      })
+                      .map(arr => arr.mercadoriaId)
+                      .filter(Boolean);
+                    
+                    const mercadoriasIndisponiveis = infoLoteSelecionado.lote.mercadorias?.filter(
+                      m => mercadoriasArrematadas.includes(m.id)
+                    ) || [];
+                    
+                    if (mercadoriasIndisponiveis.length > 0) {
+                      const quantidade = mercadoriasIndisponiveis.length;
+                      const textoAviso = quantidade === 1
+                        ? `${quantidade} mercadoria já foi arrematada e não está disponível para seleção.`
+                        : `${quantidade} mercadorias já foram arrematadas e não estão disponíveis para seleção.`;
+                      
+                      return (
+                        <p className="text-sm text-gray-700 mt-2 flex items-center gap-1.5">
+                          <AlertCircle className="h-4 w-4 flex-shrink-0 text-amber-600" />
+                          {textoAviso}
+                        </p>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
-              )}
+                );
+              })()}
             </>
           )}
 
@@ -1591,8 +1875,26 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
               placeholder="Ex: 15"
               value={values.diaVencimentoMensal || ""}
               onChange={(e) => {
-                const value = e.target.value === "" ? undefined : parseInt(e.target.value);
-                updateField("diaVencimentoMensal", value);
+                const inputValue = e.target.value;
+                
+                // Se estiver vazio, permitir (será tratado no onBlur)
+                if (inputValue === "") {
+                  updateField("diaVencimentoMensal", undefined);
+                  return;
+                }
+                
+                const numValue = parseInt(inputValue);
+                
+                // ✅ Validar se está entre 1 e 31
+                if (!isNaN(numValue)) {
+                  if (numValue < 1) {
+                    updateField("diaVencimentoMensal", 1);
+                  } else if (numValue > 31) {
+                    updateField("diaVencimentoMensal", 31);
+                  } else {
+                    updateField("diaVencimentoMensal", numValue);
+                  }
+                }
               }}
               onBlur={(e) => {
                 // Se o campo estiver vazio ao sair, definir valor padrão
@@ -1605,6 +1907,11 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
             {!values.diaVencimentoMensal && attemptedNext && (
               <p className="text-sm text-red-600">
                 Por favor, preencha o dia do vencimento mensal.
+              </p>
+            )}
+            {values.diaVencimentoMensal && (values.diaVencimentoMensal < 1 || values.diaVencimentoMensal > 31) && (
+              <p className="text-sm text-red-600">
+                O dia deve estar entre 1 e 31.
               </p>
             )}
           </div>
@@ -1913,9 +2220,423 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
   // Filtrar steps baseado nas condições (ex: esconder Parcelamento se for à vista)
   const steps = allSteps.filter(step => step.show !== false);
 
-  const currentStepData = steps[currentStep];
+  // Handler para selecionar arrematante na etapa de seleção
+  const handleSelectArrematante = (arrematanteId: string) => {
+    const arrematante = arrematantesExistentes.find(a => a.id === arrematanteId);
+    if (!arrematante) return;
+    
+    setSelectedArrematanteId(arrematanteId);
+    setCurrentStep(0); // Ir para primeira etapa após seleção
+    
+    // Carregar dados do arrematante selecionado
+    const arr = arrematante;
+    let telefoneNum = arr?.telefone || "";
+    let codigoPaisVal = "+55";
+    if (telefoneNum && telefoneNum.startsWith("+")) {
+      const match = telefoneNum.match(/^(\+\d+)\s+(.+)$/);
+      if (match) {
+        codigoPaisVal = match[1];
+        telefoneNum = match[2];
+      }
+    }
+    
+    const [ruaVal, numeroVal, ...restoEndereco] = (arr?.endereco || "").split(", ");
+    const complementoVal = restoEndereco.length > 0 ? restoEndereco.join(", ") : "";
+    
+    setValues({
+      id: arr?.id || "", // Adicionar o ID do arrematante
+      nome: arr?.nome || "",
+      documento: arr?.documento || "",
+      telefone: telefoneNum,
+      codigoPais: codigoPaisVal,
+      email: arr?.email || "",
+      endereco: arr?.endereco || "",
+      cep: arr?.cep || "",
+      rua: arr?.rua || ruaVal || "",
+      numero: arr?.numero || numeroVal || "",
+      complemento: arr?.complemento || complementoVal || "",
+      bairro: arr?.bairro || "",
+      cidade: arr?.cidade || "",
+      estado: arr?.estado || "",
+      loteId: arr?.loteId || "",
+      mercadoriaId: arr?.mercadoriaId || "",
+      tipoPagamento: arr?.tipoPagamento || "parcelamento",
+      valorPagar: arr?.valorPagar || "",
+      valorEntrada: arr?.valorEntrada || "",
+      quantidadeParcelas: arr?.quantidadeParcelas || initial.defaultQuantidadeParcelas || 12,
+      mesInicioPagamento: arr?.mesInicioPagamento || initial.defaultMesInicio || "",
+      diaVencimentoMensal: arr?.diaVencimentoMensal || initial.defaultDiaVencimento || 15,
+      parcelasPagas: arr?.parcelasPagas || 0,
+      percentualJurosAtraso: arr?.percentualJurosAtraso || 0,
+      tipoJurosAtraso: arr?.tipoJurosAtraso || "composto",
+      documentos: arr?.documentos || [],
+      pago: arr?.pago || false,
+      dataVencimentoVista: arr?.dataVencimentoVista || undefined,
+      dataEntrada: arr?.dataEntrada || undefined,
+      valorLance: arr?.valorLance?.toString() || "",
+      fatorMultiplicador: arr?.fatorMultiplicador?.toString() || "",
+      usaFatorMultiplicador: arr?.usaFatorMultiplicador || false,
+      parcelasTriplas: arr?.parcelasTriplas || 0,
+      parcelasDuplas: arr?.parcelasDuplas || 0,
+      parcelasSimples: arr?.parcelasSimples || 0,
+    });
+  };
+
+  // Filtrar arrematantes na etapa de seleção
+  const arrematantesFiltradosSelection = useMemo(() => {
+    if (!arrematantesExistentes || arrematantesExistentes.length === 0) return [];
+    
+    // Se está mostrando todos, retorna todos ordenados alfabeticamente
+    if (showAllBiddersSelection && !searchCpfSelection) {
+      return [...arrematantesExistentes].sort((a, b) => 
+        (a.nome || '').localeCompare(b.nome || '', 'pt-BR')
+      );
+    }
+    
+    // Se tem busca, filtra por CPF/CNPJ (começando com os dígitos digitados)
+    if (searchCpfSelection) {
+      const cpfLimpo = searchCpfSelection.replace(/\D/g, '');
+      const filtrados = arrematantesExistentes.filter(arr => {
+        const docLimpo = arr.documento?.replace(/\D/g, '') || '';
+        return docLimpo.startsWith(cpfLimpo); // Verifica se começa com os dígitos digitados
+      });
+      
+      // Ordenar alfabeticamente por nome
+      return filtrados.sort((a, b) => 
+        (a.nome || '').localeCompare(b.nome || '', 'pt-BR')
+      );
+    }
+    
+    return [];
+  }, [arrematantesExistentes, searchCpfSelection, showAllBiddersSelection]);
+
+  // Etapa de seleção de arrematante (quando currentStep === -1)
+  const selectionStep = {
+    id: "selecao",
+    title: "Buscar Arrematante",
+    content: (
+      <div className="space-y-8">
+        {/* Descrição */}
+        <p className="text-gray-600">
+          {showAllBiddersSelection 
+            ? 'Navegue pela lista completa ou use a busca por CPF/CNPJ para filtrar'
+            : 'Digite o CPF ou CNPJ para buscar o arrematante que deseja editar'
+          }
+        </p>
+
+        {/* Campo de Busca por CPF/CNPJ */}
+        <div className="space-y-3">
+          <Label className="text-lg font-normal text-gray-600">CPF ou CNPJ</Label>
+          <Input
+            type="text"
+            placeholder="Digite o CPF ou CNPJ para buscar"
+            value={searchCpfSelection}
+            onChange={(e) => {
+              const formatted = formatCpfCnpj(e.target.value);
+              setSearchCpfSelection(formatted);
+            }}
+            className="h-14 text-base border-0 border-b-2 border-gray-200 rounded-none focus-visible:border-gray-800 focus-visible:ring-0 focus-visible:outline-none px-0 bg-transparent placeholder:text-gray-400"
+          />
+          {searchCpfSelection && arrematantesFiltradosSelection.length === 0 && (
+            <p className="text-sm text-amber-600 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4" />
+              Nenhum arrematante encontrado com este CPF/CNPJ
+            </p>
+          )}
+        </div>
+
+        {/* Título - Sempre visível quando há busca ou showAll */}
+        {(searchCpfSelection || showAllBiddersSelection) && (
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-normal text-gray-900">
+              {isTypingSelection ? (
+                <>
+                  Buscando Arrematante
+                  <span className="inline-flex ml-1">
+                    <span className="animate-bounce" style={{ animationDelay: '0ms', animationDuration: '1s' }}>.</span>
+                    <span className="animate-bounce" style={{ animationDelay: '150ms', animationDuration: '1s' }}>.</span>
+                    <span className="animate-bounce" style={{ animationDelay: '300ms', animationDuration: '1s' }}>.</span>
+                  </span>
+                </>
+              ) : (
+                'Arrematantes Encontrados'
+              )}
+            </h2>
+            {arrematantesFiltradosSelection.length > 0 && (
+              <span className="text-sm text-gray-500 font-normal">
+                {arrematantesFiltradosSelection.length} {arrematantesFiltradosSelection.length === 1 ? 'encontrado' : 'encontrados'}
+              </span>
+            )}
+          </div>
+        )}
+        
+        {/* Lista de Arrematantes - Aparece quando há busca ou showAll */}
+        {(searchCpfSelection || showAllBiddersSelection) && arrematantesFiltradosSelection.length > 0 && (
+          <div className="space-y-3">
+            {arrematantesFiltradosSelection.map((arrematante, index) => {
+              const lote = initial.lotes?.find(l => l.id === arrematante.loteId);
+              const mercadoria = lote?.mercadorias?.find(m => m.id === arrematante.mercadoriaId);
+              
+              return (
+                <div
+                  key={arrematante.id || index}
+                  onClick={() => handleSelectArrematante(arrematante.id || '')}
+                  className="group p-5 border border-gray-200 rounded-xl cursor-pointer hover:border-gray-400 hover:shadow-sm transition-all duration-200 bg-white"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg font-medium text-gray-900 truncate group-hover:text-gray-950">{arrematante.nome}</h3>
+                      <div className="mt-2 space-y-1">
+                        {arrematante.documento && (
+                          <p className="text-sm text-gray-600">{arrematante.documento}</p>
+                        )}
+                        {arrematante.email && (
+                          <p className="text-sm text-gray-500 truncate">{arrematante.email}</p>
+                        )}
+                      </div>
+                      {mercadoria && (
+                        <div className="mt-3 pt-3 border-t border-gray-100">
+                          <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Mercadoria Atual</p>
+                          <p className="text-sm text-gray-700 font-medium">
+                            {mercadoria.titulo || mercadoria.descricao}
+                          </p>
+                          {lote && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              Lote {lote.numero} - {lote.descricao}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <ChevronRight className="h-6 w-6 text-gray-300 group-hover:text-gray-600 transition-colors flex-shrink-0 ml-4" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    ),
+  };
+
+  const currentStepData = currentStep === -1 ? selectionStep : steps[currentStep];
+
+  // Handler para importar dados de arrematante existente
+  const handleImportArrematante = (arrematanteId: string) => {
+    const arrematante = initial.auction?.arrematantes?.find(a => a.id === arrematanteId);
+    if (!arrematante) return;
+    
+    // Importar APENAS dados pessoais (não lote, mercadoria, valores, etc)
+    setValues(prev => ({
+      ...prev,
+      nome: arrematante.nome,
+      documento: arrematante.documento || "",
+      telefone: arrematante.telefone?.replace(/^\+\d+\s+/, "") || "", // Remover código país
+      codigoPais: arrematante.telefone?.match(/^(\+\d+)/)?.[1] || "+55",
+      email: arrematante.email || "",
+      cep: arrematante.cep || "",
+      rua: arrematante.rua || "",
+      numero: arrematante.numero || "",
+      complemento: arrematante.complemento || "",
+      bairro: arrematante.bairro || "",
+      cidade: arrematante.cidade || "",
+      estado: arrematante.estado || "",
+      endereco: arrematante.endereco || "",
+    }));
+    
+    setShowImportModal(false);
+    setSearchCpf(""); // Limpar busca ao fechar
+  };
+
+  // Filtrar arrematantes por CPF/CNPJ (modal de importação)
+  const arrematantesFiltrados = useMemo(() => {
+    if (!initial.auction?.arrematantes) return [];
+    
+    // Se está mostrando todos, retorna todos ordenados alfabeticamente
+    if (showAllBidders && !searchCpf) {
+      return [...initial.auction.arrematantes].sort((a, b) => 
+        (a.nome || '').localeCompare(b.nome || '', 'pt-BR')
+      );
+    }
+    
+    // Se tem busca, filtra por CPF/CNPJ (começando com os dígitos digitados)
+    if (searchCpf) {
+      const cpfLimpo = searchCpf.replace(/\D/g, '');
+      const filtrados = initial.auction.arrematantes.filter(arr => {
+        const docLimpo = arr.documento?.replace(/\D/g, '') || '';
+        return docLimpo.startsWith(cpfLimpo); // Verifica se começa com os dígitos digitados
+      });
+      
+      // Ordenar alfabeticamente por nome
+      return filtrados.sort((a, b) => 
+        (a.nome || '').localeCompare(b.nome || '', 'pt-BR')
+      );
+    }
+    
+    return [];
+  }, [initial.auction?.arrematantes, searchCpf, showAllBidders]);
 
   return createPortal(
+    <>
+      {/* Wizard de Importação em Tela Cheia */}
+      {showImportModal && (
+        <div 
+          className="fixed inset-0 top-0 left-0 right-0 bottom-0 bg-white overflow-auto transition-opacity duration-300 opacity-100"
+          style={{ 
+            animation: 'wizardFadeIn 0.3s ease-out', 
+            margin: 0, 
+            padding: 0,
+            zIndex: 100000
+          }}
+        >
+          {/* Botão Fechar - Canto Superior Esquerdo */}
+          <div className="fixed top-8 left-8 z-20">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowImportModal(false)}
+              className="rounded-full w-12 h-12 bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-gray-700"
+            >
+              <XIcon className="h-6 w-6" />
+            </Button>
+          </div>
+
+          <div className="min-h-screen flex">
+            {/* Conteúdo Principal */}
+            <div className="flex-1 flex items-center justify-center px-8 md:px-20 py-16">
+              <div className="w-full max-w-2xl space-y-12">
+                {/* Título */}
+                <div>
+                  <div className="flex items-center gap-4">
+                    <h1 className="text-3xl md:text-4xl font-normal text-gray-900 leading-tight">
+                      Buscar Arrematante
+                    </h1>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setShowAllBidders(!showAllBidders);
+                          if (!showAllBidders) {
+                            setSearchCpf(''); // Limpar busca ao mostrar todos
+                          }
+                        }}
+                        onMouseEnter={() => setIsHoveringButton(true)}
+                        onMouseLeave={() => setIsHoveringButton(false)}
+                        className={`p-2.5 rounded-lg transition-all duration-200 ${
+                          showAllBidders 
+                            ? 'bg-gray-900 text-white hover:bg-gray-800' 
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        <Users className="h-5 w-5" />
+                      </button>
+                      <span 
+                        className={`text-sm font-medium whitespace-nowrap transition-all duration-200 ${
+                          isHoveringButton 
+                            ? 'opacity-100 translate-x-0' 
+                            : 'opacity-0 -translate-x-2 pointer-events-none'
+                        } ${showAllBidders ? 'text-gray-900' : 'text-gray-600'}`}
+                      >
+                        {showAllBidders ? 'Ocultar lista' : 'Mostrar todos arrematantes'}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-lg text-gray-600 mt-4">
+                    {showAllBidders 
+                      ? 'Navegue pela lista completa ou use a busca por CPF/CNPJ para filtrar'
+                      : 'Digite o CPF ou CNPJ para buscar e importar os dados pessoais de um arrematante existente'
+                    }
+                  </p>
+                </div>
+
+                {/* Campo de Busca por CPF/CNPJ */}
+                <div className="space-y-3">
+                  <Label className="text-lg font-normal text-gray-600">CPF ou CNPJ</Label>
+                  <Input
+                    type="text"
+                    placeholder="Digite o CPF ou CNPJ para buscar"
+                    value={searchCpf}
+                    onChange={(e) => {
+                      const formatted = formatCpfCnpj(e.target.value);
+                      setSearchCpf(formatted);
+                    }}
+                    className="h-14 text-base border-0 border-b-2 border-gray-200 rounded-none focus-visible:border-gray-800 focus-visible:ring-0 focus-visible:outline-none px-0 bg-transparent placeholder:text-gray-400"
+                  />
+                  {searchCpf && arrematantesFiltrados.length === 0 && (
+                    <p className="text-sm text-amber-600 flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4" />
+                      Nenhum arrematante encontrado com este CPF/CNPJ
+                    </p>
+                  )}
+                </div>
+
+                {/* Título - Sempre visível */}
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-normal text-gray-900">
+                    {isTyping ? (
+                      <>
+                        Buscando Arrematante
+                        <span className="inline-flex ml-1">
+                          <span className="animate-bounce" style={{ animationDelay: '0ms', animationDuration: '1s' }}>.</span>
+                          <span className="animate-bounce" style={{ animationDelay: '150ms', animationDuration: '1s' }}>.</span>
+                          <span className="animate-bounce" style={{ animationDelay: '300ms', animationDuration: '1s' }}>.</span>
+                        </span>
+                      </>
+                    ) : (
+                      'Arrematantes Encontrados'
+                    )}
+                  </h2>
+                  {(searchCpf || showAllBidders) && arrematantesFiltrados.length > 0 && (
+                    <span className="text-sm text-gray-500 font-normal">
+                      {arrematantesFiltrados.length} {arrematantesFiltrados.length === 1 ? 'encontrado' : 'encontrados'}
+                    </span>
+                  )}
+                </div>
+
+                {/* Lista de Arrematantes - Aparece quando há busca ou quando showAllBidders está ativo */}
+                {(searchCpf || showAllBidders) && arrematantesFiltrados.length > 0 && (
+                  <div className="space-y-3">
+                    {arrematantesFiltrados.map((arrematante, index) => {
+                    const lote = initial.auction?.lotes?.find(l => l.id === arrematante.loteId);
+                    const mercadoria = lote?.mercadorias?.find(m => m.id === arrematante.mercadoriaId);
+                    
+                    return (
+                      <div 
+                        key={arrematante.id || index}
+                        onClick={() => handleImportArrematante(arrematante.id || '')}
+                        className="group p-5 border border-gray-200 rounded-xl cursor-pointer hover:border-gray-400 hover:shadow-sm transition-all duration-200 bg-white"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-lg font-medium text-gray-900 truncate group-hover:text-gray-950">{arrematante.nome}</h3>
+                            <div className="mt-2 space-y-1">
+                              {arrematante.documento && (
+                                <p className="text-sm text-gray-600">{arrematante.documento}</p>
+                              )}
+                              {arrematante.email && (
+                                <p className="text-sm text-gray-500 truncate">{arrematante.email}</p>
+                              )}
+                            </div>
+                            {mercadoria && (
+                              <div className="mt-3 pt-3 border-t border-gray-100">
+                                <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Mercadoria Atual</p>
+                                <p className="text-sm text-gray-600 truncate">{mercadoria.titulo || mercadoria.descricao}</p>
+                              </div>
+                            )}
+                          </div>
+                          <ChevronRight className="h-5 w-5 text-gray-300 group-hover:text-gray-600 flex-shrink-0 ml-4 transition-colors" />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Wizard Principal */}
     <div 
       className={`fixed inset-0 top-0 left-0 right-0 bottom-0 bg-white overflow-auto transition-opacity duration-300 ${
         isClosing ? 'opacity-0' : 'opacity-100'
@@ -1932,10 +2653,10 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
         <Button
           variant="ghost"
           size="icon"
-          onClick={currentStep === 0 ? handleClose : handleBack}
+          onClick={currentStep === -1 || currentStep === 0 ? handleClose : handleBack}
           className="rounded-full w-12 h-12 bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-gray-700"
         >
-          {currentStep === 0 ? (
+          {currentStep === -1 || currentStep === 0 ? (
             <XIcon className="h-6 w-6" />
           ) : (
             <ChevronLeft className="h-6 w-6" />
@@ -1945,6 +2666,7 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
 
       <div className="min-h-screen flex">
         {/* Indicadores de Etapas - Lateral Esquerda */}
+        {currentStep !== -1 && (
         <div className="hidden md:flex flex-col justify-center w-80 px-12">
           <div className="space-y-4">
             {steps.map((step, index) => (
@@ -1964,21 +2686,61 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
             ))}
           </div>
         </div>
+        )}
 
         {/* Conteúdo Principal */}
         <div className="flex-1 flex items-center justify-center px-8 md:px-20 py-16">
           <div className="w-full max-w-2xl space-y-12">
             {/* Título da Etapa */}
             <div>
+              {currentStep === -1 ? (
+                // Título com botão para etapa de seleção
+                <div className="flex items-center gap-4">
               <h1 className="text-3xl md:text-4xl font-normal text-gray-900 leading-tight">
                 {currentStepData.title}
               </h1>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setShowAllBiddersSelection(!showAllBiddersSelection);
+                        if (!showAllBiddersSelection) {
+                          setSearchCpfSelection(''); // Limpar busca ao mostrar todos
+                        }
+                      }}
+                      onMouseEnter={() => setIsHoveringButtonSelection(true)}
+                      onMouseLeave={() => setIsHoveringButtonSelection(false)}
+                      className={`p-2.5 rounded-lg transition-all duration-200 ${
+                        showAllBiddersSelection 
+                          ? 'bg-gray-900 text-white hover:bg-gray-800' 
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      <Users className="h-5 w-5" />
+                    </button>
+                    <span 
+                      className={`text-sm font-medium whitespace-nowrap transition-all duration-200 ${
+                        isHoveringButtonSelection 
+                          ? 'opacity-100 translate-x-0' 
+                          : 'opacity-0 -translate-x-2 pointer-events-none'
+                      } ${showAllBiddersSelection ? 'text-gray-900' : 'text-gray-600'}`}
+                    >
+                      {showAllBiddersSelection ? 'Ocultar lista' : 'Mostrar todos arrematantes'}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                // Título normal para outras etapas
+                <h1 className="text-3xl md:text-4xl font-normal text-gray-900 leading-tight">
+                  {currentStepData.title}
+                </h1>
+              )}
             </div>
 
             {/* Conteúdo da Etapa */}
             <div>{currentStepData.content}</div>
 
-            {/* Botão de Avançar */}
+            {/* Botão de Avançar - não mostrar na etapa de seleção */}
+            {currentStep !== -1 && (
             <div className="pt-4">
               {currentStep < steps.length - 1 ? (
                 <Button
@@ -2001,11 +2763,14 @@ export function ArrematanteWizard({ initial, onSubmit, onCancel }: ArrematanteWi
                 </Button>
               )}
             </div>
+            )}
           </div>
         </div>
       </div>
-    </div>,
+    </div>
+    </>,
     document.body
   );
 }
+
 

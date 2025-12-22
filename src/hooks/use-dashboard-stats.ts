@@ -23,12 +23,37 @@ export function useDashboardStats() {
   const query = useQuery({
     queryKey: DASHBOARD_STATS_KEY,
     queryFn: async (): Promise<DashboardStats> => {
+      // ✅ CORREÇÃO: Usar .maybeSingle() para evitar erro 406 se view estiver vazia
       const { data, error } = await supabaseClient
         .from('dashboard_stats')
         .select('*')
-        .single();
+        .maybeSingle();
 
-      if (error) throw error;
+      // Se erro que não seja "sem resultados", lançar
+      if (error) {
+        console.error('Erro ao buscar estatísticas do dashboard:', error);
+        throw error;
+      }
+      
+      // Se não houver dados (view vazia), retornar valores padrão
+      if (!data) {
+        console.warn('⚠️ Dashboard stats vazia, retornando valores padrão');
+        return {
+          leiloes_agendados: 0,
+          leiloes_em_andamento: 0,
+          leiloes_finalizados: 0,
+          total_leiloes: 0,
+          total_custos: 0,
+          total_arrematantes: 0,
+          arrematantes_atrasados: 0,
+          arrematantes_pendentes: 0,
+          faturas_em_aberto: 0,
+          faturas_atrasadas: 0,
+          valor_faturas_pendentes: 0,
+          total_a_receber: 0,
+          total_recebido: 0,
+        };
+      }
       
       return {
         leiloes_agendados: data.leiloes_agendados || 0,

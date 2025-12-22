@@ -99,7 +99,7 @@ Ao configurar o fator multiplicador e modelo de parcelamento, um **preview visua
    - Arrematantes (valores com juros)
    - Faturas (geração de boletos)
    - Emails (notificações)
-
+   
    ...serão feitos automaticamente usando o novo sistema!
 
 ## 🔄 Retrocompatibilidade

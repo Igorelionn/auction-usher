@@ -97,13 +97,6 @@ function LoteImagesModal({
 
   useEffect(() => {
     const fetchImages = async () => {
-      console.log('🔍 [Modal] Buscando imagens do lote:', {
-        auctionId,
-        loteId,
-        loteNumero,
-        searchPattern: `Lote ${loteNumero} - %`
-      });
-      
       try {
         const allImages: LoteDocument[] = [];
 
@@ -129,7 +122,6 @@ function LoteImagesModal({
               url: url
             });
           });
-          console.log('✅ [Modal] Imagens do campo imagens:', imagensDoLote.length);
         }
 
         // 2. Buscar imagens do banco de dados (documents)
@@ -145,11 +137,9 @@ function LoteImagesModal({
           console.error('❌ [Modal] Erro ao buscar imagens do banco:', error);
         } else if (data && data.length > 0) {
           allImages.push(...data);
-          console.log('✅ [Modal] Imagens do banco carregadas:', data.length);
         }
 
         setImages(allImages);
-        console.log('✅ [Modal] Total de imagens:', allImages.length);
       } catch (error) {
         console.error('❌ [Modal] Erro ao buscar imagens do lote:', error);
         setImages([]);
@@ -276,6 +266,52 @@ function Lotes() {
   const { auctions, isLoading, updateAuction, archiveAuction, unarchiveAuction } = useSupabaseAuctions();
   const queryClient = useQueryClient();
   const { logLotAction, logMerchandiseAction, logDocumentAction } = useActivityLogger();
+  
+  // Flag para garantir que a migração execute apenas uma vez
+  const hasMigrated = useRef(false);
+  
+  // Migração única: limpar status desatualizados dos lotes
+  useEffect(() => {
+    const cleanLoteStatus = async () => {
+      if (hasMigrated.current) return; // Já executou
+      if (!auctions || auctions.length === 0) return;
+      
+      hasMigrated.current = true; // Marcar como executado
+      let needsUpdate = false;
+      
+      for (const auction of auctions) {
+        if (!auction.lotes || auction.lotes.length === 0) continue;
+        
+        // Verificar se algum lote tem status definido
+        const lotesComStatus = auction.lotes.some(lote => lote.status !== undefined);
+        
+        if (lotesComStatus) {
+          needsUpdate = true;
+          
+          // Remover o campo status de todos os lotes
+          const lotesLimpos = auction.lotes.map(lote => {
+            const { status, ...lotesSemStatus } = lote;
+            return lotesSemStatus;
+          });
+          
+          // Atualizar silenciosamente no banco de dados
+          await updateAuction({
+            id: auction.id,
+            data: { lotes: lotesLimpos }
+          });
+          
+          console.log(`✅ Limpeza de status concluída para leilão ${auction.nome}`);
+        }
+      }
+      
+      if (needsUpdate) {
+        console.log('✅ Migração de lotes concluída - status removidos do banco de dados');
+      }
+    };
+    
+    // Executar quando os leilões forem carregados
+    cleanLoteStatus();
+  }, [auctions, updateAuction]); // Executar quando auctions estiver disponível
 
   // Estados para Lotes
   const [searchTermLotes, setSearchTermLotes] = useState("");
@@ -340,23 +376,29 @@ function Lotes() {
       const valorInicial = lote.mercadorias.reduce((total, mercadoria) => total + mercadoria.valorNumerico, 0);
       
       // Determinar status do lote com prioridades:
-      // 1. Se o lote tem status específico, usar esse status
-      // 2. Se há arrematante e este lote foi arrematado, marcar como arrematado
-      // 3. Se o leilão foi arquivado, marcar como arquivado
-      // 4. Caso contrário, disponível
+      // 1. Verificar se há arrematantes (prioridade máxima - fonte de verdade)
+      // 2. Se o leilão foi arquivado, marcar como arquivado
+      // 3. Caso contrário, disponível
       let statusLote: 'disponivel' | 'arrematado' | 'arquivado' = 'disponivel';
       
-      if (lote.status) {
-        // Status específico do lote tem prioridade
-        statusLote = lote.status;
-      } else if (auction.arrematante?.loteId === lote.id) {
-        // Se há arrematante e este é o lote arrematado
+      // Obter todos os arrematantes (novo formato array ou antigo formato objeto único)
+      const todosArrematantes = auction.arrematantes && auction.arrematantes.length > 0
+        ? auction.arrematantes
+        : (auction.arrematante ? [auction.arrematante] : []);
+      
+      // Verificar se algum arrematante arrematou este lote (FONTE DE VERDADE)
+      const loteArrematado = todosArrematantes.some(arr => arr.loteId === lote.id);
+      
+      // Prioridade: arrematantes > arquivado > disponível
+      // Não usar lote.status pois pode ficar desatualizado
+      if (loteArrematado) {
+        // Se há arrematante(s) e este lote foi arrematado
         statusLote = 'arrematado';
       } else if (auction.arquivado) {
         // Se o leilão está arquivado
         statusLote = 'arquivado';
-      } else if (auction.status === 'finalizado') {
-        // Se leilão finalizado mas sem arrematante específico, manter disponível
+      } else {
+        // Caso contrário, disponível (mesmo que lote.status esteja desatualizado)
         statusLote = 'disponivel';
       }
       
@@ -873,8 +915,8 @@ function Lotes() {
           id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
           numero: loteForm.numero,
           descricao: loteForm.descricao,
-          mercadorias: [mercadoria],
-          status: 'disponivel'
+          mercadorias: [mercadoria]
+          // Não definir status aqui - será calculado dinamicamente baseado nos arrematantes
         };
 
         lotesAtualizados = [...lotes, novoLote];

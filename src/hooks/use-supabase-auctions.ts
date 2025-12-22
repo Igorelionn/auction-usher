@@ -44,9 +44,10 @@ interface BidderRow {
   valor_lance?: number;
   fator_multiplicador?: number;
   usa_fator_multiplicador?: boolean;
-  parcelas_triplas?: number[];
-  parcelas_duplas?: number[];
-  parcelas_simples?: number[];
+  // ✅ CORREÇÃO: Esses campos são INTEGER no banco, não arrays
+  parcelas_triplas?: number;
+  parcelas_duplas?: number;
+  parcelas_simples?: number;
   data_entrada?: string;
   data_vencimento_vista?: string;
   pago?: boolean;
@@ -111,9 +112,10 @@ interface BidderInsert {
   valor_lance?: number | null;
   fator_multiplicador?: number | null;
   usa_fator_multiplicador?: boolean | null;
-  parcelas_triplas?: number[] | null;
-  parcelas_duplas?: number[] | null;
-  parcelas_simples?: number[] | null;
+  // ✅ CORREÇÃO: Esses campos são INTEGER no banco, não arrays
+  parcelas_triplas?: number | null;
+  parcelas_duplas?: number | null;
+  parcelas_simples?: number | null;
   data_entrada?: string | null;
   data_vencimento_vista?: string | null;
   pago?: boolean | null;
@@ -312,13 +314,6 @@ export function useSupabaseAuctions() {
                 )
             : [];
 
-          console.log('📄 DOCUMENTOS - Carregando documentos do arrematante:', {
-            nome: bidder.nome,
-            todosDocumentos: auction.documents?.length || 0,
-            documentosArrematante: arrematanteDocumentos.length,
-            documentos: arrematanteDocumentos.map((d) => ({ nome: d.nome, categoria: d.categoria, descricao: d.descricao }))
-          });
-
             const mappedBidder = {
               id: bidder.id || undefined,
             nome: bidder.nome,
@@ -372,17 +367,6 @@ export function useSupabaseAuctions() {
             }))
           };
 
-          console.log('✅ CONDIÇÕES DE PAGAMENTO - Bidder Mapeado:', {
-            valorLance: mappedBidder.valorLance,
-            fatorMultiplicador: mappedBidder.fatorMultiplicador,
-            usaFatorMultiplicador: mappedBidder.usaFatorMultiplicador,
-            parcelasTriplas: mappedBidder.parcelasTriplas,
-            parcelasDuplas: mappedBidder.parcelasDuplas,
-            parcelasSimples: mappedBidder.parcelasSimples,
-            dataEntrada: mappedBidder.dataEntrada,
-            dataVencimentoVista: mappedBidder.dataVencimentoVista
-          });
-
           return mappedBidder;
           });
           
@@ -420,8 +404,6 @@ export function useSupabaseAuctions() {
       if (data.lotes && data.lotes.length > 0) {
         for (const lote of data.lotes) {
           if (lote.imagens && lote.imagens.length > 0) {
-            console.log(`🖼️ Processando ${lote.imagens.length} imagens do lote ${lote.numero}`);
-            
             const imagensLoteParaInserir = lote.imagens.map((imagemUrl: string, index: number) => ({
               auction_id: created.id,
               nome: `Lote ${lote.numero} - Imagem ${index + 1}`,
@@ -440,8 +422,6 @@ export function useSupabaseAuctions() {
             
             if (loteImgError) {
               console.error(`❌ Erro ao salvar imagens do lote ${lote.numero}:`, loteImgError);
-            } else {
-              console.log(`✅ ${lote.imagens.length} imagens do lote ${lote.numero} salvas com sucesso!`);
             }
           }
         }
@@ -670,20 +650,34 @@ export function useSupabaseAuctions() {
         const arrematantesArray = data.arrematantes || (data.arrematante ? [data.arrematante] : []);
         
         if (arrematantesArray.length > 0) {
-          // Remover todos os arrematantes existentes
+          // ✅ NÃO deletar todos - processar individualmente
+          // Primeiro, buscar os IDs existentes no banco
+          const { data: existingBidders } = await supabaseClient
+            .from('bidders')
+            .select('id')
+            .eq('auction_id', id);
+          
+          const existingIds = existingBidders?.map(b => b.id) || [];
+          const updatingIds = arrematantesArray.filter(a => a.id).map(a => a.id);
+          
+          // Deletar apenas os arrematantes que não estão mais no array
+          const idsToDelete = existingIds.filter(id => !updatingIds.includes(id));
+          if (idsToDelete.length > 0) {
           await supabaseClient
             .from('bidders')
             .delete()
-            .eq('auction_id', id);
+              .in('id', idsToDelete);
 
-          // Remover documentos existentes dos arrematantes
+            // Deletar documentos dos arrematantes removidos
           await supabaseClient
             .from('documents')
             .delete()
             .eq('auction_id', id)
-            .eq('categoria', 'arrematante_documentos');
+              .eq('categoria', 'arrematante_documentos')
+              .in('bidder_id', idsToDelete);
+          }
 
-          // Inserir todos os novos arrematantes
+          // Processar cada arrematante (INSERT ou UPDATE)
           for (const arrematante of arrematantesArray) {
             const bidderData: BidderInsert = {
               auction_id: id,
@@ -715,9 +709,10 @@ export function useSupabaseAuctions() {
               valor_lance: arrematante.valorLance || null,
               fator_multiplicador: arrematante.fatorMultiplicador || null,
               usa_fator_multiplicador: arrematante.usaFatorMultiplicador || false,
-              parcelas_triplas: Array.isArray(arrematante.parcelasTriplas) ? arrematante.parcelasTriplas : [],
-              parcelas_duplas: Array.isArray(arrematante.parcelasDuplas) ? arrematante.parcelasDuplas : [],
-              parcelas_simples: Array.isArray(arrematante.parcelasSimples) ? arrematante.parcelasSimples : [],
+              // ✅ CORREÇÃO: Esses campos são INTEGER no banco, não arrays
+              parcelas_triplas: typeof arrematante.parcelasTriplas === 'number' ? arrematante.parcelasTriplas : null,
+              parcelas_duplas: typeof arrematante.parcelasDuplas === 'number' ? arrematante.parcelasDuplas : null,
+              parcelas_simples: typeof arrematante.parcelasSimples === 'number' ? arrematante.parcelasSimples : null,
               data_entrada: arrematante.dataEntrada || null,
               data_vencimento_vista: arrematante.dataVencimentoVista || null,
               tipo_pagamento: arrematante.tipoPagamento || null,
@@ -734,20 +729,106 @@ export function useSupabaseAuctions() {
               data_vencimento_vista: bidderData.data_vencimento_vista
             });
 
-            // Se tem ID, fazer upsert (atualizar se existe)
+            // ✅ CORREÇÃO: Verificar se é INSERT (novo) ou UPDATE (edição)
             if (arrematante.id) {
-              bidderData.id = arrematante.id;
+              // MODO EDIÇÃO: Atualizar arrematante existente
+              console.log('🔄 MODO EDIÇÃO: Atualizando arrematante ID:', arrematante.id);
+              
+              // ✅ DELETAR DOCUMENTOS ANTIGOS DESTE ARREMATANTE ANTES DE ATUALIZAR
+              // Estratégia dupla: primeiro por ID, depois por nome (para documentos antigos)
+              
+              // 1. Deletar por ID do arrematante (sistema novo)
+              const { error: deleteDocsError, count: deletedByIdCount } = await supabaseClient
+                .from('documents')
+                .delete({ count: 'exact' })
+                .eq('auction_id', id)
+                .eq('categoria', 'arrematante_documentos')
+                .ilike('descricao', `%bidder_id:${arrematante.id}%`);
+
+              if (deleteDocsError) {
+                console.warn('⚠️ Aviso ao deletar documentos por ID:', deleteDocsError);
+              } else {
+                console.log(`🗑️ Documentos deletados por ID: ${deletedByIdCount || 0}`);
+              }
+              
+              // 2. Deletar por nome (para documentos antigos sem ID na descrição)
+              const { error: deleteByNameError, count: deletedByNameCount } = await supabaseClient
+                .from('documents')
+                .delete({ count: 'exact' })
+                .eq('auction_id', id)
+                .eq('categoria', 'arrematante_documentos')
+                .ilike('descricao', `Arrematante ${arrematante.nome}`)
+                .not('descricao', 'ilike', '%bidder_id:%'); // Apenas docs sem ID
+
+              if (deleteByNameError) {
+                console.warn('⚠️ Aviso ao deletar documentos por nome:', deleteByNameError);
+              } else {
+                console.log(`🗑️ Documentos antigos deletados por nome: ${deletedByNameCount || 0}`);
+              }
+              
+              const totalDeleted = (deletedByIdCount || 0) + (deletedByNameCount || 0);
+              console.log(`✅ Total de documentos deletados: ${totalDeleted}`);
+              
+              const { error: bidderError } = await supabaseClient
+                .from('bidders')
+                .update(bidderData)
+                .eq('id', arrematante.id);
+
+              if (bidderError) {
+                console.error('❌ Erro ao atualizar arrematante:', bidderError);
+                throw bidderError;
+              }
+            } else {
+              // MODO CRIAÇÃO: Inserir novo arrematante
+              console.log('➕ MODO CRIAÇÃO: Inserindo novo arrematante');
+              
+              // ✅ VALIDAÇÃO: Verificar se já existe arrematante para esta mercadoria
+              if (arrematante.mercadoriaId) {
+                // @ts-expect-error - Supabase type inference issue, funcionalmente correto
+                const validationResult = await supabaseClient
+                  .from('bidders')
+                  .select('id, nome')
+                  .eq('auction_id', id)
+                  .eq('mercadoria_id', arrematante.mercadoriaId);
+
+                // Se não houver erro de consulta e encontrar registros existentes
+                if (!validationResult.error && validationResult.data && validationResult.data.length > 0) {
+                  const existingBidder = validationResult.data[0] as { id: string; nome: string };
+                  throw new Error(`Esta mercadoria já possui um arrematante (${existingBidder.nome}). Cada mercadoria só pode ter um arrematante.`);
+                }
+              }
+
+              // ✅ INSERT e obter o ID retornado para usar nos documentos
+              const { data: insertedBidder, error: bidderError } = await supabaseClient
+                .from('bidders')
+                .insert(bidderData)
+                .select('id')
+                .maybeSingle();
+
+              if (bidderError) {
+                console.error('❌ Erro ao inserir arrematante:', bidderError);
+                throw bidderError;
+              }
+              
+              // ✅ Atribuir o ID retornado para usar nos documentos
+              if (insertedBidder?.id) {
+                arrematante.id = insertedBidder.id;
+                console.log('✅ Novo arrematante criado com ID:', insertedBidder.id);
+              }
             }
-
-          const { error: bidderError } = await supabaseClient
-            .from('bidders')
-              .insert(bidderData);
-
-          if (bidderError) throw bidderError;
 
           // Salvar documentos do arrematante na tabela documents
             if (arrematante.documentos && arrematante.documentos.length > 0) {
+            // ✅ Garantir que temos um ID para o arrematante (necessário para identificação única)
+            const bidderId = arrematante.id;
+            
+            if (!bidderId) {
+              console.error('❌ ERRO: Tentando salvar documentos sem ID de arrematante!');
+              throw new Error('ID do arrematante não disponível para salvar documentos');
+            }
+            
             console.log('📄 DOCUMENTOS - Salvando documentos do arrematante:', {
+              bidderId: bidderId,
               nome: arrematante.nome,
               quantidadeDocumentos: arrematante.documentos.length,
               documentos: arrematante.documentos.map(d => ({ nome: d.nome, tipo: d.tipo }))
@@ -791,7 +872,8 @@ export function useSupabaseAuctions() {
                   data_upload: doc.dataUpload,
                     url: base64Data,
                   storage_path: doc.nome,
-                    descricao: `Arrematante ${arrematante.nome}` // Identificar o arrematante
+                    // ✅ CORREÇÃO: Usar ID único para identificação, não nome
+                    descricao: `Arrematante ${arrematante.nome} [bidder_id:${bidderId}]`
                 };
               })
             );
@@ -871,8 +953,6 @@ export function useSupabaseAuctions() {
             
             if (loteImgError) {
               console.error(`❌ Erro ao salvar imagens do lote ${lote.numero}:`, loteImgError);
-            } else {
-              console.log(`✅ ${lote.imagens.length} imagens do lote ${lote.numero} salvas com sucesso!`);
             }
           }
         }
@@ -1012,17 +1092,25 @@ export function useSupabaseAuctions() {
 
       // Só atualizar a tabela auctions se houver dados para atualizar
       if (Object.keys(updateData).length > 0) {
+        // ✅ CORREÇÃO: Usar .maybeSingle() para evitar erro 406
         const { data: updated, error } = await supabaseClient
           .from('auctions')
           .update(updateData)
           .eq('id', id)
           .select()
-          .single();
+          .maybeSingle();
 
         if (error) throw error;
+        
+        // Verificar se o leilão ainda existe
+        if (!updated) {
+          throw new Error('Leilão não encontrado após atualização. Pode ter sido excluído.');
+        }
+        
         return mapSupabaseAuctionToApp(updated);
       } else {
         // Se só atualizamos o arrematante, buscar os dados atualizados do leilão
+        // ✅ CORREÇÃO: Usar .maybeSingle() para evitar erro 406
         const { data: current, error } = await supabaseClient
           .from('auctions')
           .select(`
@@ -1067,9 +1155,14 @@ export function useSupabaseAuctions() {
             )
           `)
           .eq('id', id)
-          .single();
+          .maybeSingle();
 
         if (error) throw error;
+        
+        // Verificar se o leilão ainda existe
+        if (!current) {
+          throw new Error('Leilão não encontrado. Pode ter sido excluído.');
+        }
         
         const mappedAuction = mapSupabaseAuctionToApp(current as unknown as ExtendedAuctionRow);
         
@@ -1184,15 +1277,20 @@ export function useSupabaseAuctions() {
   const unarchiveMutation = useMutation({
     mutationFn: async (id: string) => {
       // Primeiro verificar o estado atual
+      // ✅ CORREÇÃO: Usar .maybeSingle() para evitar erro 406
       const { data: current, error: fetchError } = await supabaseClient
         .from('auctions')
         .select('id, arquivado')
         .eq('id', id)
-        .single();
+        .maybeSingle();
       
       if (fetchError) {
         console.error('❌ Erro ao buscar leilão atual:', fetchError);
         throw fetchError;
+      }
+      
+      if (!current) {
+        throw new Error('Leilão não encontrado. Pode ter sido excluído.');
       }
       
       // Fazer a atualização
@@ -1214,14 +1312,19 @@ export function useSupabaseAuctions() {
       await new Promise(resolve => setTimeout(resolve, 500));
       
       // Verificar se a alteração foi realmente salva
+      // ✅ CORREÇÃO: Usar .maybeSingle() para evitar erro 406
       const { data: verification, error: verifyError } = await supabaseClient
         .from('auctions')
         .select('id, arquivado, updated_at')
         .eq('id', id)
-        .single();
+        .maybeSingle();
         
       if (verifyError) {
         console.error('❌ Erro na verificação:', verifyError);
+      }
+      
+      if (!verification) {
+        console.warn('⚠️ Não foi possível verificar o desarquivamento');
       }
       
       return data;

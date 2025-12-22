@@ -149,18 +149,48 @@ function Faturas() {
     const faturas: FaturaExtendida[] = [];
     
     auctions.forEach(auction => {
-      if (auction.arrematante && !auction.arquivado) {
-        const arrematante = auction.arrematante;
+      if (auction.arquivado) return;
+      
+      // Obter todos os arrematantes (compatibilidade com estrutura antiga e nova)
+      const arrematantes = auction.arrematantes || (auction.arrematante ? [auction.arrematante] : []);
+      
+      arrematantes.forEach(arrematante => {
+        if (!arrematante) return;
         
         // Encontrar o lote específico que o arrematante arrematou
         const loteArrematado = (auction.lotes || []).find(lote => lote.id === arrematante.loteId);
         
-        // Se não encontrou o lote ou não tem tipo de pagamento configurado, pular
-        if (!loteArrematado || !loteArrematado.tipoPagamento) {
+        // PRIORIZAR tipoPagamento do arrematante (mais específico) sobre o do lote (padrão)
+        const tipoPagamento = arrematante.tipoPagamento || loteArrematado?.tipoPagamento || 'parcelamento';
+        
+        // LOGS DE DEBUG - Verificar por que faturas não estão sendo geradas
+        console.log('🔍 DEBUG FATURAS - Processando arrematante:', {
+          arrematanteNome: arrematante.nome,
+          arrematanteId: arrematante.id,
+          leilaoNome: auction.nome || auction.identificacao,
+          leilaoId: auction.id,
+          loteId: arrematante.loteId,
+          loteEncontrado: !!loteArrematado,
+          loteNumero: loteArrematado?.numero,
+          tipoPagamentoArrematante: arrematante.tipoPagamento,
+          tipoPagamentoLote: loteArrematado?.tipoPagamento,
+          tipoPagamentoFinal: tipoPagamento,
+          mesInicioPagamentoArrematante: arrematante.mesInicioPagamento,
+          mesInicioPagamentoLote: loteArrematado?.mesInicioPagamento,
+          diaVencimentoArrematante: arrematante.diaVencimentoMensal,
+          diaVencimentoLote: loteArrematado?.diaVencimentoPadrao,
+          quantidadeParcelasArrematante: arrematante.quantidadeParcelas,
+          quantidadeParcelasLote: loteArrematado?.parcelasPadrao
+        });
+        
+        // Se não encontrou o lote E não tem tipoPagamento no arrematante, pular
+        if (!loteArrematado && !arrematante.tipoPagamento) {
+          console.warn('⚠️ FATURAS - Lote não encontrado e arrematante sem tipoPagamento:', {
+            arrematanteNome: arrematante.nome,
+            loteId: arrematante.loteId
+          });
           return;
         }
-        
-        const tipoPagamento = loteArrematado.tipoPagamento;
         
         // NOVO: Usar função que considera fator multiplicador se disponível
         const valorTotal = obterValorTotalArrematante({
@@ -170,12 +200,12 @@ function Faturas() {
           valorPagarNumerico: arrematante.valorPagarNumerico || 0
         });
         
-        // Gerar faturas baseadas no tipo de pagamento do lote específico
+        // Gerar faturas baseadas no tipo de pagamento (prioriza arrematante, depois lote)
         switch (tipoPagamento) {
           case 'a_vista': {
             // À vista: apenas uma fatura com a data específica
             // CORREÇÃO: Evitar problema de fuso horário do JavaScript
-            const dateStr = loteArrematado.dataVencimentoVista || new Date().toISOString().split('T')[0];
+            const dateStr = loteArrematado?.dataVencimentoVista || new Date().toISOString().split('T')[0];
             const [year, month, day] = dateStr.split('-').map(Number);
             
             // Validar se os valores de data são válidos
@@ -212,10 +242,10 @@ function Faturas() {
               }
             }
             
-            faturas.push({
+              faturas.push({
               id: `${auction.id}-avista`,
               auctionId: auction.id,
-              lotId: loteArrematado.id || '',
+              lotId: loteArrematado?.id || arrematante.loteId || '',
               arrematanteId: arrematante.documento || `${auction.id}-${arrematante.nome}`,
               valorArremate: valorTotal,
               valorLiquido: valorComJuros,
@@ -230,7 +260,7 @@ function Faturas() {
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
               leilaoNome: auction.nome || auction.identificacao || 'Leilão sem nome',
-              loteNumero: loteArrematado.numero || 'Sem número',
+              loteNumero: loteArrematado?.numero || 'Sem número',
               arrematanteNome: arrematante.nome,
               diasVencimento: Math.ceil((dueDateObj.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
               statusFatura: getInvoiceStatus(arrematante, 0, dueDateObj),
@@ -242,7 +272,7 @@ function Faturas() {
           
           case 'entrada_parcelamento': {
             // Entrada + Parcelamento: gerar APENAS a próxima parcela pendente (uma por vez)
-            const quantidadeParcelasTotal = arrematante.quantidadeParcelas || loteArrematado.parcelasPadrao || 12;
+            const quantidadeParcelasTotal = arrematante.quantidadeParcelas || loteArrematado?.parcelasPadrao || 12;
             const quantidadeParcelas = quantidadeParcelasTotal + 1; // Total incluindo entrada
             const valorEntrada = arrematante.valorEntrada ? parseCurrencyToNumber(arrematante.valorEntrada) : valorTotal * 0.3;
             const valorRestante = valorTotal - valorEntrada;
@@ -251,7 +281,7 @@ function Faturas() {
             
              // Se ainda não pagou a entrada (parcelasPagas === 0), exibir apenas a entrada
             if (parcelasPagas === 0) {
-              const dataEntrada = loteArrematado.dataEntrada || new Date().toISOString().split('T')[0];
+              const dataEntrada = loteArrematado?.dataEntrada || new Date().toISOString().split('T')[0];
               const dueDateObjEntrada = new Date(dataEntrada);
               
               // Validar se a data de entrada é válida
@@ -276,7 +306,7 @@ function Faturas() {
               faturas.push({
                 id: `${auction.id}-entrada`,
                 auctionId: auction.id,
-                lotId: loteArrematado.id || '',
+                lotId: loteArrematado?.id || arrematante.loteId || '',
                 arrematanteId: arrematante.documento || `${auction.id}-${arrematante.nome}`,
                 valorArremate: valorTotal,
                 valorLiquido: valorEntradaComJuros,
@@ -291,7 +321,7 @@ function Faturas() {
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
                 leilaoNome: auction.nome || auction.identificacao || 'Leilão sem nome',
-                loteNumero: loteArrematado.numero || 'Sem número',
+                loteNumero: loteArrematado?.numero || 'Sem número',
                 arrematanteNome: arrematante.nome,
                 diasVencimento: Math.ceil((dueDateObjEntrada.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
                 statusFatura: getInvoiceStatus(arrematante, 0, dueDateObjEntrada),
@@ -301,8 +331,8 @@ function Faturas() {
             }
             // Se já pagou a entrada, exibir a próxima parcela mensal pendente
             else if (parcelasPagas > 0 && parcelasPagas <= quantidadeParcelasTotal) {
-              const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
-              const diaVencimento = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
+              const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado?.mesInicioPagamento;
+              const diaVencimento = arrematante.diaVencimentoMensal || loteArrematado?.diaVencimentoPadrao;
               
               if (mesInicioPagamento && diaVencimento) {
                 const mesInicioPagamentoNormalizado = normalizarMesInicioPagamento(mesInicioPagamento);
@@ -349,7 +379,7 @@ function Faturas() {
                 faturas.push({
                   id: `${auction.id}-parcela-${parcelaNumero}`,
                   auctionId: auction.id,
-                  lotId: loteArrematado.id || '',
+                  lotId: loteArrematado?.id || arrematante.loteId || '',
                   arrematanteId: arrematante.documento || `${auction.id}-${arrematante.nome}`,
                   valorArremate: valorTotal,
                   valorLiquido: valorParcelaComJuros,
@@ -364,7 +394,7 @@ function Faturas() {
                   createdAt: new Date().toISOString(),
                   updatedAt: new Date().toISOString(),
                   leilaoNome: auction.nome || auction.identificacao || 'Leilão sem nome',
-                  loteNumero: loteArrematado.numero || 'Sem número',
+                  loteNumero: loteArrematado?.numero || 'Sem número',
                   arrematanteNome: arrematante.nome,
                   diasVencimento: Math.ceil((dueDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
                   statusFatura: getInvoiceStatus(arrematante, parcelaNumero, dueDate),
@@ -381,11 +411,27 @@ function Faturas() {
           default: {
             // Parcelamento tradicional: gerar APENAS a próxima parcela pendente (uma por vez)
             // PRIORIZAR dados do arrematante (mais específicos) sobre dados do lote
-            const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
-            const diaVencimento = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
-            const quantidadeParcelas = arrematante.quantidadeParcelas || loteArrematado.parcelasPadrao;
+            const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado?.mesInicioPagamento;
+            const diaVencimento = arrematante.diaVencimentoMensal || loteArrematado?.diaVencimentoPadrao;
+            const quantidadeParcelas = arrematante.quantidadeParcelas || loteArrematado?.parcelasPadrao;
             
-            if (!quantidadeParcelas || !mesInicioPagamento || !diaVencimento) return;
+            console.log('🔍 DEBUG FATURAS - Parcelamento validação:', {
+              arrematanteNome: arrematante.nome,
+              mesInicioPagamento,
+              diaVencimento,
+              quantidadeParcelas,
+              camposObrigatoriosOk: !!(quantidadeParcelas && mesInicioPagamento && diaVencimento)
+            });
+            
+            if (!quantidadeParcelas || !mesInicioPagamento || !diaVencimento) {
+              console.warn('⚠️ FATURAS - Campos obrigatórios faltando para parcelamento:', {
+                arrematanteNome: arrematante.nome,
+                quantidadeParcelasFaltando: !quantidadeParcelas,
+                mesInicioPagamentoFaltando: !mesInicioPagamento,
+                diaVencimentoFaltando: !diaVencimento
+              });
+              return;
+            }
             
             const valorParcela = valorTotal / quantidadeParcelas;
             const parcelasPagas = arrematante.parcelasPagas || 0;
@@ -450,7 +496,7 @@ function Faturas() {
             faturas.push({
               id: `${auction.id}-parcela-${parcelaNumero}`,
               auctionId: auction.id,
-              lotId: loteArrematado.id || '',
+              lotId: loteArrematado?.id || arrematante.loteId || '',
               arrematanteId: arrematante.documento || `${auction.id}-${arrematante.nome}`,
               valorArremate: valorTotal,
               valorLiquido: valorParcelaComJuros,
@@ -465,7 +511,7 @@ function Faturas() {
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
               leilaoNome: auction.nome || auction.identificacao || 'Leilão sem nome',
-              loteNumero: loteArrematado.numero || 'Sem número',
+              loteNumero: loteArrematado?.numero || 'Sem número',
               arrematanteNome: arrematante.nome,
               diasVencimento: Math.ceil((dueDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
               statusFatura: getInvoiceStatus(arrematante, i, dueDate),
@@ -476,8 +522,8 @@ function Faturas() {
             break;
           }
         }
-      }
-    });
+      }); // fim do arrematantes.forEach
+    }); // fim do auctions.forEach
     
     return faturas.sort((a, b) => new Date(a.dataVencimento).getTime() - new Date(b.dataVencimento).getTime());
   };
@@ -1375,10 +1421,10 @@ function Faturas() {
 
       {/* Modal de Visualização de Fatura */}
       <Dialog open={isViewFaturaModalOpen} onOpenChange={setIsViewFaturaModalOpen}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Receipt className="h-5 w-5" />
+            <DialogTitle className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-gray-600" />
               Detalhes da Fatura
             </DialogTitle>
           </DialogHeader>
@@ -1389,25 +1435,25 @@ function Faturas() {
             const loteArrematado = auction?.lotes?.find(lote => lote.id === selectedFatura.lotId);
             
             return (
-            <div className="space-y-6">
-                {/* Identificação Principal */}
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-                  <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-5">
+                {/* Identificação Principal - Clean e Minimalista */}
+                <div className="bg-gray-50/50 border border-gray-200 rounded-lg p-4">
+                  <div className="grid grid-cols-3 gap-6">
                 <div>
-                  <Label className="text-sm font-medium text-gray-700">Lote</Label>
-                      <p className="mt-1 text-lg font-bold text-slate-900">#{selectedFatura.loteNumero}</p>
+                  <Label className="text-xs uppercase tracking-wide font-medium text-gray-500">Lote</Label>
+                      <p className="mt-1.5 text-lg font-semibold text-gray-900">#{selectedFatura.loteNumero}</p>
                 </div>
                 <div>
-                  <Label className="text-sm font-medium text-gray-700">Status</Label>
-                  <div className="mt-1">
-                        <div className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-semibold ${getStatusBadgeColor(selectedFatura.status)}`}>
+                  <Label className="text-xs uppercase tracking-wide font-medium text-gray-500">Status</Label>
+                  <div className="mt-1.5">
+                        <div className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${getStatusBadgeColor(selectedFatura.status)}`}>
                       {getStatusText(selectedFatura.status)}
                     </div>
                       </div>
                     </div>
                     <div>
-                      <Label className="text-sm font-medium text-gray-700">Tipo de Pagamento</Label>
-                      <p className="mt-1 text-sm font-semibold text-slate-900">
+                      <Label className="text-xs uppercase tracking-wide font-medium text-gray-500">Pagamento</Label>
+                      <p className="mt-1.5 text-sm font-medium text-gray-900">
                         {selectedFatura.tipoPagamento === 'entrada_parcelamento' ? 'Entrada + Parcelamento' :
                          selectedFatura.tipoPagamento === 'a_vista' ? 'À Vista' : 'Parcelamento'}
                       </p>
@@ -1415,60 +1461,60 @@ function Faturas() {
                 </div>
               </div>
 
-                {/* Dados do Arrematante */}
+                {/* Valor Total - Destaque Clean */}
+                <div className="bg-gradient-to-br from-gray-50 to-gray-100/50 border border-gray-200 rounded-lg p-5 text-center">
+                  <Label className="text-xs uppercase tracking-wide font-medium text-gray-500">Valor Total</Label>
+                  <p className="mt-2 text-3xl font-bold text-gray-900">
+                    {formatCurrency(calcularValorTotalLeilaoComJuros(selectedFatura))}
+                  </p>
+                  <p className="mt-1.5 text-xs text-gray-500">Incluindo juros, se houver atraso</p>
+                </div>
+
+                {/* Dados do Arrematante - Estilo Clean */}
                 <div className="border border-gray-200 rounded-lg p-4">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-3 border-b border-gray-200 pb-2">
-                    Dados do Arrematante
+                  <h3 className="text-sm uppercase tracking-wide font-medium text-gray-500 mb-4">
+                    Arrematante
                   </h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-3">
               <div>
-                      <Label className="text-sm font-medium text-gray-700">Nome Completo</Label>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">{selectedFatura.arrematanteNome}</p>
+                      <Label className="text-xs font-medium text-gray-500">Nome</Label>
+                      <p className="mt-1 text-sm font-medium text-gray-900">{selectedFatura.arrematanteNome}</p>
                     </div>
                     <div>
-                      <Label className="text-sm font-medium text-gray-700">Documento</Label>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">
-                        {arrematante?.documento || 'Não informado'}
+                      <Label className="text-xs font-medium text-gray-500">Documento</Label>
+                      <p className="mt-1 text-sm font-medium text-gray-900">
+                        {arrematante?.documento || '—'}
                       </p>
                     </div>
                     <div>
-                      <Label className="text-sm font-medium text-gray-700">Email</Label>
+                      <Label className="text-xs font-medium text-gray-500">E-mail</Label>
                       <p className="mt-1 text-sm text-gray-600">
-                        {arrematante?.email || 'Não informado'}
+                        {arrematante?.email || '—'}
                       </p>
                     </div>
                     <div>
-                      <Label className="text-sm font-medium text-gray-700">Telefone</Label>
+                      <Label className="text-xs font-medium text-gray-500">Telefone</Label>
                       <p className="mt-1 text-sm text-gray-600">
-                        {arrematante?.telefone || 'Não informado'}
+                        {arrematante?.telefone || '—'}
                       </p>
                     </div>
                   </div>
               </div>
 
-                {/* Valor Total do Arrematação */}
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center">
-                  <Label className="text-sm font-medium text-gray-700">Valor Total do Arrematação</Label>
-                  <p className="mt-2 text-3xl font-bold text-gray-900">
-                    {formatCurrency(calcularValorTotalLeilaoComJuros(selectedFatura))}
-                  </p>
-                  <p className="mt-1 text-sm text-gray-600">Valor total arrematado no leilão (com juros se houver atraso)</p>
-                </div>
-
-                {/* Detalhes Específicos do Pagamento */}
+                {/* Detalhes Específicos do Pagamento - Clean Style */}
                 {selectedFatura.tipoPagamento === 'entrada_parcelamento' ? (
                   <div className="border border-gray-200 rounded-lg p-4">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-3 border-b border-gray-200 pb-2">
-                      Detalhes do Pagamento - Entrada + Parcelamento
+                    <h3 className="text-sm uppercase tracking-wide font-medium text-gray-500 mb-4">
+                      Entrada + Parcelamento
                     </h3>
-                    <div className="grid grid-cols-2 gap-6">
+                    <div className="grid grid-cols-2 gap-5">
                       {/* Informações da Entrada */}
-                      <div className="bg-gray-50 border border-gray-300 rounded-lg p-4">
-                        <h4 className="text-md font-semibold text-gray-800 mb-3">Entrada</h4>
-                        <div className="space-y-2">
+                      <div className="bg-gray-50/50 border border-gray-200 rounded-lg p-4">
+                        <h4 className="text-xs uppercase tracking-wide font-medium text-gray-500 mb-3">Entrada</h4>
+                        <div className="space-y-3">
                           <div>
-                            <Label className="text-xs font-medium text-gray-700">Valor da Entrada</Label>
-                            <p className="text-lg font-bold text-gray-900">
+                            <Label className="text-xs font-medium text-gray-500">Valor</Label>
+                            <p className="text-lg font-semibold text-gray-900">
                               {(() => {
                                 const valorTotal = Number(selectedFatura.valorTotal || selectedFatura.valorLiquido);
                                 const valorEntradaConfig = arrematante?.valorEntrada;
@@ -1512,8 +1558,8 @@ function Faturas() {
                             </p>
                           </div>
                           <div>
-                            <Label className="text-xs font-medium text-gray-700">Data de Vencimento</Label>
-                            <p className="text-sm font-semibold text-gray-800">
+                            <Label className="text-xs font-medium text-gray-500">Vencimento</Label>
+                            <p className="text-sm font-medium text-gray-900">
                               {selectedFatura.parcela === 1 ? 
                                 new Date(selectedFatura.dataVencimento).toLocaleDateString('pt-BR') :
                                 (loteArrematado?.dataEntrada ? 
@@ -1523,8 +1569,8 @@ function Faturas() {
                             </p>
                           </div>
                           <div>
-                            <Label className="text-xs font-medium text-gray-700">Status</Label>
-                            <p className="text-sm font-semibold text-gray-800">
+                            <Label className="text-xs font-medium text-gray-500">Status</Label>
+                            <p className="text-sm font-medium text-gray-900">
                               {(() => {
                                 // Se é a parcela 1 (entrada), pegar o status da fatura atual
                                 if (selectedFatura.parcela === 1) {
@@ -1554,12 +1600,12 @@ function Faturas() {
                       </div>
 
                       {/* Informações das Parcelas */}
-                      <div className="bg-slate-50 border border-slate-300 rounded-lg p-4">
-                        <h4 className="text-md font-semibold text-slate-800 mb-3">Parcelas</h4>
+                      <div className="bg-gray-50/50 border border-gray-200 rounded-lg p-4">
+                        <h4 className="text-xs uppercase tracking-wide font-medium text-gray-500 mb-3">Parcelas</h4>
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <Label className="text-xs font-medium text-slate-700">Valor por Parcela</Label>
-                            <p className="text-lg font-bold text-slate-900">
+                            <Label className="text-xs font-medium text-gray-500">Valor/Parcela</Label>
+                            <p className="text-lg font-semibold text-gray-900">
                               {(() => {
                                 const valorTotal = Number(selectedFatura.valorTotal || selectedFatura.valorLiquido);
                                 const valorEntradaConfig = arrematante?.valorEntrada;
@@ -1581,19 +1627,19 @@ function Faturas() {
                             </p>
                           </div>
                           <div>
-                            <Label className="text-xs font-medium text-slate-700">Quantidade de Parcelas</Label>
-                            <p className="text-sm font-semibold text-slate-800">
+                            <Label className="text-xs font-medium text-gray-500">Quantidade</Label>
+                            <p className="text-sm font-medium text-gray-900">
                               {arrematante?.quantidadeParcelas || 12} parcelas
                             </p>
                           </div>
                           <div>
-                            <Label className="text-xs font-medium text-slate-700">Parcelas Pagas</Label>
-                            <p className="text-sm font-semibold text-slate-800">
+                            <Label className="text-xs font-medium text-gray-500">Pagas</Label>
+                            <p className="text-sm font-medium text-gray-900">
                               {(arrematante?.parcelasPagas || 0) - 1 < 0 ? 0 : (arrematante?.parcelasPagas || 0) - 1} de {arrematante?.quantidadeParcelas || 12}
                             </p>
                           </div>
                           <div>
-                            <Label className="text-xs font-medium text-slate-700">Status das Parcelas</Label>
+                            <Label className="text-xs font-medium text-gray-500">Status</Label>
                             <div>
                               {(() => {
                                 const parcelasPagas = (arrematante?.parcelasPagas || 0) - 1; // Subtrai 1 porque entrada não conta
@@ -1672,46 +1718,46 @@ function Faturas() {
                   </div>
                 ) : selectedFatura.tipoPagamento === 'a_vista' ? (
                   <div className="border border-gray-200 rounded-lg p-4">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-3 border-b border-gray-200 pb-2">
-                      Detalhes do Pagamento - À Vista
+                    <h3 className="text-sm uppercase tracking-wide font-medium text-gray-500 mb-4">
+                      Pagamento À Vista
                     </h3>
-                    <div className="bg-gray-50 border border-gray-300 rounded-lg p-4">
-              <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-gray-50/50 border border-gray-200 rounded-lg p-4">
+              <div className="grid grid-cols-2 gap-6">
                 <div>
-                          <Label className="text-sm font-medium text-gray-700">Valor a Pagar</Label>
-                          <p className="text-xl font-bold text-gray-900">
+                          <Label className="text-xs font-medium text-gray-500">Valor</Label>
+                          <p className="text-xl font-semibold text-gray-900">
                     {formatCurrency(selectedFatura.valorLiquido)}
                   </p>
                 </div>
                 <div>
-                          <Label className="text-sm font-medium text-gray-700">Modalidade</Label>
-                          <p className="text-sm font-semibold text-gray-800">Pagamento único à vista</p>
+                          <Label className="text-xs font-medium text-gray-500">Modalidade</Label>
+                          <p className="text-sm font-medium text-gray-900">Pagamento único</p>
                         </div>
                       </div>
                     </div>
                   </div>
                 ) : (
                   <div className="border border-gray-200 rounded-lg p-4">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-3 border-b border-gray-200 pb-2">
-                      Detalhes do Pagamento - Parcelamento
+                    <h3 className="text-sm uppercase tracking-wide font-medium text-gray-500 mb-4">
+                      Parcelamento
                     </h3>
-                    <div className="bg-slate-50 border border-slate-300 rounded-lg p-4">
-                      <div className="grid grid-cols-3 gap-4">
+                    <div className="bg-gray-50/50 border border-gray-200 rounded-lg p-4">
+                      <div className="grid grid-cols-3 gap-6">
                         <div>
-                          <Label className="text-sm font-medium text-slate-700">Parcela Atual</Label>
-                          <p className="text-lg font-bold text-slate-900">
+                          <Label className="text-xs font-medium text-gray-500">Parcela Atual</Label>
+                          <p className="text-lg font-semibold text-gray-900">
                     {selectedFatura.parcela}/{selectedFatura.totalParcelas}
                   </p>
                 </div>
                         <div>
-                          <Label className="text-sm font-medium text-slate-700">Valor da Parcela</Label>
-                          <p className="text-lg font-bold text-slate-900">
+                          <Label className="text-xs font-medium text-gray-500">Valor</Label>
+                          <p className="text-lg font-semibold text-gray-900">
                             {formatCurrency(selectedFatura.valorLiquido)}
                           </p>
               </div>
                         <div>
-                          <Label className="text-sm font-medium text-slate-700">Parcelas Pagas</Label>
-                          <p className="text-sm font-semibold text-slate-800">
+                          <Label className="text-xs font-medium text-gray-500">Pagas</Label>
+                          <p className="text-sm font-medium text-gray-900">
                             {arrematante?.parcelasPagas || 0} de {selectedFatura.totalParcelas}
                           </p>
                         </div>
@@ -1720,45 +1766,45 @@ function Faturas() {
                   </div>
                 )}
 
-                {/* Fatura Específica */}
+                {/* Fatura Específica - Clean Style */}
                 <div className="border border-gray-200 rounded-lg p-4">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-3 border-b border-gray-200 pb-2">
+                  <h3 className="text-sm uppercase tracking-wide font-medium text-gray-500 mb-4">
                     Esta Fatura
                   </h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-3">
                     <div>
-                      <Label className="text-sm font-medium text-gray-700">
+                      <Label className="text-xs font-medium text-gray-500">
                         {selectedFatura.tipoPagamento === 'entrada_parcelamento' && selectedFatura.parcela === 1 ? 
                           'Tipo' : 
                           selectedFatura.tipoPagamento === 'a_vista' ? 'Tipo' : 'Parcela'
                         }
                       </Label>
-                      <p className="mt-1 text-lg font-semibold text-gray-900">
+                      <p className="mt-1 text-sm font-medium text-gray-900">
                         {selectedFatura.tipoPagamento === 'entrada_parcelamento' && selectedFatura.parcela === 1 ? 
-                          'Entrada + Parcelamento' :
+                          'Entrada' :
                           selectedFatura.tipoPagamento === 'entrada_parcelamento' && selectedFatura.parcela > 1 ?
-                          `Parcela ${selectedFatura.parcela - 1}/${(selectedFatura.totalParcelas || 1) - 1} (Entrada + Parcelamento)` :
-                          selectedFatura.tipoPagamento === 'a_vista' ? 'Pagamento à Vista' :
+                          `Parcela ${selectedFatura.parcela - 1}/${(selectedFatura.totalParcelas || 1) - 1}` :
+                          selectedFatura.tipoPagamento === 'a_vista' ? 'À Vista' :
                           `Parcela ${selectedFatura.parcela}/${selectedFatura.totalParcelas}`
                         }
                       </p>
                     </div>
                     <div>
-                      <Label className="text-sm font-medium text-gray-700">Valor desta Fatura</Label>
-                      <p className="mt-1 text-lg font-bold text-gray-900">
+                      <Label className="text-xs font-medium text-gray-500">Valor</Label>
+                      <p className="mt-1 text-lg font-semibold text-gray-900">
                         {formatCurrency(selectedFatura.valorLiquido)}
                       </p>
                     </div>
               <div>
-                <Label className="text-sm font-medium text-gray-700">Data de Vencimento</Label>
-                      <p className="mt-1 text-lg font-semibold text-gray-900">
+                <Label className="text-xs font-medium text-gray-500">Vencimento</Label>
+                      <p className="mt-1 text-sm font-medium text-gray-900">
                   {new Date(selectedFatura.dataVencimento).toLocaleDateString('pt-BR')}
                 </p>
               </div>
               <div>
-                      <Label className="text-sm font-medium text-gray-700">Status</Label>
+                      <Label className="text-xs font-medium text-gray-500">Status</Label>
                       <div className="mt-1">
-                        <div className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getStatusBadgeColor(selectedFatura.status)}`}>
+                        <div className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${getStatusBadgeColor(selectedFatura.status)}`}>
                           {getStatusText(selectedFatura.status)}
                         </div>
                       </div>
@@ -1767,26 +1813,26 @@ function Faturas() {
               </div>
 
 
-                {/* Informações do Leilão */}
+                {/* Informações do Leilão - Clean Style */}
                 <div className="border border-gray-200 rounded-lg p-4">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-3 border-b border-gray-200 pb-2">
-                    Informações do Leilão
+                  <h3 className="text-sm uppercase tracking-wide font-medium text-gray-500 mb-4">
+                    Leilão
                   </h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-3">
               <div>
-                      <Label className="text-sm font-medium text-gray-700">Nome do Leilão</Label>
-                      <p className="mt-1 text-sm font-semibold text-gray-900">{selectedFatura.leilaoNome}</p>
+                      <Label className="text-xs font-medium text-gray-500">Nome</Label>
+                      <p className="mt-1 text-sm font-medium text-gray-900">{selectedFatura.leilaoNome}</p>
                     </div>
                     <div>
-                      <Label className="text-sm font-medium text-gray-700">Data do Leilão</Label>
+                      <Label className="text-xs font-medium text-gray-500">Data</Label>
                       <p className="mt-1 text-sm text-gray-600">
-                        {auction?.dataInicio ? new Date(auction.dataInicio).toLocaleDateString('pt-BR') : 'Não informada'}
+                        {auction?.dataInicio ? new Date(auction.dataInicio).toLocaleDateString('pt-BR') : '—'}
                 </p>
               </div>
-              <div>
-                      <Label className="text-sm font-medium text-gray-700">Local</Label>
+              <div className="col-span-2">
+                      <Label className="text-xs font-medium text-gray-500">Local</Label>
                       <p className="mt-1 text-sm text-gray-600">
-                        {auction?.endereco || 'Não informado'}
+                        {auction?.endereco || '—'}
                 </p>
               </div>
             </div>

@@ -532,16 +532,15 @@ export default function Dashboard() {
     if (!arrematante || arrematante.pago) return null;
     
     const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante.loteId);
-    if (!loteArrematado || !loteArrematado.tipoPagamento) return null;
-    
-    const tipoPagamento = loteArrematado.tipoPagamento;
+    const tipoPagamento = loteArrematado?.tipoPagamento || 'parcelamento';
     
     switch (tipoPagamento) {
       case 'a_vista': {
-        if (!loteArrematado.dataVencimentoVista) return null;
+        const dataVencimento = loteArrematado?.dataVencimentoVista;
+        if (!dataVencimento) return null;
         
         // CORREÇÃO: Evitar problema de fuso horário do JavaScript
-        const dateStr = loteArrematado.dataVencimentoVista || new Date().toISOString().split('T')[0];
+        const dateStr = dataVencimento || new Date().toISOString().split('T')[0];
         const parts = dateStr.split('-');
         if (parts.length !== 3) return null;
         
@@ -554,13 +553,13 @@ export default function Dashboard() {
       
       case 'entrada_parcelamento': {
         const parcelasPagas = arrematante.parcelasPagas || 0;
-        const quantidadeParcelas = (loteArrematado.parcelasPadrao || 1) + 1;
+        const quantidadeParcelas = arrematante.quantidadeParcelas || (loteArrematado?.parcelasPadrao || 1) + 1;
         
         if (parcelasPagas >= quantidadeParcelas) return null;
         
         if (parcelasPagas === 0) {
           // Próximo pagamento é a entrada - CORREÇÃO: Evitar problema de fuso horário
-          const dataEntrada = loteArrematado.dataEntrada || arrematante.dataEntrada;
+          const dataEntrada = loteArrematado?.dataEntrada || arrematante.dataEntrada;
           if (!dataEntrada) return null;
           const parts = dataEntrada.split('-');
           if (parts.length !== 3) return null;
@@ -573,8 +572,8 @@ export default function Dashboard() {
         } else {
           // Próximo pagamento é uma parcela após entrada
           // Priorizar dados do arrematante (mais confiáveis)
-          const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
-          const diaVencimentoPadrao = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
+          const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado?.mesInicioPagamento;
+          const diaVencimentoPadrao = arrematante.diaVencimentoMensal || loteArrematado?.diaVencimentoPadrao;
           
           if (!mesInicioPagamento || !diaVencimentoPadrao) return null;
           
@@ -602,23 +601,30 @@ export default function Dashboard() {
       case 'parcelamento':
       default: {
         // Priorizar dados do arrematante (mais confiáveis)
-        const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado.mesInicioPagamento;
-        const diaVencimentoPadrao = arrematante.diaVencimentoMensal || loteArrematado.diaVencimentoPadrao;
+        const mesInicioPagamento = arrematante.mesInicioPagamento || loteArrematado?.mesInicioPagamento;
+        const diaVencimentoPadrao = arrematante.diaVencimentoMensal || loteArrematado?.diaVencimentoPadrao;
         
-        if (!mesInicioPagamento || !diaVencimentoPadrao) return null;
+        if (!mesInicioPagamento || !diaVencimentoPadrao) {
+          return null;
+        }
         
         const parcelasPagas = arrematante.parcelasPagas || 0;
-        const quantidadeParcelas = loteArrematado.parcelasPadrao || arrematante.quantidadeParcelas || 1;
+        const quantidadeParcelas = arrematante.quantidadeParcelas || loteArrematado?.parcelasPadrao || 1;
         
         if (parcelasPagas >= quantidadeParcelas) return null;
         
         let startYear, startMonth;
         
-        // Verificar se mesInicioPagamento está no formato "YYYY-MM" ou só "MM"
+        // Verificar formato do mesInicioPagamento
+        // Pode ser "YYYY-MM", "YYYY-MM-DD" ou só "MM"
         if (mesInicioPagamento.includes('-')) {
           const parts = mesInicioPagamento.split('-');
-          if (parts.length !== 2) return null;
-          [startYear, startMonth] = parts.map(Number);
+          if (parts.length >= 2) {
+            startYear = Number(parts[0]);
+            startMonth = Number(parts[1]);
+          } else {
+            return null;
+          }
         } else {
           // Se for só o mês, usar ano atual
           startYear = new Date().getFullYear();
@@ -627,9 +633,13 @@ export default function Dashboard() {
         
         const day = Number(diaVencimentoPadrao);
         
-        if (isNaN(startYear) || isNaN(startMonth) || isNaN(day)) return null;
+        if (isNaN(startYear) || isNaN(startMonth) || isNaN(day)) {
+          return null;
+        }
         
-        return new Date(startYear, startMonth - 1 + parcelasPagas, day);
+        const dataVencimento = new Date(startYear, startMonth - 1 + parcelasPagas, day);
+        
+        return dataVencimento;
       }
     }
   };
@@ -656,87 +666,130 @@ export default function Dashboard() {
     parcelas: string;
     leilao: string;
   }> = activeAuctions
-    .filter(auction => auction.arrematante)
-    .slice(0, 6)
-    .map((auction) => {
+    .flatMap((auction) => {
+      // Obter todos os arrematantes (compatibilidade com estrutura antiga e nova)
+      const arrematantes = auction.arrematantes || (auction.arrematante ? [auction.arrematante] : []);
+      
+      return arrematantes.map((arrematante) => {
       // Calcular valor por parcela baseado no tipo de pagamento específico do lote
-      const arrematante = auction.arrematante;
       const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante?.loteId);
       
       let valorPorParcela = 0;
-      if (arrematante && loteArrematado && loteArrematado.tipoPagamento) {
-        const valorTotal = arrematante.valorPagarNumerico !== undefined 
-          ? arrematante.valorPagarNumerico 
-          : (typeof arrematante.valorPagar === 'number' ? arrematante.valorPagar : 0);
+      if (arrematante) {
+        // Obter valor total - tentar várias fontes
+        let valorTotal = 0;
         
-        switch (loteArrematado.tipoPagamento) {
+        // Tentar valorPagarNumerico primeiro
+        if (arrematante.valorPagarNumerico && arrematante.valorPagarNumerico > 0) {
+          valorTotal = arrematante.valorPagarNumerico;
+        } 
+        // Tentar valorPagar como número
+        else if (typeof arrematante.valorPagar === 'number' && arrematante.valorPagar > 0) {
+          valorTotal = arrematante.valorPagar;
+        } 
+        // Tentar parsear valorPagar como string
+        else if (typeof arrematante.valorPagar === 'string' && arrematante.valorPagar.trim() !== '') {
+          // Remover tudo exceto números e vírgula, depois substituir vírgula por ponto
+          const cleaned = arrematante.valorPagar.replace(/[^\d,]/g, '').replace(',', '.');
+          valorTotal = parseFloat(cleaned) || 0;
+        }
+        
+        // Se não tiver lote ou tipo de pagamento, assumir parcelamento simples
+        const tipoPagamento = loteArrematado?.tipoPagamento || 'parcelamento';
+        
+        if (valorTotal > 0) {
+        switch (tipoPagamento) {
           case 'a_vista':
             valorPorParcela = valorTotal;
             break;
           case 'entrada_parcelamento': {
             const parcelasPagas = arrematante.parcelasPagas || 0;
-            const quantidadeParcelas = (loteArrematado.parcelasPadrao || 1) + 1;
+            const quantidadeParcelas = arrematante.quantidadeParcelas || (loteArrematado?.parcelasPadrao || 1) + 1;
+            
+            let valorEntrada = 0;
+            if (arrematante.valorEntrada) {
+              if (typeof arrematante.valorEntrada === 'number') {
+                valorEntrada = arrematante.valorEntrada;
+              } else if (typeof arrematante.valorEntrada === 'string') {
+                const cleaned = arrematante.valorEntrada.replace(/[^\d,]/g, '').replace(',', '.');
+                valorEntrada = parseFloat(cleaned) || (valorTotal * 0.3);
+              }
+            } else {
+              valorEntrada = valorTotal * 0.3;
+            }
+            
             if (parcelasPagas === 0) {
-              // Valor da entrada (50%)
-              valorPorParcela = valorTotal * 0.5;
+              // Valor da entrada
+              valorPorParcela = valorEntrada;
             } else {
               // Parcelas após entrada
-              const valorRestante = valorTotal - (valorTotal * 0.5);
+              const valorRestante = valorTotal - valorEntrada;
               valorPorParcela = valorRestante / (quantidadeParcelas - 1);
             }
             break;
           }
           case 'parcelamento':
-          default:
-            valorPorParcela = valorTotal / (loteArrematado.parcelasPadrao || 1);
+          default: {
+            const qtdParcelas = arrematante.quantidadeParcelas || loteArrematado?.parcelasPadrao || 1;
+            valorPorParcela = valorTotal / qtdParcelas;
             break;
+          }
+        }
         }
       }
       
       // Determinar status correto baseado no pagamento e atraso
       let status: Invoice["status"] = "em_aberto";
-      if (auction.arrematante?.pago) {
+        if (arrematante?.pago) {
         status = "pago";
-      } else if (isOverdue(auction.arrematante, auction)) {
+        } else if (isOverdue(arrematante, auction)) {
         status = "atrasado";
       }
       
       return {
-        id: `invoice-${auction.id}`,
-        bidder: auction.arrematante?.nome || "—",
+          id: `invoice-${auction.id}-${arrematante.id || arrematante.nome}`,
+          bidder: arrematante?.nome || "—",
         amount: currency.format(valorPorParcela),
-        dueDate: getProximaDataVencimento(auction.arrematante, auction),
+          dueDate: getProximaDataVencimento(arrematante, auction),
         status,
         parcelas: (() => {
           if (!loteArrematado || !loteArrematado.tipoPagamento) {
-            return `${auction.arrematante?.parcelasPagas || 0}/${auction.arrematante?.quantidadeParcelas || 1}`;
+              return `${arrematante?.parcelasPagas || 0}/${arrematante?.quantidadeParcelas || 1}`;
           }
           
-          const parcelasPagas = auction.arrematante?.parcelasPagas || 0;
+            const parcelasPagas = arrematante?.parcelasPagas || 0;
           
           switch (loteArrematado.tipoPagamento) {
             case 'a_vista':
               return parcelasPagas > 0 ? "1/1" : "0/1"; // À vista é sempre 1 parcela total
             case 'entrada_parcelamento': {
-              const quantidadeTotal = (loteArrematado.parcelasPadrao || 1) + 1; // +1 para entrada
+              const quantidadeTotal = arrematante?.quantidadeParcelas || (loteArrematado.parcelasPadrao || 1) + 1; // +1 para entrada
               return `${parcelasPagas}/${quantidadeTotal}`;
             }
             case 'parcelamento':
             default:
-              return `${parcelasPagas}/${loteArrematado.parcelasPadrao || 1}`;
+              return `${parcelasPagas}/${arrematante?.quantidadeParcelas || loteArrematado.parcelasPadrao || 1}`;
           }
         })(),
         leilao: auction.nome
       };
     });
+    })
+    .slice(0, 6);
 
   // Dados para carrossel - arrematantes em atraso (usando lógica atualizada)
-  const overdueAuctions = activeAuctions.filter(auction => {
-    return auction.arrematante && isOverdue(auction.arrematante, auction);
+  const overdueAuctions = activeAuctions.flatMap(auction => {
+    const arrematantes = auction.arrematantes || (auction.arrematante ? [auction.arrematante] : []);
+    return arrematantes
+      .filter(arr => isOverdue(arr, auction))
+      .map(arr => ({ ...auction, arrematante: arr }));
   });
   const overdueArrematantes = overdueAuctions.slice(0, 6);
   const recentArrematantes = activeAuctions
-    .filter(auction => auction.arrematante)
+    .flatMap(auction => {
+      const arrematantes = auction.arrematantes || (auction.arrematante ? [auction.arrematante] : []);
+      return arrematantes.map(arr => ({ ...auction, arrematante: arr }));
+    })
     .slice(0, 6);
 
   const getStatusBadge = (status: string) => {
@@ -1044,10 +1097,16 @@ export default function Dashboard() {
                           <p className="text-sm text-muted-foreground mt-1 truncate">
                             {(() => {
                               // Adaptar exibição baseado no tipo de pagamento
-                              const auction = activeAuctions.find(a => `invoice-${a.id}` === invoice.id);
-                              if (!auction || !auction.arrematante) return `Parcelas: ${invoice.parcelas} • ${invoice.amount}`;
+                              const auction = activeAuctions.find(a => invoice.id.startsWith(`invoice-${a.id}-`));
+                              if (!auction) return `Parcelas: ${invoice.parcelas} • ${invoice.amount}`;
                               
-                              const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === auction.arrematante?.loteId);
+                              // Obter o arrematante correto do invoice
+                              const arrematanteId = invoice.id.split('-').slice(2).join('-');
+                              const arrematante = auction.arrematantes?.find(arr => arr.id === arrematanteId || arr.nome === arrematanteId) || auction.arrematante;
+                              
+                              if (!arrematante) return `Parcelas: ${invoice.parcelas} • ${invoice.amount}`;
+                              
+                              const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante?.loteId);
                               if (!loteArrematado || !loteArrematado.tipoPagamento) {
                                 return `Parcelas: ${invoice.parcelas} • ${invoice.amount} por parcela`;
                               }
@@ -1079,14 +1138,20 @@ export default function Dashboard() {
                           <p className="text-xs text-muted-foreground mt-1 font-medium">
                             {(() => {
                               // Adaptar texto de vencimento baseado no tipo de pagamento
-                              const auction = activeAuctions.find(a => `invoice-${a.id}` === invoice.id);
-                              if (!auction || !auction.arrematante) return `Venc: ${invoice.dueDate}`;
+                              const auction = activeAuctions.find(a => invoice.id.startsWith(`invoice-${a.id}-`));
+                              if (!auction) return `Venc: ${invoice.dueDate}`;
                               
-                              const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === auction.arrematante?.loteId);
-                              const parcelasPagas = auction.arrematante?.parcelasPagas || 0;
+                              // Obter o arrematante correto do invoice
+                              const arrematanteId = invoice.id.split('-').slice(2).join('-');
+                              const arrematante = auction.arrematantes?.find(arr => arr.id === arrematanteId || arr.nome === arrematanteId) || auction.arrematante;
+                              
+                              if (!arrematante) return `Venc: ${invoice.dueDate}`;
+                              
+                              const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante?.loteId);
+                              const parcelasPagas = arrematante?.parcelasPagas || 0;
                               
                               // Se o pagamento foi confirmado/quitado, mostrar mensagem de confirmação
-                              if (auction.arrematante?.pago) {
+                              if (arrematante?.pago) {
                                 return 'Pagamento confirmado';
                               }
                               
@@ -1094,9 +1159,9 @@ export default function Dashboard() {
                                 return `Data pagamento: ${invoice.dueDate}`;
                               } else if (loteArrematado?.tipoPagamento === 'entrada_parcelamento') {
                                   // Calcular qual é a próxima parcela baseada nas já pagas
-                                  const quantidadeParcelasTotal = auction.arrematante?.quantidadeParcelas || loteArrematado?.parcelasPadrao || 12;
-                                  const mesInicioParcelas = auction.arrematante?.mesInicioPagamento || loteArrematado?.mesInicioPagamento;
-                                  const diaVencParcelas = auction.arrematante?.diaVencimentoMensal || loteArrematado?.diaVencimentoPadrao || 15;
+                                  const quantidadeParcelasTotal = arrematante?.quantidadeParcelas || loteArrematado?.parcelasPadrao || 12;
+                                  const mesInicioParcelas = arrematante?.mesInicioPagamento || loteArrematado?.mesInicioPagamento;
+                                  const diaVencParcelas = arrematante?.diaVencimentoMensal || loteArrematado?.diaVencimentoPadrao || 15;
                                   
                                   if (parcelasPagas === 0) {
                                     // Entrada pendente + mostrar próxima parcela (1ª parcela após entrada)
@@ -1169,7 +1234,7 @@ export default function Dashboard() {
 
         {/* Carrossel - Lado direito, altura alinhada */}
         <Card 
-          className="lg:row-span-3 h-[calc(100vh-150px)] flex flex-col relative group"
+          className="flex flex-col relative group"
           onMouseEnter={() => setIsPaused(true)}
           onMouseLeave={() => setIsPaused(false)}
         >

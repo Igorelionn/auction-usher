@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSupabaseAuctions } from "@/hooks/use-supabase-auctions";
 import { useToast } from "@/hooks/use-toast";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
@@ -59,6 +60,7 @@ import { Calendar as CalendarIcon, CreditCard } from "lucide-react";
 
 function Leiloes() {
   const location = useLocation();
+  const queryClient = useQueryClient();
   const { auctions, isLoading, createAuction, updateAuction, deleteAuction, archiveAuction, unarchiveAuction, duplicateAuction } = useSupabaseAuctions();
   const { toast } = useToast();
   const { logAuctionAction, logBidderAction, logLotAction, logMerchandiseAction, logDocumentAction, logReportAction } = useActivityLogger();
@@ -79,7 +81,10 @@ function Leiloes() {
   // Set para rastrear URLs blob temporárias que precisam ser limpas
   const tempBlobUrlsRef = useRef(new Set<string>());
   const [addingArrematanteFor, setAddingArrematanteFor] = useState<Auction | null>(null);
+  const wizardClosedIntentionally = useRef(false); // Flag para evitar reabertura automática
   const [arrematanteMode, setArrematanteMode] = useState<'view' | 'edit'>('view');
+  const [editingArrematanteId, setEditingArrematanteId] = useState<string | null>(null);
+  const [showArrematanteSelector, setShowArrematanteSelector] = useState(false);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [isSavingArrematante, setIsSavingArrematante] = useState(false);
   const [selectedAuctionForPayment, setSelectedAuctionForPayment] = useState<Auction | null>(null);
@@ -348,7 +353,8 @@ function Leiloes() {
   useEffect(() => {
     if (auctions) {
       // Sincronizar leilão do modal de arrematante (sempre seguro quando não há edição ativa)
-      if (addingArrematanteFor && !isFormBeingEdited) {
+      // ✅ MAS NÃO se o wizard foi fechado intencionalmente
+      if (addingArrematanteFor && !isFormBeingEdited && !wizardClosedIntentionally.current) {
         const updatedAuction = auctions.find(a => a.id === addingArrematanteFor.id);
         if (updatedAuction) {
           setAddingArrematanteFor(updatedAuction);
@@ -378,29 +384,33 @@ function Leiloes() {
 
   // Carregar dados do arrematante quando abrir modal
   useEffect(() => {
-    if (addingArrematanteFor?.arrematante) {
-      const documento = addingArrematanteFor.arrematante.documento || "";
+    if (addingArrematanteFor && editingArrematanteId) {
+      // Modo de edição: buscar arrematante específico pelo ID
+      const arrematante = addingArrematanteFor.arrematantes?.find(a => a.id === editingArrematanteId);
+      
+      if (arrematante) {
+        const documento = arrematante.documento || "";
       setArrematanteForm({
-        nome: addingArrematanteFor.arrematante.nome,
+          nome: arrematante.nome,
         documento: documento,
-        endereco: addingArrematanteFor.arrematante.endereco || "",
-        email: addingArrematanteFor.arrematante.email || "",
-        telefone: addingArrematanteFor.arrematante.telefone || "",
-        loteId: addingArrematanteFor.arrematante.loteId || "",
-        valorPagar: addingArrematanteFor.arrematante.valorPagar,
-        valorEntrada: addingArrematanteFor.arrematante.valorEntrada || "",
-        diaVencimentoMensal: addingArrematanteFor.arrematante.diaVencimentoMensal,
-        quantidadeParcelas: addingArrematanteFor.arrematante.quantidadeParcelas,
-        parcelasPagas: addingArrematanteFor.arrematante.parcelasPagas || 0,
-        mesInicioPagamento: addingArrematanteFor.arrematante.mesInicioPagamento 
-          ? (addingArrematanteFor.arrematante.mesInicioPagamento.includes('-') 
-              ? addingArrematanteFor.arrematante.mesInicioPagamento 
-              : `${new Date().getFullYear()}-${addingArrematanteFor.arrematante.mesInicioPagamento}`)
+          endereco: arrematante.endereco || "",
+          email: arrematante.email || "",
+          telefone: arrematante.telefone || "",
+          loteId: arrematante.loteId || "",
+          valorPagar: arrematante.valorPagar,
+          valorEntrada: arrematante.valorEntrada || "",
+          diaVencimentoMensal: arrematante.diaVencimentoMensal,
+          quantidadeParcelas: arrematante.quantidadeParcelas,
+          parcelasPagas: arrematante.parcelasPagas || 0,
+          mesInicioPagamento: arrematante.mesInicioPagamento 
+            ? (arrematante.mesInicioPagamento.includes('-') 
+                ? arrematante.mesInicioPagamento 
+                : `${new Date().getFullYear()}-${arrematante.mesInicioPagamento}`)
           : new Date().toISOString().slice(0, 7),
-        pago: addingArrematanteFor.arrematante.pago || false,
-        documentos: addingArrematanteFor.arrematante.documentos || [],
-        percentualJurosAtraso: addingArrematanteFor.arrematante.percentualJurosAtraso || 0,
-        tipoJurosAtraso: addingArrematanteFor.arrematante.tipoJurosAtraso || "composto"
+          pago: arrematante.pago || false,
+          documentos: arrematante.documentos || [],
+          percentualJurosAtraso: arrematante.percentualJurosAtraso || 0,
+          tipoJurosAtraso: arrematante.tipoJurosAtraso || "composto"
       });
       
       // Detectar tipo de documento automaticamente
@@ -411,7 +421,8 @@ function Leiloes() {
       }
       
       setArrematanteMode('view');
-    } else if (addingArrematanteFor) {
+      }
+    } else if (addingArrematanteFor && !editingArrematanteId) {
       // Para novo arrematante, usar valores padrão do leilão
       // Converter mês do leilão (MM) para formato YYYY-MM
       const currentYear = new Date().getFullYear();
@@ -441,7 +452,7 @@ function Leiloes() {
       setArrematanteMode('edit');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addingArrematanteFor]);
+  }, [addingArrematanteFor, editingArrematanteId]);
   // detectDocumentType não é memoizado - incluí-lo causaria recriação do effect
 
   // Função para transição suave
@@ -718,6 +729,7 @@ function Leiloes() {
       setIsSavingArrematante(true);
 
       const arrematanteData: ArrematanteInfo = {
+        id: editingArrematanteId || undefined, // Manter ID se estiver editando
         nome: arrematanteForm.nome,
         documento: arrematanteForm.documento || undefined,
         endereco: arrematanteForm.endereco || undefined,
@@ -749,17 +761,40 @@ function Leiloes() {
         );
       }
 
-      // Atualizar o leilão com os dados do arrematante e lotes atualizados
+      // Obter array atual de arrematantes
+      const arrematantesAtuais = addingArrematanteFor.arrematantes || [];
+      
+      // Se estiver editando, substituir no array; senão, adicionar
+      let novosArrematantes: ArrematanteInfo[];
+      if (editingArrematanteId) {
+        novosArrematantes = arrematantesAtuais.map(a => 
+          a.id === editingArrematanteId ? arrematanteData : a
+        );
+      } else {
+        novosArrematantes = [...arrematantesAtuais, arrematanteData];
+      }
+
+      // Atualizar o leilão com TODOS os arrematantes
       await updateAuction({
         id: addingArrematanteFor.id,
         data: { 
-          arrematante: arrematanteData,
+          arrematantes: novosArrematantes,
           lotes: lotesAtualizados
         }
       });
 
+      // ⚡ CRUCIAL: Aguardar um momento para o React Query atualizar o cache
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // ⚡ Atualizar o estado local com os dados mais recentes
+      const leilaoAtualizado = auctions.find(a => a.id === addingArrematanteFor.id);
+      if (leilaoAtualizado) {
+        setAddingArrematanteFor(leilaoAtualizado);
+        console.log('✅ Estado sincronizado - Arrematantes atuais:', leilaoAtualizado.arrematantes?.length || 0);
+      }
+
       // Log da criação/edição do arrematante
-      const isEditing = !!addingArrematanteFor.arrematante;
+      const isEditing = !!editingArrematanteId;
       await logBidderAction(
         isEditing ? 'update' : 'create', 
         arrematanteData.nome, 
@@ -808,6 +843,7 @@ function Leiloes() {
       tipoJurosAtraso: "composto" as "simples" | "composto"
     });
     setAddingArrematanteFor(null);
+    setEditingArrematanteId(null);
   };
 
   // Função para cancelar adição de arrematante
@@ -832,6 +868,8 @@ function Leiloes() {
     });
     setDocumentType('CPF'); // Resetar tipo de documento
     setAddingArrematanteFor(null);
+    setEditingArrematanteId(null);
+    setShowArrematanteSelector(false);
   };
 
   // Filtrar leilões ativos/arquivados
@@ -1695,19 +1733,67 @@ function Leiloes() {
                       </TableCell>
                                                  <TableCell>
                              <div className="flex items-center justify-center gap-1">
+                               {(() => {
+                                 const arrematantesCount = auction.arrematantes?.length || 0;
+                                 
+                                if (arrematantesCount === 0) {
+                                  // Sem arrematantes: mostrar botão "Adicionar Arrematante"
+                                  return (
                                <Button
                                  variant="ghost"
                                  size="sm"
-                                 onClick={() => setAddingArrematanteFor(auction)}
-                                 className="h-8 w-8 p-0 hover:bg-gray-100"
-                                 title={auction.arrematante ? "Editar Arrematante" : "Adicionar Arrematante"}
-                               >
-                                 {auction.arrematante ? (
+                                      onClick={() => {
+                                        wizardClosedIntentionally.current = false; // Resetar flag ao abrir
+                                        setAddingArrematanteFor(auction);
+                                        setEditingArrematanteId(null);
+                                        setShowArrematanteSelector(false);
+                                      }}
+                                      className="h-8 w-8 p-0 hover:bg-gray-100 btn-action-click"
+                                      title="Adicionar Arrematante"
+                                    >
+                                      <UserPlus className="h-4 w-4 text-gray-600" />
+                                    </Button>
+                                  );
+                                } else {
+                                  // Com arrematantes: mostrar ambos os botões
+                                  return (
+                                    <>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => {
+                                          wizardClosedIntentionally.current = false; // Resetar flag ao abrir
+                                          setAddingArrematanteFor(auction);
+                                          setShowArrematanteSelector(false); // ✅ Não abrir popup - ir direto pro wizard
+                                          setEditingArrematanteId(null); // ✅ Não pré-selecionar - wizard mostrará etapa de seleção
+                                        }}
+                                        className="h-8 w-8 p-0 hover:bg-gray-100 relative btn-action-click"
+                                        title={`Ver/Editar Arrematantes (${arrematantesCount})`}
+                                      >
                                    <UserCheck className="h-4 w-4 text-gray-600" />
-                                 ) : (
+                                        <span className="absolute -top-1 -right-1 bg-gray-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">
+                                          {arrematantesCount}
+                                        </span>
+                                      </Button>
+                                      
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => {
+                                          wizardClosedIntentionally.current = false; // Resetar flag ao abrir
+                                          setAddingArrematanteFor(auction);
+                                          setEditingArrematanteId(null);
+                                          setShowArrematanteSelector(false);
+                                        }}
+                                        className="h-8 w-8 p-0 hover:bg-gray-100 btn-action-click"
+                                        title="Adicionar Novo Arrematante"
+                                      >
                                    <UserPlus className="h-4 w-4 text-gray-600" />
-                                 )}
                                </Button>
+                                     </>
+                                   );
+                                 }
+                               })()}
 
                                <Button
                                  variant="ghost"
@@ -1887,11 +1973,120 @@ function Leiloes() {
         </DialogContent>
       </Dialog>
 
+      {/* Modal Seletor de Arrematantes */}
+      <Dialog open={showArrematanteSelector && !!addingArrematanteFor} onOpenChange={(open) => {
+        if (!open) {
+          setShowArrematanteSelector(false);
+          setAddingArrematanteFor(null);
+          setEditingArrematanteId(null);
+        }
+      }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-semibold">
+              Selecione o Arrematante
+            </DialogTitle>
+            <DialogDescription className="text-sm text-gray-600">
+              Escolha qual arrematante deseja visualizar ou editar
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-3 max-h-96 overflow-y-auto">
+            {addingArrematanteFor?.arrematantes?.map((arrematante, index) => {
+              const lote = addingArrematanteFor.lotes?.find(l => l.id === arrematante.loteId);
+              const mercadoria = lote?.mercadorias?.find(m => m.id === arrematante.mercadoriaId);
+              
+              return (
+                <div 
+                  key={arrematante.id || index}
+                  onClick={() => {
+                    setEditingArrematanteId(arrematante.id || null);
+                    setShowArrematanteSelector(false);
+                  }}
+                  className="p-4 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 hover:border-gray-300 transition-colors"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-gray-900">{arrematante.nome}</h3>
+                      {arrematante.documento && (
+                        <p className="text-sm text-gray-600 mt-1">{arrematante.documento}</p>
+                      )}
+                      {mercadoria && (
+                        <p className="text-sm text-gray-600 mt-1">
+                          <span className="font-medium">Mercadoria:</span> {mercadoria.titulo || mercadoria.descricao}
+                        </p>
+                      )}
+                      {lote && (
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">Lote:</span> {lote.numero} - {lote.descricao}
+                        </p>
+                      )}
+                      <p className="text-sm text-gray-900 font-medium mt-2">
+                        Valor: {arrematante.valorPagar?.startsWith('R$') ? arrematante.valorPagar : `R$ ${arrematante.valorPagar}`}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      {arrematante.pago ? (
+                        <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
+                          Pago
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-amber-700 border-amber-700">
+                          Pendente
+                        </Badge>
+                      )}
+                      {arrematante.quantidadeParcelas && arrematante.parcelasPagas !== undefined && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          {arrematante.parcelasPagas}/{arrematante.quantidadeParcelas} parcelas
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          
+          <div className="flex justify-end gap-2 pt-4 border-t">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowArrematanteSelector(false);
+                setAddingArrematanteFor(null);
+              }}
+              className="hover:bg-gray-100 hover:text-gray-900 transition-colors"
+            >
+              Cancelar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Wizard de Arrematante */}
-      {addingArrematanteFor && (
+      {addingArrematanteFor && !showArrematanteSelector && (() => {
+        const arrematanteParaEditar = (editingArrematanteId && editingArrematanteId !== '__SELECT__')
+          ? addingArrematanteFor.arrematantes?.find(a => a.id === editingArrematanteId)
+          : undefined;
+        
+        // ✅ Determinar se é novo arrematante:
+        // - Se editingArrematanteId === null E há múltiplos arrematantes → FALSE (vai selecionar no wizard)
+        // - Se editingArrematanteId === null E NÃO há múltiplos → TRUE (novo)
+        // - Se editingArrematanteId tem valor → FALSE (editando)
+        const hasMultipleArrematantes = (addingArrematanteFor.arrematantes?.length || 0) > 1;
+        const isNewArrematante = editingArrematanteId === null && !hasMultipleArrematantes;
+        
+        console.log('📝 [Leiloes.tsx] Abrindo wizard:', {
+          editingArrematanteId,
+          qtdArrematantes: addingArrematanteFor.arrematantes?.length,
+          hasMultiple: hasMultipleArrematantes,
+          isNew: isNewArrematante,
+          hasArrematante: !!arrematanteParaEditar
+        });
+        
+        return (
         <ArrematanteWizard
           initial={{
-            arrematante: addingArrematanteFor.arrematante,
+              arrematante: arrematanteParaEditar,
             lotes: addingArrematanteFor.lotes || [],
             auctionName: addingArrematanteFor.nome,
             auctionId: addingArrematanteFor.id,
@@ -1900,6 +2095,7 @@ function Leiloes() {
             defaultQuantidadeParcelas: addingArrematanteFor.parcelasPadrao,
             defaultMesInicio: addingArrematanteFor.mesInicioPagamento,
           }}
+            isNewArrematante={isNewArrematante}
           onSubmit={async (data) => {
             if (!addingArrematanteFor) return;
             
@@ -1908,6 +2104,7 @@ function Leiloes() {
               
               const arrematanteData: ArrematanteInfo = {
                 ...data,
+                id: data.id || editingArrematanteId || undefined,
                 nome: data.nome || "",
                 valorPagar: data.valorPagar || "",
                 valorPagarNumerico: parseCurrencyToNumber(data.valorPagar || ""),
@@ -1917,15 +2114,15 @@ function Leiloes() {
               };
               
               // Obter arrematantes existentes
-              const arrematantesExistentes = addingArrematanteFor.arrematantes || 
-                (addingArrematanteFor.arrematante ? [addingArrematanteFor.arrematante] : []);
+              const arrematantesExistentes = addingArrematanteFor.arrematantes || [];
               
-              // Se está editando, atualizar; se não, adicionar novo
-              const isEditing = !!addingArrematanteFor.arrematante && arrematantesExistentes.some(a => a.id === data.id || a.nome === data.nome);
+              // Se está editando (tem ID no data), atualizar; senão, adicionar novo
+              const isEditing = !!(data.id || editingArrematanteId);
+              const editId = data.id || editingArrematanteId;
               
               const arrematantesAtualizados = isEditing
                 ? arrematantesExistentes.map(a => 
-                    a.id === data.id || a.nome === data.nome 
+                    a.id === editId
                       ? arrematanteData
                       : a
                   )
@@ -1944,6 +2141,23 @@ function Leiloes() {
                   lotes: lotesAtualizados,
                 },
               });
+              
+              // ✅ PASSO 1: Fechar o wizard ANTES de invalidar cache
+              wizardClosedIntentionally.current = true;
+              setAddingArrematanteFor(null);
+              setEditingArrematanteId(null);
+              setShowArrematanteSelector(false);
+              
+              // ✅ PASSO 2: Aguardar o wizard desmontar completamente
+              await new Promise(resolve => setTimeout(resolve, 300));
+              
+              // ✅ PASSO 3: Invalidar cache para forçar atualização
+              await queryClient.invalidateQueries({ queryKey: ['auctions'] });
+              
+              // ✅ PASSO 4: Resetar a flag após um tempo (5s para garantir)
+              setTimeout(() => {
+                wizardClosedIntentionally.current = false;
+              }, 5000);
               
               await logBidderAction(
                 isEditing ? 'update' : 'create', 
@@ -1965,14 +2179,35 @@ function Leiloes() {
               );
             } catch (error) {
               console.error('Erro ao salvar arrematante:', error);
-              throw error;
+              
+              // ✅ Tratamento específico para erro de duplicação
+              const errorObj = error as { code?: string; message?: string };
+              if (errorObj?.code === '23505' || errorObj?.message?.includes('duplicate key')) {
+                alert('❌ Esta mercadoria já possui um arrematante. Cada mercadoria só pode ter um arrematante por leilão.');
+              } else if (errorObj?.message) {
+                alert(`❌ Erro ao salvar arrematante: ${errorObj.message}`);
+              } else {
+                alert('❌ Erro ao salvar arrematante. Por favor, tente novamente.');
+              }
+              
+              // Não propagar o erro para não fechar o modal
+              // throw error; 
             } finally {
               setIsSavingArrematante(false);
             }
           }}
-          onCancel={() => setAddingArrematanteFor(null)}
+          onCancel={() => {
+            wizardClosedIntentionally.current = true;
+            setAddingArrematanteFor(null);
+            setEditingArrematanteId(null);
+            setShowArrematanteSelector(false);
+            setTimeout(() => {
+              wizardClosedIntentionally.current = false;
+            }, 5000);
+          }}
         />
-      )}
+        );
+      })()}
 
       {/* Nota: O formulário de arrematante agora usa o ArrematanteWizard (renderizado acima) */}
 
@@ -1981,7 +2216,7 @@ function Leiloes() {
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold">
-              {addingArrematanteFor?.arrematante ? "Editar Arrematante" : "Adicionar Arrematante"}
+              {editingArrematanteId ? "Editar Arrematante" : "Adicionar Arrematante"}
             </DialogTitle>
             <DialogDescription className="text-sm text-gray-600">
               <span className="font-medium">{addingArrematanteFor?.nome}</span>
@@ -3011,7 +3246,7 @@ function Leiloes() {
                       Salvando...
                     </>
                   ) : (
-                    addingArrematanteFor?.arrematante ? "Salvar Alterações" : "Adicionar Arrematante"
+                    editingArrematanteId ? "Salvar Alterações" : "Adicionar Arrematante"
                   )}
                 </Button>
               </div>
@@ -3313,4 +3548,6 @@ if (typeof document !== 'undefined') {
     });
   }, 100);
 }
+
+
 
