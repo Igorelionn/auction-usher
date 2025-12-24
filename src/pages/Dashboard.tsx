@@ -747,7 +747,8 @@ export default function Dashboard() {
       }
       
       return {
-          id: `invoice-${auction.id}-${arrematante.id || arrematante.nome}`,
+          // ✅ Incluir loteId no ID para garantir unicidade
+          id: `invoice-${auction.id}-${arrematante.loteId || 'sem-lote'}-${arrematante.id || arrematante.nome}`,
           bidder: arrematante?.nome || "—",
         amount: currency.format(valorPorParcela),
           dueDate: getProximaDataVencimento(arrematante, auction),
