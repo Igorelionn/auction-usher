@@ -163,26 +163,6 @@ function Faturas() {
         // PRIORIZAR tipoPagamento do arrematante (mais específico) sobre o do lote (padrão)
         const tipoPagamento = arrematante.tipoPagamento || loteArrematado?.tipoPagamento || 'parcelamento';
         
-        // LOGS DE DEBUG - Verificar por que faturas não estão sendo geradas
-        console.log('🔍 DEBUG FATURAS - Processando arrematante:', {
-          arrematanteNome: arrematante.nome,
-          arrematanteId: arrematante.id,
-          leilaoNome: auction.nome || auction.identificacao,
-          leilaoId: auction.id,
-          loteId: arrematante.loteId,
-          loteEncontrado: !!loteArrematado,
-          loteNumero: loteArrematado?.numero,
-          tipoPagamentoArrematante: arrematante.tipoPagamento,
-          tipoPagamentoLote: loteArrematado?.tipoPagamento,
-          tipoPagamentoFinal: tipoPagamento,
-          mesInicioPagamentoArrematante: arrematante.mesInicioPagamento,
-          mesInicioPagamentoLote: loteArrematado?.mesInicioPagamento,
-          diaVencimentoArrematante: arrematante.diaVencimentoMensal,
-          diaVencimentoLote: loteArrematado?.diaVencimentoPadrao,
-          quantidadeParcelasArrematante: arrematante.quantidadeParcelas,
-          quantidadeParcelasLote: loteArrematado?.parcelasPadrao
-        });
-        
         // Se não encontrou o lote E não tem tipoPagamento no arrematante, pular
         if (!loteArrematado && !arrematante.tipoPagamento) {
           console.warn('⚠️ FATURAS - Lote não encontrado e arrematante sem tipoPagamento:', {
@@ -416,14 +396,6 @@ function Faturas() {
             const diaVencimento = arrematante.diaVencimentoMensal || loteArrematado?.diaVencimentoPadrao;
             const quantidadeParcelas = arrematante.quantidadeParcelas || loteArrematado?.parcelasPadrao;
             
-            console.log('🔍 DEBUG FATURAS - Parcelamento validação:', {
-              arrematanteNome: arrematante.nome,
-              mesInicioPagamento,
-              diaVencimento,
-              quantidadeParcelas,
-              camposObrigatoriosOk: !!(quantidadeParcelas && mesInicioPagamento && diaVencimento)
-            });
-            
             if (!quantidadeParcelas || !mesInicioPagamento || !diaVencimento) {
               console.warn('⚠️ FATURAS - Campos obrigatórios faltando para parcelamento:', {
                 arrematanteNome: arrematante.nome,
@@ -476,18 +448,6 @@ function Faturas() {
             let valorParcelaComJuros = valorParcela;
             if (now > dueDate && arrematante.percentualJurosAtraso) {
               const mesesAtraso = Math.max(0, Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24 * 30)));
-              console.log('🔍 DEBUG FATURAS - Parcelamento Simples:', {
-                arrematanteNome: arrematante.nome,
-                valorTotal: arrematante.valorPagarNumerico,
-                quantidadeParcelas,
-                valorParcela,
-                dueDate: dueDate.toISOString(),
-                dataHoje: now.toISOString(),
-                mesesAtraso,
-                percentualJuros: arrematante.percentualJurosAtraso,
-                valorSemJuros: valorParcela,
-                valorComJuros: mesesAtraso >= 1 ? calcularJurosProgressivos(valorParcela, arrematante.percentualJurosAtraso, mesesAtraso) : valorParcela
-              });
               if (mesesAtraso >= 1) {
                 valorParcelaComJuros = calcularJurosProgressivos(valorParcela, arrematante.percentualJurosAtraso, mesesAtraso);
               }
