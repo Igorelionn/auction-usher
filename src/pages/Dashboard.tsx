@@ -1448,17 +1448,20 @@ export default function Dashboard() {
                                       ? auction.arrematante.valorPagarNumerico 
                                       : (typeof auction.arrematante?.valorPagar === 'number' ? auction.arrematante.valorPagar : 0);
                                     
-                                    if (!loteArrematado || !loteArrematado.tipoPagamento) {
+                                    // ✅ PRIORIZAR tipoPagamento do arrematante sobre o do lote
+                                    const tipoPagamento = auction.arrematante?.tipoPagamento || loteArrematado?.tipoPagamento;
+                                    
+                                    if (!tipoPagamento) {
                                       return `Parcelas: ${auction.arrematante?.parcelasPagas || 0}/${auction.arrematante?.quantidadeParcelas || 1} • ${currency.format(valorTotal / (auction.arrematante?.quantidadeParcelas || 1))} por parcela`;
                                     }
                                     
-                                    switch (loteArrematado.tipoPagamento) {
+                                    switch (tipoPagamento) {
                                       case 'a_vista':
                                         return `Valor total: ${currency.format(valorTotal)} (à vista)`;
                                       
                                       case 'entrada_parcelamento': {
                                         const parcelasPagas = auction.arrematante?.parcelasPagas || 0;
-                                        const quantidadeParcelasTotal = auction.arrematante?.quantidadeParcelas || loteArrematado.parcelasPadrao || 12;
+                                        const quantidadeParcelasTotal = auction.arrematante?.quantidadeParcelas || loteArrematado?.parcelasPadrao || 12;
                                         const valorEntrada = auction.arrematante?.valorEntrada ? 
                                           parseCurrencyToNumber(auction.arrematante.valorEntrada) : 
                                           valorTotal * 0.3; // fallback 30% se não definido
@@ -1477,7 +1480,7 @@ export default function Dashboard() {
                                       
                                       case 'parcelamento':
                                       default: {
-                                        const quantidadeParcelas = loteArrematado.parcelasPadrao || 1;
+                                        const quantidadeParcelas = loteArrematado?.parcelasPadrao || auction.arrematante?.quantidadeParcelas || 1;
                                         const parcelasPagas = auction.arrematante?.parcelasPagas || 0;
                                         const valorPorParcela = valorTotal / quantidadeParcelas;
                                         return `Parcelas: ${parcelasPagas}/${quantidadeParcelas} • ${currency.format(valorPorParcela)} por parcela`;
