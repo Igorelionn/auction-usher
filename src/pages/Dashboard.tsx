@@ -1106,8 +1106,8 @@ export default function Dashboard() {
                               
                               if (!arrematante) return `Parcelas: ${invoice.parcelas} • ${invoice.amount}`;
                               
-                              // ✅ PRIORIZAR tipoPagamento do arrematante sobre o do lote
                               const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante?.loteId);
+                              // ✅ PRIORIZAR tipoPagamento do arrematante sobre o do lote
                               const tipoPagamento = arrematante.tipoPagamento || loteArrematado?.tipoPagamento;
                               
                               if (!tipoPagamento) {
@@ -1154,15 +1154,17 @@ export default function Dashboard() {
                               
                               const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante?.loteId);
                               const parcelasPagas = arrematante?.parcelasPagas || 0;
+                              // ✅ PRIORIZAR tipoPagamento do arrematante sobre o do lote
+                              const tipoPagamento = arrematante.tipoPagamento || loteArrematado?.tipoPagamento;
                               
                               // Se o pagamento foi confirmado/quitado, mostrar mensagem de confirmação
                               if (arrematante?.pago) {
                                 return 'Pagamento confirmado';
                               }
                               
-                              if (loteArrematado?.tipoPagamento === 'a_vista') {
+                              if (tipoPagamento === 'a_vista') {
                                 return `Data pagamento: ${invoice.dueDate}`;
-                              } else if (loteArrematado?.tipoPagamento === 'entrada_parcelamento') {
+                              } else if (tipoPagamento === 'entrada_parcelamento') {
                                   // Calcular qual é a próxima parcela baseada nas já pagas
                                   const quantidadeParcelasTotal = arrematante?.quantidadeParcelas || loteArrematado?.parcelasPadrao || 12;
                                   const mesInicioParcelas = arrematante?.mesInicioPagamento || loteArrematado?.mesInicioPagamento;

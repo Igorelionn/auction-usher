@@ -2028,7 +2028,7 @@ function Arrematantes() {
         }));
 
       }
-
+      
       await updateAuction({
         id: auction.id,
         data: updateData
