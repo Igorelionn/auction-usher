@@ -4741,7 +4741,8 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                           valorTotal * 0.3;
                         const valorRestante = valorTotal - valorEntradaBase;
                         const valorPorParcelaBase = valorRestante / quantidadeParcelas;
-                        const dataEntrada = loteComprado?.dataEntrada || auction.dataEntrada;
+                        // ✅ PRIORIZAR dataEntrada do arrematante sobre a do lote
+                        const dataEntrada = arrematante.dataEntrada || loteComprado?.dataEntrada || auction.dataEntrada;
                         
                         // Adicionar entrada
                         if (dataEntrada) {

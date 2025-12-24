@@ -281,7 +281,8 @@ function Faturas() {
             
              // Se ainda não pagou a entrada (parcelasPagas === 0), exibir apenas a entrada
             if (parcelasPagas === 0) {
-              const dataEntrada = loteArrematado?.dataEntrada || new Date().toISOString().split('T')[0];
+              // ✅ PRIORIZAR dataEntrada do arrematante sobre a do lote
+              const dataEntrada = arrematante.dataEntrada || loteArrematado?.dataEntrada || new Date().toISOString().split('T')[0];
               const dueDateObjEntrada = new Date(dataEntrada);
               
               // Validar se a data de entrada é válida
@@ -620,8 +621,10 @@ function Faturas() {
       // Calcular valor da entrada (com juros se atrasada)
       if (parcelasPagas === 0) {
         // Entrada ainda não foi paga - verificar se está atrasada
-        if (loteArrematado?.dataEntrada) {
-          const dataEntrada = new Date(loteArrematado.dataEntrada + 'T23:59:59');
+        // ✅ PRIORIZAR dataEntrada do arrematante sobre a do lote
+        const dataEntradaStr = arrematante?.dataEntrada || loteArrematado?.dataEntrada;
+        if (dataEntradaStr) {
+          const dataEntrada = new Date(dataEntradaStr + 'T23:59:59');
           if (now > dataEntrada && arrematante?.percentualJurosAtraso) {
             const mesesAtraso = Math.max(0, Math.floor((now.getTime() - dataEntrada.getTime()) / (1000 * 60 * 60 * 24 * 30)));
             if (mesesAtraso >= 1) {
@@ -736,8 +739,10 @@ function Faturas() {
           // Se entrada não foi paga
           if (parcelasPagas === 0) {
             // Verificar se entrada está atrasada
-            if (loteArrematado?.dataEntrada) {
-              const dataEntrada = new Date(loteArrematado.dataEntrada + 'T23:59:59');
+            // ✅ PRIORIZAR dataEntrada do arrematante sobre a do lote
+            const dataEntradaStr = arrematante?.dataEntrada || loteArrematado?.dataEntrada;
+            if (dataEntradaStr) {
+              const dataEntrada = new Date(dataEntradaStr + 'T23:59:59');
               if (now > dataEntrada && arrematante?.percentualJurosAtraso) {
                 const mesesAtraso = Math.max(0, Math.floor((now.getTime() - dataEntrada.getTime()) / (1000 * 60 * 60 * 24 * 30)));
                 if (mesesAtraso >= 1) {
@@ -1530,8 +1535,10 @@ function Faturas() {
                                 }
                                 
                                 // Se a entrada ainda não foi paga, calcular juros se atrasada
-                                if (arrematante?.parcelasPagas === 0 && loteArrematado?.dataEntrada) {
-                                  const dataEntrada = new Date(loteArrematado.dataEntrada);
+                                // ✅ PRIORIZAR dataEntrada do arrematante sobre a do lote
+                                const dataEntradaCheck = arrematante?.dataEntrada || loteArrematado?.dataEntrada;
+                                if (arrematante?.parcelasPagas === 0 && dataEntradaCheck) {
+                                  const dataEntrada = new Date(dataEntradaCheck);
                                   const now = new Date();
                                   
                                   if (now > dataEntrada && arrematante?.percentualJurosAtraso) {
@@ -1562,8 +1569,9 @@ function Faturas() {
                             <p className="text-sm font-medium text-gray-900">
                               {selectedFatura.parcela === 1 ? 
                                 new Date(selectedFatura.dataVencimento).toLocaleDateString('pt-BR') :
-                                (loteArrematado?.dataEntrada ? 
-                                  new Date(loteArrematado.dataEntrada).toLocaleDateString('pt-BR') : 
+                                // ✅ PRIORIZAR dataEntrada do arrematante sobre a do lote
+                                (arrematante?.dataEntrada || loteArrematado?.dataEntrada ? 
+                                  new Date(arrematante?.dataEntrada || loteArrematado?.dataEntrada || '').toLocaleDateString('pt-BR') : 
                                   'Não definida')
                               }
                             </p>
@@ -1583,8 +1591,10 @@ function Faturas() {
                                 }
                                 
                                 // Se não foi paga, verificar se está atrasada
-                                if (loteArrematado?.dataEntrada) {
-                                  const dataEntrada = new Date(loteArrematado.dataEntrada);
+                                // ✅ PRIORIZAR dataEntrada do arrematante sobre a do lote
+                                const dataEntradaCheck = arrematante?.dataEntrada || loteArrematado?.dataEntrada;
+                                if (dataEntradaCheck) {
+                                  const dataEntrada = new Date(dataEntradaCheck);
                                   const now = new Date();
                                   
                                   if (now > dataEntrada) {
@@ -2120,7 +2130,8 @@ function Faturas() {
                         const valorRestante = valorBase - valorEntradaBase;
                         const valorPorParcela = valorRestante / quantidadeParcelas;
                         
-                        const dataEntrada = loteArrematado?.dataEntrada || auction?.dataEntrada;
+                        // ✅ PRIORIZAR dataEntrada do arrematante sobre a do lote
+                        const dataEntrada = arrematante.dataEntrada || loteArrematado?.dataEntrada || auction?.dataEntrada;
                         if (dataEntrada && percentualJuros) {
                           const mesesAtrasoEntrada = Math.max(0, Math.floor((new Date().getTime() - new Date(dataEntrada + 'T23:59:59').getTime()) / (1000 * 60 * 60 * 24 * 30)));
                           valorTotalComJuros += calcularJurosProgressivos(valorEntradaBase, percentualJuros, mesesAtrasoEntrada);
@@ -2203,7 +2214,8 @@ function Faturas() {
                       const valorRestante = selectedFaturaForPreview.valorLiquido - valorEntradaBase;
                       const valorPorParcela = valorRestante / quantidadeParcelasTotal;
                       
-                      const dataEntrada = loteArrematado?.dataEntrada || auction?.dataEntrada;
+                      // ✅ PRIORIZAR dataEntrada do arrematante sobre a do lote
+                      const dataEntrada = arrematante.dataEntrada || loteArrematado?.dataEntrada || auction?.dataEntrada;
                       const percentualJuros = arrematante.percentualJurosAtraso || 0;
                       
                       let valorEntradaComJuros = valorEntradaBase;
@@ -2470,7 +2482,8 @@ const FaturaPreview = ({ fatura, auctions }: { fatura: FaturaExtendida, auctions
     valorPorParcelaBase = valorTotalArrematante / quantidadeParcelasTotal;
   }
   
-  const dataEntradaStr = (loteArrematado?.dataEntrada || auction?.dataEntrada) || '';
+  // ✅ PRIORIZAR dataEntrada do arrematante sobre a do lote
+  const dataEntradaStr = (arrematante?.dataEntrada || loteArrematado?.dataEntrada || auction?.dataEntrada) || '';
   const dataEntrada = dataEntradaStr ? 
     new Date(dataEntradaStr + 'T00:00:00').toLocaleDateString('pt-BR') : 
     'Não definida';
