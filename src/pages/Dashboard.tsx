@@ -697,16 +697,6 @@ export default function Dashboard() {
         // ✅ PRIORIZAR tipoPagamento do arrematante sobre o do lote
         const tipoPagamento = arrematante.tipoPagamento || loteArrematado?.tipoPagamento || 'parcelamento';
         
-        console.log('DEBUG recentInvoices:', {
-          arrematanteNome: arrematante.nome,
-          arrematanteTipoPagamento: arrematante.tipoPagamento,
-          loteTipoPagamento: loteArrematado?.tipoPagamento,
-          tipoPagamentoFinal: tipoPagamento,
-          valorTotal,
-          valorEntrada: arrematante.valorEntrada,
-          quantidadeParcelas: arrematante.quantidadeParcelas
-        });
-        
         if (valorTotal > 0) {
         switch (tipoPagamento) {
           case 'a_vista':
@@ -1123,16 +1113,6 @@ export default function Dashboard() {
                               const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante?.loteId);
                               // ✅ PRIORIZAR tipoPagamento do arrematante sobre o do lote
                               const tipoPagamento = arrematante.tipoPagamento || loteArrematado?.tipoPagamento;
-                              
-                              // Debug: verificar valores
-                              console.log('DEBUG Dashboard:', {
-                                arrematanteNome: arrematante.nome,
-                                arrematanteTipoPagamento: arrematante.tipoPagamento,
-                                loteTipoPagamento: loteArrematado?.tipoPagamento,
-                                tipoPagamentoFinal: tipoPagamento,
-                                valorEntrada: arrematante.valorEntrada,
-                                quantidadeParcelas: arrematante.quantidadeParcelas
-                              });
                               
                               if (!tipoPagamento) {
                                 return `Parcelas: ${invoice.parcelas} • ${invoice.amount} por parcela`;
