@@ -1328,7 +1328,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="space-y-4 overflow-y-auto max-h-full">
                       {overdueArrematantes.map((auction) => (
-                        <div key={auction.id} className="p-4 rounded-lg bg-muted/30 border border-border/50 space-y-2 hover:bg-muted/50 hover:border-muted-foreground/20 transition-colors duration-200">
+                        <div key={`overdue-${auction.id}-${auction.arrematante?.id || auction.arrematante?.documento || auction.arrematante?.nome}`} className="p-4 rounded-lg bg-muted/30 border border-border/50 space-y-2 hover:bg-muted/50 hover:border-muted-foreground/20 transition-colors duration-200">
                           <div className="flex items-start justify-between">
                             <div className="flex-1 min-w-0">
                               <p className="font-semibold text-base truncate">
@@ -1436,7 +1436,7 @@ export default function Dashboard() {
                         const proximoVencimento = getProximaDataVencimento(auction.arrematante, auction);
                         
                         return (
-                          <div key={auction.id} className="p-4 rounded-lg bg-muted/30 border border-border/50 space-y-2 hover:bg-muted/50 hover:border-muted-foreground/20 transition-colors duration-200">
+                          <div key={`recent-${auction.id}-${auction.arrematante?.id || auction.arrematante?.documento || auction.arrematante?.nome}`} className="p-4 rounded-lg bg-muted/30 border border-border/50 space-y-2 hover:bg-muted/50 hover:border-muted-foreground/20 transition-colors duration-200">
                             <div className="flex items-start justify-between">
                               <div className="flex-1 min-w-0">
                                 <p className="font-semibold text-base truncate">{auction.arrematante?.nome}</p>
