@@ -1107,18 +1107,22 @@ export default function Dashboard() {
                               if (!arrematante) return `Parcelas: ${invoice.parcelas} • ${invoice.amount}`;
                               
                               const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante?.loteId);
-                              if (!loteArrematado || !loteArrematado.tipoPagamento) {
+                              
+                              // ✅ PRIORIZAR tipoPagamento do arrematante sobre o do lote
+                              const tipoPagamento = arrematante.tipoPagamento || loteArrematado?.tipoPagamento;
+                              
+                              if (!tipoPagamento) {
                                 return `Parcelas: ${invoice.parcelas} • ${invoice.amount} por parcela`;
                               }
                               
-                              switch (loteArrematado.tipoPagamento) {
+                              switch (tipoPagamento) {
                                 case 'a_vista':
                                   return `Valor: ${invoice.amount} (à vista)`;
                                 case 'entrada_parcelamento': {
-                                  const parcelasPagas = auction.arrematante.parcelasPagas || 0;
-                                  const quantidadeParcelasTotal = auction.arrematante?.quantidadeParcelas || loteArrematado.parcelasPadrao || 12;
-                                  const valorTotal = auction.arrematante?.valorPagarNumerico || 0;
-                                  const valorEntrada = auction.arrematante?.valorEntrada ? parseCurrencyToNumber(auction.arrematante.valorEntrada) : valorTotal * 0.3;
+                                  const parcelasPagas = arrematante.parcelasPagas || 0;
+                                  const quantidadeParcelasTotal = arrematante?.quantidadeParcelas || loteArrematado?.parcelasPadrao || 12;
+                                  const valorTotal = arrematante?.valorPagarNumerico || 0;
+                                  const valorEntrada = arrematante?.valorEntrada ? parseCurrencyToNumber(arrematante.valorEntrada) : valorTotal * 0.3;
                                   const valorRestante = valorTotal - valorEntrada;
                                   const valorPorParcela = valorRestante / quantidadeParcelasTotal;
                                   
@@ -1341,14 +1345,17 @@ export default function Dashboard() {
                                   const dataVencimento = getProximaDataVencimento(auction.arrematante, auction);
                                   const parcelasPagas = auction.arrematante?.parcelasPagas || 0;
                                   
+                                  // ✅ PRIORIZAR tipoPagamento do arrematante sobre o do lote
+                                  const tipoPagamento = auction.arrematante?.tipoPagamento || loteArrematado?.tipoPagamento;
+                                  
                                   // Se o pagamento foi confirmado/quitado, mostrar mensagem de confirmação
                                   if (auction.arrematante?.pago) {
                                     return 'Pagamento confirmado';
                                   }
                                   
-                                  if (loteArrematado?.tipoPagamento === 'a_vista') {
+                                  if (tipoPagamento === 'a_vista') {
                                     return `Data pagamento: ${dataVencimento}`;
-                                  } else if (loteArrematado?.tipoPagamento === 'entrada_parcelamento') {
+                                  } else if (tipoPagamento === 'entrada_parcelamento') {
                                      if (parcelasPagas === 0) {
                                        // Mostrar entrada + próxima parcela (1ª parcela após entrada)
                                        // Buscar configurações do arrematante (formulário) ou do lote
@@ -1380,14 +1387,18 @@ export default function Dashboard() {
                                 })()} • {(() => {
                                   // Calcular valor por parcela baseado no tipo de pagamento do lote
                                   const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === auction.arrematante?.loteId);
-                                  if (!loteArrematado || !loteArrematado.tipoPagamento) return "R$ 0,00";
+                                  
+                                  // ✅ PRIORIZAR tipoPagamento do arrematante sobre o do lote
+                                  const tipoPagamento = auction.arrematante?.tipoPagamento || loteArrematado?.tipoPagamento;
+                                  
+                                  if (!tipoPagamento) return "R$ 0,00";
                                   
                                   const valorTotal = auction.arrematante?.valorPagarNumerico !== undefined 
                                     ? auction.arrematante.valorPagarNumerico 
                                     : (typeof auction.arrematante?.valorPagar === 'number' ? auction.arrematante.valorPagar : 0);
                                   
                                   let valorPorParcela = 0;
-                                  switch (loteArrematado.tipoPagamento) {
+                                  switch (tipoPagamento) {
                                     case 'a_vista':
                                       return currency.format(valorTotal) + " (à vista)";
                                     case 'entrada_parcelamento': {
@@ -1396,13 +1407,13 @@ export default function Dashboard() {
                                         valorPorParcela = valorTotal * 0.5; // Entrada
                                       } else {
                                         const valorRestante = valorTotal - (valorTotal * 0.5);
-                                        valorPorParcela = valorRestante / ((loteArrematado.parcelasPadrao || 1));
+                                        valorPorParcela = valorRestante / ((loteArrematado?.parcelasPadrao || 1));
                                       }
                                       break;
                                     }
                                     case 'parcelamento':
                                     default:
-                                      valorPorParcela = valorTotal / (loteArrematado.parcelasPadrao || 1);
+                                      valorPorParcela = valorTotal / (loteArrematado?.parcelasPadrao || auction.arrematante?.quantidadeParcelas || 1);
                                       break;
                                   }
                                   return currency.format(valorPorParcela) + " por parcela";
