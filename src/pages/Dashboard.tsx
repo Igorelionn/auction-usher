@@ -1110,6 +1110,16 @@ export default function Dashboard() {
                               // ✅ PRIORIZAR tipoPagamento do arrematante sobre o do lote
                               const tipoPagamento = arrematante.tipoPagamento || loteArrematado?.tipoPagamento;
                               
+                              // Debug: verificar valores
+                              console.log('DEBUG Dashboard:', {
+                                arrematanteNome: arrematante.nome,
+                                arrematanteTipoPagamento: arrematante.tipoPagamento,
+                                loteTipoPagamento: loteArrematado?.tipoPagamento,
+                                tipoPagamentoFinal: tipoPagamento,
+                                valorEntrada: arrematante.valorEntrada,
+                                quantidadeParcelas: arrematante.quantidadeParcelas
+                              });
+                              
                               if (!tipoPagamento) {
                                 return `Parcelas: ${invoice.parcelas} • ${invoice.amount} por parcela`;
                               }
