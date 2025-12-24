@@ -694,8 +694,18 @@ export default function Dashboard() {
           valorTotal = parseFloat(cleaned) || 0;
         }
         
-        // Se não tiver lote ou tipo de pagamento, assumir parcelamento simples
-        const tipoPagamento = loteArrematado?.tipoPagamento || 'parcelamento';
+        // ✅ PRIORIZAR tipoPagamento do arrematante sobre o do lote
+        const tipoPagamento = arrematante.tipoPagamento || loteArrematado?.tipoPagamento || 'parcelamento';
+        
+        console.log('DEBUG recentInvoices:', {
+          arrematanteNome: arrematante.nome,
+          arrematanteTipoPagamento: arrematante.tipoPagamento,
+          loteTipoPagamento: loteArrematado?.tipoPagamento,
+          tipoPagamentoFinal: tipoPagamento,
+          valorTotal,
+          valorEntrada: arrematante.valorEntrada,
+          quantidadeParcelas: arrematante.quantidadeParcelas
+        });
         
         if (valorTotal > 0) {
         switch (tipoPagamento) {
@@ -754,22 +764,25 @@ export default function Dashboard() {
           dueDate: getProximaDataVencimento(arrematante, auction),
         status,
         parcelas: (() => {
-          if (!loteArrematado || !loteArrematado.tipoPagamento) {
+          // ✅ PRIORIZAR tipoPagamento do arrematante sobre o do lote
+          const tipoPagamentoParaParcelas = arrematante.tipoPagamento || loteArrematado?.tipoPagamento;
+          
+          if (!tipoPagamentoParaParcelas) {
               return `${arrematante?.parcelasPagas || 0}/${arrematante?.quantidadeParcelas || 1}`;
           }
           
             const parcelasPagas = arrematante?.parcelasPagas || 0;
           
-          switch (loteArrematado.tipoPagamento) {
+          switch (tipoPagamentoParaParcelas) {
             case 'a_vista':
               return parcelasPagas > 0 ? "1/1" : "0/1"; // À vista é sempre 1 parcela total
             case 'entrada_parcelamento': {
-              const quantidadeTotal = arrematante?.quantidadeParcelas || (loteArrematado.parcelasPadrao || 1) + 1; // +1 para entrada
+              const quantidadeTotal = arrematante?.quantidadeParcelas || (loteArrematado?.parcelasPadrao || 1) + 1; // +1 para entrada
               return `${parcelasPagas}/${quantidadeTotal}`;
             }
             case 'parcelamento':
             default:
-              return `${parcelasPagas}/${arrematante?.quantidadeParcelas || loteArrematado.parcelasPadrao || 1}`;
+              return `${parcelasPagas}/${arrematante?.quantidadeParcelas || loteArrematado?.parcelasPadrao || 1}`;
           }
         })(),
         leilao: auction.nome
