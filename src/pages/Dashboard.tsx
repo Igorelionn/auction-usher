@@ -1115,18 +1115,20 @@ export default function Dashboard() {
                                 case 'a_vista':
                                   return `Valor: ${invoice.amount} (à vista)`;
                                 case 'entrada_parcelamento': {
-                                  const parcelasPagas = auction.arrematante.parcelasPagas || 0;
-                                  const quantidadeParcelasTotal = auction.arrematante?.quantidadeParcelas || loteArrematado.parcelasPadrao || 12;
+                                  const parcelasPagas = arrematante.parcelasPagas || 0;
+                                  const quantidadeParcelasTotal = arrematante?.quantidadeParcelas || loteArrematado.parcelasPadrao || 12;
+                                  const valorTotal = arrematante?.valorPagarNumerico || 0;
+                                  const valorEntrada = arrematante?.valorEntrada ? parseCurrencyToNumber(arrematante.valorEntrada) : valorTotal * 0.3;
+                                  const valorRestante = valorTotal - valorEntrada;
+                                  const valorPorParcela = valorRestante / quantidadeParcelasTotal;
+                                  
                                   if (parcelasPagas === 0) {
-                                    // Mostrar entrada + info das parcelas futuras
-                                    const valorTotal = auction.arrematante?.valorPagarNumerico || 0;
-                                    const valorEntrada = auction.arrematante?.valorEntrada ? parseCurrencyToNumber(auction.arrematante.valorEntrada) : valorTotal * 0.3;
-                                    const valorRestante = valorTotal - valorEntrada;
-                                    const valorPorParcela = valorRestante / quantidadeParcelasTotal;
-                                    return `Entrada: ${currency.format(valorEntrada)} • Parcelas: ${quantidadeParcelasTotal}x ${currency.format(valorPorParcela)}`;
+                                    // Entrada ainda não foi paga
+                                    return `Entrada: 0/1 • ${currency.format(valorEntrada)} + Parcelas: 0/${quantidadeParcelasTotal} • ${currency.format(valorPorParcela)} por parcela`;
                                   } else {
+                                    // Entrada já foi paga, mostrar progresso das parcelas
                                     const parcelasEfetivasPagas = Math.max(0, parcelasPagas - 1);
-                                    return `Entrada + ${quantidadeParcelasTotal} parcelas: ${parcelasEfetivasPagas}/${quantidadeParcelasTotal} • ${invoice.amount} por parcela`;
+                                    return `Entrada: 1/1 • ${currency.format(valorEntrada)} + Parcelas: ${parcelasEfetivasPagas}/${quantidadeParcelasTotal} • ${currency.format(valorPorParcela)} por parcela`;
                                   }
                                   }
                                 case 'parcelamento':
