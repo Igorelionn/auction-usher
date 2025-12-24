@@ -1106,17 +1106,20 @@ export default function Dashboard() {
                               
                               if (!arrematante) return `Parcelas: ${invoice.parcelas} • ${invoice.amount}`;
                               
+                              // ✅ PRIORIZAR tipoPagamento do arrematante sobre o do lote
                               const loteArrematado = auction.lotes?.find((lote: LoteInfo) => lote.id === arrematante?.loteId);
-                              if (!loteArrematado || !loteArrematado.tipoPagamento) {
+                              const tipoPagamento = arrematante.tipoPagamento || loteArrematado?.tipoPagamento;
+                              
+                              if (!tipoPagamento) {
                                 return `Parcelas: ${invoice.parcelas} • ${invoice.amount} por parcela`;
                               }
                               
-                              switch (loteArrematado.tipoPagamento) {
+                              switch (tipoPagamento) {
                                 case 'a_vista':
                                   return `Valor: ${invoice.amount} (à vista)`;
                                 case 'entrada_parcelamento': {
                                   const parcelasPagas = arrematante.parcelasPagas || 0;
-                                  const quantidadeParcelasTotal = arrematante?.quantidadeParcelas || loteArrematado.parcelasPadrao || 12;
+                                  const quantidadeParcelasTotal = arrematante?.quantidadeParcelas || loteArrematado?.parcelasPadrao || 12;
                                   const valorTotal = arrematante?.valorPagarNumerico || 0;
                                   const valorEntrada = arrematante?.valorEntrada ? parseCurrencyToNumber(arrematante.valorEntrada) : valorTotal * 0.3;
                                   const valorRestante = valorTotal - valorEntrada;
