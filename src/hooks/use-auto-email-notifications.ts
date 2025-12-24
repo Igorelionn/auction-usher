@@ -34,8 +34,6 @@ export function useAutoEmailNotifications() {
     }
     ultimaVerificacaoRef.current = agora;
 
-    console.log('🔍 Verificando pagamentos para envio automático de emails...');
-
     const hoje = new Date();
     let lembretesEnviados = 0;
     let cobrancasEnviadas = 0;
@@ -117,18 +115,12 @@ export function useAutoEmailNotifications() {
           const jaEnviou = await jaEnviouEmail(emailId, 'lembrete');
           
           if (jaEnviou) {
-            console.log(`⏭️ Lembrete já foi enviado hoje para ${arrematante.nome}, pulando...`);
             continue;
           }
-          
-          console.log(`📧 Enviando lembrete para ${arrematante.nome} (${diasDiferenca} dias para vencer)`);
           
           const resultado = await enviarLembrete(auctionComArrematante);
           if (resultado.success) {
             lembretesEnviados++;
-            console.log(`✅ Lembrete enviado: ${arrematante.nome}`);
-          } else {
-            console.log(`❌ Erro ao enviar lembrete: ${resultado.message}`);
           }
         }
 
@@ -139,27 +131,15 @@ export function useAutoEmailNotifications() {
           const jaEnviou = await jaEnviouEmail(emailId, 'cobranca');
           
           if (jaEnviou) {
-            console.log(`⏭️ Cobrança já foi enviada hoje para ${arrematante.nome}, pulando...`);
             continue;
           }
-          
-          console.log(`⚠️ Enviando cobrança para ${arrematante.nome} (${Math.abs(diasDiferenca)} dias atrasado)`);
           
           const resultado = await enviarCobranca(auctionComArrematante);
           if (resultado.success) {
             cobrancasEnviadas++;
-            console.log(`✅ Cobrança enviada: ${arrematante.nome}`);
-          } else {
-            console.log(`❌ Erro ao enviar cobrança: ${resultado.message}`);
           }
         }
       }
-    }
-
-    if (lembretesEnviados > 0 || cobrancasEnviadas > 0) {
-      console.log(`✅ Emails enviados automaticamente: ${lembretesEnviados} lembrete(s), ${cobrancasEnviadas} cobrança(s)`);
-    } else {
-      console.log('ℹ️ Nenhum email precisou ser enviado neste momento');
     }
   };
 
@@ -167,14 +147,8 @@ export function useAutoEmailNotifications() {
   useEffect(() => {
     // Só inicia se o envio automático estiver ativado
     if (!config.enviarAutomatico) {
-      console.log('ℹ️ Envio automático de emails está desativado');
       return;
     }
-
-    console.log('🤖 Sistema de envio automático de emails ATIVADO');
-    console.log(`⏰ Verificando a cada 5 minutos`);
-    console.log(`📅 Lembretes: ${config.diasAntesLembrete} dias antes do vencimento`);
-    console.log(`⚠️ Cobranças: ${config.diasDepoisCobranca} dias após o vencimento`);
 
     // Executar imediatamente
     verificarEEnviarEmails();
@@ -186,7 +160,6 @@ export function useAutoEmailNotifications() {
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
-        console.log('🛑 Sistema de envio automático desativado');
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

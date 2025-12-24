@@ -17,13 +17,6 @@ export function usePaymentEmailWatcher() {
   const pagosPreviousRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    // Log para debug
-    console.log('🔍 [PaymentWatcher] Verificando pagamentos...', {
-      totalAuctions: auctions.length,
-      comArrematante: auctions.filter(a => a.arrematante).length,
-      pagos: auctions.filter(a => a.arrematante?.pago).length
-    });
-
     // Criar um Set dos IDs dos leilões cujos arrematantes já foram pagos
     const pagosAtuais = new Set<string>();
     const novoPagos: Auction[] = [];
@@ -34,11 +27,6 @@ export function usePaymentEmailWatcher() {
         
         // Se não estava no set anterior, é um novo pagamento
         if (!pagosPreviousRef.current.has(auction.id)) {
-          console.log(`🆕 [PaymentWatcher] Novo pagamento detectado:`, {
-            arrematante: auction.arrematante.nome,
-            email: auction.arrematante.email,
-            auctionId: auction.id
-          });
           novoPagos.push(auction);
         }
       }
@@ -46,8 +34,6 @@ export function usePaymentEmailWatcher() {
 
     // Enviar confirmações para novos pagamentos
     if (novoPagos.length > 0) {
-      console.log(`✅ [PaymentWatcher] Detectados ${novoPagos.length} novo(s) pagamento(s), enviando confirmações...`);
-      
       // Processar cada pagamento sequencialmente
       (async () => {
         for (const auction of novoPagos) {
@@ -56,16 +42,12 @@ export function usePaymentEmailWatcher() {
             const jaEnviou = await jaEnviouEmail(auction.id, 'confirmacao');
             
             if (jaEnviou) {
-              console.log(`⏭️ [PaymentWatcher] Confirmação já foi enviada para ${auction.arrematante?.nome}, pulando...`);
               continue;
             }
 
-            console.log(`📧 [PaymentWatcher] Enviando confirmação de pagamento para ${auction.arrematante?.nome}`);
             const resultado = await enviarConfirmacao(auction);
             
-            if (resultado.success) {
-              console.log(`✅ [PaymentWatcher] Confirmação enviada: ${auction.arrematante?.nome}`);
-            } else {
+            if (!resultado.success) {
               console.error(`❌ [PaymentWatcher] Erro ao enviar confirmação: ${resultado.message}`);
             }
           } catch (error) {
