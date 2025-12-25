@@ -548,8 +548,12 @@ interface FormValues {
 }
 
 export function ArrematanteWizard({ initial, onSubmit, onCancel, isNewArrematante = false }: ArrematanteWizardProps) {
-  // Verificar se deve mostrar seleção de arrematante (quando há múltiplos)
+  // Verificar se deve mostrar seleção de arrematante
   const arrematantesExistentes = useMemo(() => initial.auction?.arrematantes || [], [initial.auction?.arrematantes]);
+  
+  // ✅ Se há exatamente 1 arrematante, carregar automaticamente
+  // ✅ Se há 2+, mostrar tela de seleção
+  // ✅ Se é novo, ir direto pro formulário
   const shouldShowSelection = arrematantesExistentes.length > 1 && !initial.arrematante && !isNewArrematante;
   
   console.log('🔍 [ArrematanteWizard] Verificando seleção:', {

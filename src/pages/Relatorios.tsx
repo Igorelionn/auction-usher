@@ -175,8 +175,8 @@ const calcularValorTotalComJuros = (arrematante: ArrematanteInfo, auction: Aucti
           parseFloat(arrematante.valorEntrada.replace(/[^\d,]/g, '').replace(',', '.')) : 
           arrematante.valorEntrada) : 
         valorBase * 0.3;
-      const valorRestante = valorBase - valorEntradaBase;
-      const valorPorParcelaBase = valorRestante / quantidadeParcelas;
+      // ✅ Valor da parcela = valorBase / quantidade (SEM subtrair entrada - são independentes)
+      const valorPorParcelaBase = valorBase / quantidadeParcelas;
       
       // Calcular juros da entrada
       const dataEntrada = loteArrematado?.dataEntrada || auction.dataEntrada;
@@ -747,14 +747,14 @@ function Relatorios() {
               }
             } else if (mesInicioPagamento && quantidadeParcelas > 0 && percentualJuros > 0) {
               if (tipoPagamento === 'entrada_parcelamento') {
-                // Para entrada + parcelamento, calcular entrada e parcelas separadamente
+                // Para entrada + parcelamento (entrada e parcelas são INDEPENDENTES)
                 const valorEntradaBase = arrematante.valorEntrada ? 
                   (typeof arrematante.valorEntrada === 'string' ? 
                     parseFloat(arrematante.valorEntrada.replace(/[^\d,]/g, '').replace(',', '.')) : 
                     arrematante.valorEntrada) : 
                   valorBase * 0.3;
-                const valorRestante = valorBase - valorEntradaBase;
-                const valorPorParcelaBase = valorRestante / quantidadeParcelas;
+                // ✅ Valor da parcela = valorBase / quantidade (SEM subtrair entrada)
+                const valorPorParcelaBase = valorBase / quantidadeParcelas;
                 
                 // Calcular juros da entrada
                 const dataEntrada = loteArrematado?.dataEntrada || auction.dataEntrada;
@@ -1528,15 +1528,15 @@ function Relatorios() {
                                           const valorTotal = arrematante?.valorPagarNumerico || 0;
                                           
                                           if (tipoPagamento === 'entrada_parcelamento') {
-                                            // Para entrada + parcelamento
+                                            // Para entrada + parcelamento (entrada e parcelas são INDEPENDENTES)
                                             const valorEntrada = arrematante?.valorEntrada ? 
                                               (typeof arrematante.valorEntrada === 'string' ? 
                                                 parseFloat(arrematante.valorEntrada.replace(/[^\d,]/g, '').replace(',', '.')) : 
                                                 arrematante.valorEntrada) : 
                                               valorTotal * 0.3;
                                             const quantidadeParcelas = arrematante?.quantidadeParcelas || 12;
-                                            const valorRestante = valorTotal - valorEntrada;
-                                            const valorPorParcela = valorRestante / quantidadeParcelas;
+                                            // ✅ Valor da parcela = valorTotal / quantidade (SEM subtrair entrada)
+                                            const valorPorParcela = valorTotal / quantidadeParcelas;
                                             
                                             // Calcular valor recebido: entrada + parcelas pagas
                                             if (parcelasPagas >= 1) {
@@ -2836,9 +2836,9 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
             auction.arrematante.valorEntrada) : 
           valorTotal * 0.3;
         
-        const valorRestante = valorTotal - valorEntrada;
         const quantidadeParcelas = auction.arrematante?.quantidadeParcelas || 12;
-        const valorPorParcela = valorRestante / quantidadeParcelas;
+        // ✅ Valor da parcela = valorTotal / quantidade (SEM subtrair entrada - são independentes)
+        const valorPorParcela = valorTotal / quantidadeParcelas;
         const parcelasPagas = auction.arrematante?.parcelasPagas || 0;
         
         const hoje = new Date();
@@ -3918,14 +3918,14 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                               }
                               parcelasAtrasadasCount = 1;
                             } else if (tipoPagamento === 'entrada_parcelamento') {
-                              // Para entrada + parcelamento, calcular parcelas específicas atrasadas
+                              // Para entrada + parcelamento (entrada e parcelas são INDEPENDENTES)
                               const valorEntrada = arrematante?.valorEntrada ? 
                                 (typeof arrematante.valorEntrada === 'string' ? 
                                   parseFloat(arrematante.valorEntrada.replace(/[^\d,]/g, '').replace(',', '.')) : 
                                   arrematante.valorEntrada) : 
                                 valorTotal * 0.3;
-                              const valorRestante = valorTotal - valorEntrada;
-                              const valorPorParcela = valorRestante / quantidadeParcelas;
+                              // ✅ Valor da parcela = valorTotal / quantidade (SEM subtrair entrada)
+                              const valorPorParcela = valorTotal / quantidadeParcelas;
                               
                               // Verificar se entrada está atrasada
                               if (parcelasPagas === 0) {
@@ -4006,8 +4006,8 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                                 parseFloat(arrematante.valorEntrada.replace(/[^\d,]/g, '').replace(',', '.')) : 
                                 arrematante.valorEntrada) : 
                               valorTotal * 0.3;
-                            const valorRestante = valorTotal - valorEntrada;
-                            const valorPorParcelaBase = valorRestante / quantidadeParcelas;
+                            // ✅ Valor da parcela = valorTotal / quantidade (SEM subtrair entrada - são independentes)
+                            const valorPorParcelaBase = valorTotal / quantidadeParcelas;
                             
                             // Calcular juros da entrada
                             const dataEntrada = loteArrematado?.dataEntrada || auction.dataEntrada;
@@ -4236,8 +4236,8 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                                               parseFloat(arrematante.valorEntrada.replace(/[^\d,]/g, '').replace(',', '.')) : 
                                               arrematante.valorEntrada) : 
                                             valorTotal * 0.3;
-                                          const valorRestante = valorTotal - valorEntrada;
-                                          const valorPorParcela = valorRestante / quantidadeParcelas;
+                                          // ✅ Valor da parcela = valorTotal / quantidade (SEM subtrair entrada - são independentes)
+                                          const valorPorParcela = valorTotal / quantidadeParcelas;
                                           
                                           // Calcular quantas parcelas estão em atraso
                                           let parcelasEmAtraso = 0;
@@ -4601,14 +4601,14 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                           const parcelasPagas = arrematante?.parcelasPagas || 0;
                           
                           if (tipoPagamento === 'entrada_parcelamento') {
-                            // Para entrada + parcelamento
+                            // Para entrada + parcelamento (entrada e parcelas são INDEPENDENTES)
                             const valorEntradaBase = arrematante?.valorEntrada ? 
                               (typeof arrematante.valorEntrada === 'string' ? 
                                 parseFloat(arrematante.valorEntrada.replace(/[^\d,]/g, '').replace(',', '.')) : 
                                 arrematante.valorEntrada) : 
                               valorTotal * 0.3;
-                            const valorRestante = valorTotal - valorEntradaBase;
-                            const valorPorParcelaBase = valorRestante / quantidadeParcelas;
+                            // ✅ Valor da parcela = valorTotal / quantidade (SEM subtrair entrada)
+                            const valorPorParcelaBase = valorTotal / quantidadeParcelas;
                             
                             // Calcular valor da entrada com juros se atrasada
                             const dataEntrada = loteComprado?.dataEntrada || auction.dataEntrada;
@@ -4739,10 +4739,9 @@ const ReportPreview = ({ type, auctions, paymentTypeFilter = 'todos' }: {
                             parseFloat(arrematante.valorEntrada.replace(/[^\d,]/g, '').replace(',', '.')) : 
                             arrematante.valorEntrada) : 
                           valorTotal * 0.3;
-                        const valorRestante = valorTotal - valorEntradaBase;
-                        const valorPorParcelaBase = valorRestante / quantidadeParcelas;
-                        // ✅ PRIORIZAR dataEntrada do arrematante sobre a do lote
-                        const dataEntrada = arrematante.dataEntrada || loteComprado?.dataEntrada || auction.dataEntrada;
+                        // ✅ Valor da parcela = valorTotal / quantidade (SEM subtrair entrada - são independentes)
+                        const valorPorParcelaBase = valorTotal / quantidadeParcelas;
+                        const dataEntrada = loteComprado?.dataEntrada || auction.dataEntrada;
                         
                         // Adicionar entrada
                         if (dataEntrada) {

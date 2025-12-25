@@ -1244,16 +1244,16 @@ function Arrematantes() {
       return valorTotal;
     }
 
-    // Entrada + Parcelamento
+    // Entrada + Parcelamento (entrada e parcelas são INDEPENDENTES)
     if (tipoPagamento === "entrada_parcelamento") {
       const valorEntrada = arrematante.valorEntrada ? 
         (typeof arrematante.valorEntrada === 'string' ? 
           parseFloat(arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) : 
           arrematante.valorEntrada) : 
         valorTotal * 0.3;
-      const valorRestante = valorTotal - valorEntrada;
       const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
-      const valorPorParcela = Math.round((valorRestante / quantidadeParcelas) * 100) / 100;
+      // ✅ Valor da parcela = valorTotal / quantidade (SEM subtrair entrada)
+      const valorPorParcela = Math.round((valorTotal / quantidadeParcelas) * 100) / 100;
       
       let valorTotalCalculado = 0;
       
@@ -1473,15 +1473,15 @@ function Arrematantes() {
           }
           return sum;
         } else if (tipoPagamento === "entrada_parcelamento") {
-          // Para entrada + parcelamento, calcular valor das parcelas pagas com juros
+          // Para entrada + parcelamento (entrada e parcelas são INDEPENDENTES)
           const valorEntrada = arrematante.valorEntrada ? 
             (typeof arrematante.valorEntrada === 'string' ? 
               parseFloat(arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) : 
               arrematante.valorEntrada) : 
             valorTotal * 0.3;
-          const valorRestante = valorTotal - valorEntrada;
           const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
-          const valorPorParcela = Math.round((valorRestante / quantidadeParcelas) * 100) / 100;
+          // ✅ Valor da parcela = valorTotal / quantidade (SEM subtrair entrada)
+          const valorPorParcela = Math.round((valorTotal / quantidadeParcelas) * 100) / 100;
           
           let valorRecebido = 0;
           if (parcelasPagas >= 1) {
@@ -1571,16 +1571,16 @@ function Arrematantes() {
           // Para à vista, retornar valor completo (sem juros pois ainda não venceu)
           return sum + (a.valorPagarNumerico || 0);
         } else if (tipoPagamento === "entrada_parcelamento") {
-          // Para entrada + parcelamento, calcular parcelas pendentes (não vencidas)
+          // Para entrada + parcelamento (entrada e parcelas são INDEPENDENTES)
           const valorTotal = a.valorPagarNumerico || 0;
           const valorEntrada = arrematante.valorEntrada ? 
             (typeof arrematante.valorEntrada === 'string' ? 
               parseFloat(arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) : 
               arrematante.valorEntrada) : 
             valorTotal * 0.3;
-          const valorRestante = valorTotal - valorEntrada;
           const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
-          const valorPorParcela = Math.round((valorRestante / quantidadeParcelas) * 100) / 100;
+          // ✅ Valor da parcela = valorTotal / quantidade (SEM subtrair entrada)
+          const valorPorParcela = Math.round((valorTotal / quantidadeParcelas) * 100) / 100;
           const parcelasPagas = arrematante.parcelasPagas || 0;
           
           let valorPendente = 0;
@@ -1728,16 +1728,16 @@ function Arrematantes() {
           
           return sum + valorTotal;
         } else if (tipoPagamento === "entrada_parcelamento") {
-          // Para entrada + parcelamento, calcular valor das parcelas atrasadas
+          // Para entrada + parcelamento (entrada e parcelas são INDEPENDENTES)
           const valorTotal = a.valorPagarNumerico || 0;
           const valorEntrada = arrematante.valorEntrada ? 
             (typeof arrematante.valorEntrada === 'string' ? 
               parseFloat(arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) : 
               arrematante.valorEntrada) : 
             valorTotal * 0.3;
-          const valorRestante = valorTotal - valorEntrada;
           const quantidadeParcelas = arrematante.quantidadeParcelas || 12;
-          const valorPorParcela = Math.round((valorRestante / quantidadeParcelas) * 100) / 100;
+          // ✅ Valor da parcela = valorTotal / quantidade (SEM subtrair entrada)
+          const valorPorParcela = Math.round((valorTotal / quantidadeParcelas) * 100) / 100;
           
           // Calcular quantas parcelas estão atrasadas
           const parcelasPagas = arrematante.parcelasPagas || 0;

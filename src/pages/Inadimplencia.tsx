@@ -594,14 +594,14 @@ Atenciosamente,
         totalValueAllContracts += valorTotalComJuros;
       } else if (mesInicioPagamento && percentualJuros > 0) {
         if (tipoPagamento === 'entrada_parcelamento') {
-          // Para entrada + parcelamento
+          // Para entrada + parcelamento (entrada e parcelas são INDEPENDENTES)
           const valorEntradaBase = arrematante.valorEntrada ? 
             (typeof arrematante.valorEntrada === 'string' ? 
               parseFloat(arrematante.valorEntrada.replace(/[^\d,]/g, '').replace(',', '.')) : 
               arrematante.valorEntrada) : 
             valorTotal * 0.3;
-          const valorRestante = valorTotal - valorEntradaBase;
-          const valorPorParcelaBase = valorRestante / quantidadeParcelas;
+          // ✅ Valor da parcela = valorTotal / quantidade (SEM subtrair entrada)
+          const valorPorParcelaBase = valorTotal / quantidadeParcelas;
           
           // Calcular juros da entrada
           const dataEntrada = loteArrematado?.dataEntrada || auction.dataEntrada;
@@ -1254,15 +1254,15 @@ Atenciosamente,
               const parcelasPagas = arrematante.parcelasPagas || 0;
               const quantidadeParcelasTotal = arrematante.quantidadeParcelas || loteArrematado.parcelasPadrao || 12;
               
-              // Calcular valores
+              // Calcular valores (entrada e parcelas são INDEPENDENTES)
               const valorEntrada = arrematante.valorEntrada ? 
                 (typeof arrematante.valorEntrada === 'string' ? 
                   parseFloat(arrematante.valorEntrada.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')) : 
                   arrematante.valorEntrada) : 
                 valorTotal * 0.3; // fallback para 30%
               
-              const valorRestante = valorTotal - valorEntrada;
-              const valorPorParcelaCalc = valorRestante / quantidadeParcelasTotal;
+              // ✅ Valor da parcela = valorTotal / quantidade (SEM subtrair entrada)
+              const valorPorParcelaCalc = valorTotal / quantidadeParcelasTotal;
               
               // Calcular datas
               let dataEntrada = null;
@@ -1546,8 +1546,8 @@ Atenciosamente,
               arrematante.valorEntrada) : 
             valorTotal * 0.3;
           
-          const valorRestante = valorTotal - valorEntrada;
-          const valorPorParcelaCalc = valorRestante / quantidadeParcelas;
+          // ✅ Valor da parcela = valorTotal / quantidade (SEM subtrair entrada - são independentes)
+          const valorPorParcelaCalc = valorTotal / quantidadeParcelas;
           
           // Se entrada não foi paga, somar valor da entrada (com juros se aplicável)
           if (parcelasPagas === 0 && loteArrematado.dataEntrada) {

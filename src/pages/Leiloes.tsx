@@ -1745,7 +1745,7 @@ function Leiloes() {
                                       onClick={() => {
                                         wizardClosedIntentionally.current = false; // Resetar flag ao abrir
                                         setAddingArrematanteFor(auction);
-                                        setEditingArrematanteId(null);
+                                        setEditingArrematanteId('__NEW__'); // ✅ Flag especial para indicar "adicionar novo"
                                         setShowArrematanteSelector(false);
                                       }}
                                       className="h-8 w-8 p-0 hover:bg-gray-100 btn-action-click"
@@ -1782,7 +1782,7 @@ function Leiloes() {
                                         onClick={() => {
                                           wizardClosedIntentionally.current = false; // Resetar flag ao abrir
                                           setAddingArrematanteFor(auction);
-                                          setEditingArrematanteId(null);
+                                          setEditingArrematanteId('__NEW__'); // ✅ Flag especial para indicar "adicionar novo"
                                           setShowArrematanteSelector(false);
                                         }}
                                         className="h-8 w-8 p-0 hover:bg-gray-100 btn-action-click"
@@ -2064,23 +2064,31 @@ function Leiloes() {
 
       {/* Wizard de Arrematante */}
       {addingArrematanteFor && !showArrematanteSelector && (() => {
-        const arrematanteParaEditar = (editingArrematanteId && editingArrematanteId !== '__SELECT__')
-          ? addingArrematanteFor.arrematantes?.find(a => a.id === editingArrematanteId)
+        // ✅ Se houver exatamente 1 arrematante e não estiver editando um específico, carregar automaticamente
+        const arrematanteAutoLoad = (!editingArrematanteId || editingArrematanteId === null) && 
+                                    addingArrematanteFor.arrematantes?.length === 1
+          ? addingArrematanteFor.arrematantes[0]
           : undefined;
         
+        const arrematanteParaEditar = (editingArrematanteId && editingArrematanteId !== '__SELECT__' && editingArrematanteId !== '__NEW__')
+          ? addingArrematanteFor.arrematantes?.find(a => a.id === editingArrematanteId)
+          : arrematanteAutoLoad;
+        
         // ✅ Determinar se é novo arrematante:
-        // - Se editingArrematanteId === null E há múltiplos arrematantes → FALSE (vai selecionar no wizard)
-        // - Se editingArrematanteId === null E NÃO há múltiplos → TRUE (novo)
-        // - Se editingArrematanteId tem valor → FALSE (editando)
-        const hasMultipleArrematantes = (addingArrematanteFor.arrematantes?.length || 0) > 1;
-        const isNewArrematante = editingArrematanteId === null && !hasMultipleArrematantes;
+        // - Se editingArrematanteId === '__NEW__' → TRUE (botão adicionar novo foi clicado)
+        // - Se editingArrematanteId === null E HÁ arrematantes existentes → FALSE (vai selecionar no wizard ou auto-carregar)
+        // - Se editingArrematanteId === null E NÃO há arrematantes → TRUE (novo)
+        // - Se editingArrematanteId tem valor real → FALSE (editando)
+        const hasArrematantes = (addingArrematanteFor.arrematantes?.length || 0) >= 1;
+        const isNewArrematante = editingArrematanteId === '__NEW__' || (editingArrematanteId === null && !hasArrematantes);
         
         console.log('📝 [Leiloes.tsx] Abrindo wizard:', {
           editingArrematanteId,
           qtdArrematantes: addingArrematanteFor.arrematantes?.length,
-          hasMultiple: hasMultipleArrematantes,
+          hasArrematantes: hasArrematantes,
           isNew: isNewArrematante,
-          hasArrematante: !!arrematanteParaEditar
+          hasArrematante: !!arrematanteParaEditar,
+          autoLoaded: !!arrematanteAutoLoad
         });
         
         return (
@@ -2102,9 +2110,14 @@ function Leiloes() {
             try {
               setIsSavingArrematante(true);
               
+              // ✅ Garantir que __NEW__ não seja usado como ID real
+              const realEditingId = (editingArrematanteId === '__NEW__' || editingArrematanteId === null) 
+                ? undefined 
+                : editingArrematanteId;
+              
               const arrematanteData: ArrematanteInfo = {
                 ...data,
-                id: data.id || editingArrematanteId || undefined,
+                id: data.id || realEditingId || undefined,
                 nome: data.nome || "",
                 valorPagar: data.valorPagar || "",
                 valorPagarNumerico: parseCurrencyToNumber(data.valorPagar || ""),
@@ -2117,8 +2130,8 @@ function Leiloes() {
               const arrematantesExistentes = addingArrematanteFor.arrematantes || [];
               
               // Se está editando (tem ID no data), atualizar; senão, adicionar novo
-              const isEditing = !!(data.id || editingArrematanteId);
-              const editId = data.id || editingArrematanteId;
+              const isEditing = !!(data.id || realEditingId);
+              const editId = data.id || realEditingId;
               
               const arrematantesAtualizados = isEditing
                 ? arrematantesExistentes.map(a => 
